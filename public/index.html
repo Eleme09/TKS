@@ -195,7 +195,7 @@
             '<div class="conn">' +
               '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
               '<div style="display:flex; gap:8px;">' +
-                '<button class="btnStop" data-user="' + m.account + '">Detener</button>' +
+                '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
                 '<button class="btnDelete" data-user="' + m.account + '" style="background:#402226; color:#ff9d97;">Eliminar</button>' +
               '</div>' +
             '</div>' +
