@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chaturbate — Rastreador de Tokens (7 días)</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --border: #2a2e38; --text: #e8e9ec;
+    --muted: #9aa0ac; --accent: #4f8cff; --good: #34c77b; --warn: #e0a63a; --bad: #e2554d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 40px 16px; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: #0d0f13; color: var(--text); font-size: 14px; }
+  .row { display: flex; gap: 10px; margin-top: 18px; }
+  button { flex: 1; padding: 10px 14px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+  #btnStart { background: var(--accent); color: white; }
+  #btnStop { background: #2a2e38; color: var(--text); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--good); }
+  .dot.err { background: var(--bad); }
+  .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat { background: #0d0f13; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat .k { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .stat .v { font-size: 22px; font-weight: 700; }
+  .stat .v.small { font-size: 15px; font-weight: 600; }
+  .coverage { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .coverage b { color: var(--warn); }
+  details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details p, details li { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .errbox { background: rgba(226,85,77,0.1); border: 1px solid var(--bad); color: #ff9d97; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rastreador de Tokens — Chaturbate</h1>
+  <div class="sub">Backend local escuchando la Events API oficial en tiempo real y acumulando tips por cuenta.</div>
+
+  <div class="card">
+    <label for="username">Username de la cuenta (broadcaster)</label>
+    <input id="username" placeholder="ej: nombre_del_modelo" autocomplete="off">
+    <label for="token">API Token (Events API)</label>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input id="token" type="password" placeholder="token" autocomplete="off" style="flex:1;">
+      <button id="btnShowToken" type="button" style="flex:0 0 auto; padding:10px 14px; background:#2a2e38; color:var(--text);">Mostrar</button>
+    </div>
+    <div id="tokenInfo" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+    <div class="row">
+      <button id="btnStart">Conectar y empezar a rastrear</button>
+      <button id="btnStop" disabled>Detener</button>
+    </div>
+    <div class="status"><div id="dot" class="dot"></div><span id="statusText">Desconectado</span></div>
+    <div id="errbox" class="errbox"></div>
+  </div>
+
+  <div class="card">
+    <div class="report-grid">
+      <div class="stat"><div class="k">Cuenta</div><div class="v small" id="repAccount">—</div></div>
+      <div class="stat"><div class="k">Total tokens (quincena actual)</div><div class="v" id="repTokens">0</div></div>
+      <div class="stat"><div class="k">Periodo</div><div class="v small" id="repPeriod">—</div></div>
+      <div class="stat"><div class="k">Fecha de pago</div><div class="v small" id="repPayout">—</div></div>
+      <div class="stat"><div class="k">Tips capturados</div><div class="v small" id="repCount">0</div></div>
+      <div class="stat"><div class="k">Reporte generado</div><div class="v small" id="repDate">—</div></div>
+    </div>
+    <div class="coverage" id="coverage"></div>
+  </div>
+
+  <details class="card">
+    <summary>Cómo funciona / limitaciones</summary>
+    <p>Chaturbate no expone historial retroactivo de tokens vía API — solo eventos en vivo. Este backend
+    corre server-to-server (por eso no hay bloqueo CORS, a diferencia de llamarlo directo desde el navegador)
+    y guarda cada tip recibido en <code>data/&lt;username&gt;.json</code>, con fecha real.</p>
+    <ul>
+      <li>El total de la quincena actual se calcula sobre lo que este servidor ha capturado desde que empezó a correr — no trae datos de antes de eso.</li>
+      <li>Periodos: día 1-15 se paga el 20 del mismo mes; día 16-fin de mes se paga el 5 del mes siguiente.</li>
+      <li>Mientras el proceso <code>node server.js</code> siga corriendo (aunque cierres esta pestaña), sigue capturando.</li>
+      <li>Si lo cierras y lo vuelves a abrir, el historial ya guardado en <code>data/</code> se conserva.</li>
+      <li>El token solo vive en memoria del servidor mientras está conectado; no se guarda en disco.</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+(function () {
+  const el = {
+    username: document.getElementById('username'),
+    token: document.getElementById('token'),
+    btnStart: document.getElementById('btnStart'),
+    btnStop: document.getElementById('btnStop'),
+    dot: document.getElementById('dot'),
+    statusText: document.getElementById('statusText'),
+    errbox: document.getElementById('errbox'),
+    repAccount: document.getElementById('repAccount'),
+    repTokens: document.getElementById('repTokens'),
+    repDate: document.getElementById('repDate'),
+    repCount: document.getElementById('repCount'),
+    repPeriod: document.getElementById('repPeriod'),
+    repPayout: document.getElementById('repPayout'),
+    coverage: document.getElementById('coverage'),
+    btnShowToken: document.getElementById('btnShowToken'),
+    tokenInfo: document.getElementById('tokenInfo'),
+  };
+
+  el.btnShowToken.addEventListener('click', function () {
+    const showing = el.token.type === 'text';
+    el.token.type = showing ? 'password' : 'text';
+    el.btnShowToken.textContent = showing ? 'Mostrar' : 'Ocultar';
+  });
+
+  el.token.addEventListener('input', function () {
+    const raw = el.token.value;
+    const trimmed = raw.trim();
+    const bits = [];
+    bits.push(trimmed.length + ' caracteres');
+    if (raw !== trimmed) bits.push('⚠ tiene espacios al inicio/final (se quitan solos al conectar)');
+    if (/["'{}]/.test(trimmed)) bits.push('⚠ contiene comillas o llaves — puede que hayas copiado de más (ej. de un JSON) en vez de solo el token');
+    if (/https?:\/\//.test(trimmed)) bits.push('⚠ parece contener una URL completa — aquí solo va el token, no la dirección');
+    el.tokenInfo.textContent = trimmed ? bits.join(' · ') : '';
+  });
+
+  let pollTimer = null;
+  let trackedUsername = null;
+
+  function showError(msg) { el.errbox.style.display = 'block'; el.errbox.textContent = msg; }
+  function clearError() { el.errbox.style.display = 'none'; el.errbox.textContent = ''; }
+  function fmtDate(ms) { return new Date(ms).toLocaleString(); }
+
+  function setStatusUI(status, lastError) {
+    if (status === 'connected') { el.dot.className = 'dot on'; el.statusText.textContent = 'Conectado — escuchando eventos'; clearError(); }
+    else if (status === 'connecting') { el.dot.className = 'dot'; el.statusText.textContent = 'Conectando…'; clearError(); }
+    else if (status === 'error') { el.dot.className = 'dot err'; el.statusText.textContent = 'Error'; if (lastError) showError(lastError); }
+    else { el.dot.className = 'dot'; el.statusText.textContent = 'Desconectado'; }
+  }
+
+  async function refreshReport() {
+    if (!trackedUsername) return;
+    try {
+      const r = await fetch('/api/report?username=' + encodeURIComponent(trackedUsername));
+      const rep = await r.json();
+      el.repAccount.textContent = rep.account;
+      el.repTokens.textContent = rep.totalTokensPeriod.toLocaleString('es-ES');
+      el.repDate.textContent = fmtDate(rep.reportGeneratedAt);
+      el.repCount.textContent = rep.tipCountPeriod;
+      el.repPeriod.textContent = rep.period.label;
+      el.repPayout.textContent = rep.period.payoutLabel;
+      if (rep.trackingSince) {
+        el.coverage.innerHTML = 'Rastreando desde <b>' + fmtDate(rep.trackingSince) + '</b> — cobertura de la quincena actual: <b>' +
+          rep.periodCoveragePct.toFixed(0) + '%</b>.' + (rep.periodCoveragePct < 100 ? ' El total mostrado es solo de lo capturado hasta ahora, no de la quincena completa.' : '');
+      } else {
+        el.coverage.textContent = 'Aún no se ha capturado ningún tip.';
+      }
+      setStatusUI(rep.connection.status, rep.connection.lastError);
+      if (!rep.connection.running) {
+        el.btnStart.disabled = false; el.btnStop.disabled = true;
+        el.username.disabled = false; el.token.disabled = false;
+      }
+    } catch (e) {
+      showError('No se pudo consultar el backend local (¿sigue corriendo node server.js?): ' + e.message);
+    }
+  }
+
+  async function start() {
+    const username = el.username.value.trim();
+    const token = el.token.value.trim();
+    if (!username || !token) { showError('Completa username y token.'); return; }
+    clearError();
+    trackedUsername = username;
+    localStorage.setItem('cb_last_username', username);
+    el.btnStart.disabled = true; el.btnStop.disabled = false;
+    el.username.disabled = true; el.token.disabled = true;
+
+    const r = await fetch('/api/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, token }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      showError(err.error || 'No se pudo iniciar');
+      el.btnStart.disabled = false; el.btnStop.disabled = true;
+      el.username.disabled = false; el.token.disabled = false;
+      return;
+    }
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(refreshReport, 2000);
+    refreshReport();
+  }
+
+  async function stop() {
+    await fetch('/api/stop', { method: 'POST' });
+    el.btnStart.disabled = false; el.btnStop.disabled = true;
+    el.username.disabled = false; el.token.disabled = false;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    setStatusUI('idle', null);
+  }
+
+  el.btnStart.addEventListener('click', start);
+  el.btnStop.addEventListener('click', stop);
+
+  window.addEventListener('DOMContentLoaded', function () {
+    const last = localStorage.getItem('cb_last_username');
+    if (last) {
+      el.username.value = last;
+      trackedUsername = last;
+      refreshReport();
+      if (!pollTimer) pollTimer = setInterval(refreshReport, 2000);
+    }
+  });
+})();
+</script>
+</body>
+</html>

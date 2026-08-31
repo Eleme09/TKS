@@ -1,0 +1,13 @@
+{
+  "name": "cb-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rastreador local de tokens de Chaturbate (Events API) para un estudio de modelos.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
