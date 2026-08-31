@@ -1,7 +1,7 @@
-// Chaturbate token tracker — minimal backend, zero npm dependencies.
-// Listens to the official Events API server-side (no CORS issue, unlike a browser)
-// and persists tips to a local JSON file per model so a real quincena report can be
-// built over time. Tracks multiple models at once.
+// Chaturbate token tracker — backend con persistencia real en Supabase.
+// Escucha la Events API oficial server-side (sin problema de CORS) y guarda
+// cada tip / evento de transmision en Postgres, para que el historial
+// sobreviva reinicios y redespliegues (a diferencia de un archivo local).
 
 const http = require('http');
 const fs = require('fs');
@@ -9,9 +9,20 @@ const path = require('path');
 const url = require('url');
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const EVENTS_BASE = 'https://eventsapi.chaturbate.com/events/';
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('Faltan las variables de entorno SUPABASE_URL y/o SUPABASE_ANON_KEY. Revisa env.bat (local) o las Environment Variables en Render.');
+  process.exit(1);
+}
+const SB_HEADERS = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+  'Content-Type': 'application/json',
+};
 
 // Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
 const CURRENCY = 'COP';
@@ -43,89 +54,109 @@ function getQuincena(now) {
   return { start: start.getTime(), end: end.getTime(), payout: payout.getTime(), label, payoutLabel };
 }
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
-// El token SOLO vive aquí en memoria, nunca se escribe a disco.
+// El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
 const trackers = new Map();
 
 function sanitizeUsername(u) {
   if (typeof u !== 'string') return null;
   const clean = u.trim();
   if (!/^[a-zA-Z0-9_\-]{1,50}$/.test(clean)) return null;
-  return clean;
+  return clean.toLowerCase();
 }
 
-function dataFile(username) {
-  return path.join(DATA_DIR, username.toLowerCase() + '.json');
+// ---- Supabase (Postgres via REST/PostgREST) ----
+
+async function sbUpsertModel(username) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify({ username, role: 'modelo' }),
+  }).catch(() => {});
 }
 
-function loadTips(username) {
-  const file = dataFile(username);
-  if (!fs.existsSync(file)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    return [];
-  }
+async function sbInsertTip(username, tokens, eventId) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_tips', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify({ username, tokens, event_id: eventId }),
+  }).catch(() => {});
 }
 
-function appendTip(username, tokens, id) {
-  const file = dataFile(username);
-  const list = loadTips(username);
-  if (list.some((t) => t.id === id)) return; // dedupe
-  list.push({ tokens, ts: Date.now(), id });
-  fs.writeFileSync(file, JSON.stringify(list));
+async function sbInsertBroadcastEvent(username, eventType, eventId) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify({ username, event_type: eventType, event_id: eventId }),
+  }).catch(() => {});
 }
 
-function knownUsernames() {
-  const set = new Set();
-  for (const key of trackers.keys()) set.add(trackers.get(key).username);
-  if (fs.existsSync(DATA_DIR)) {
-    for (const f of fs.readdirSync(DATA_DIR)) {
-      if (f.endsWith('.json')) set.add(f.slice(0, -5));
-    }
-  }
-  return Array.from(set);
+async function sbFetchAllModels() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,role,created_at&order=username.asc', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
 }
 
-function buildReport(username) {
-  const all = loadTips(username);
+async function sbFetchTipsInRange(startIso, endIso) {
+  const qs = '?select=username,tokens&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchLatestBroadcastEvents() {
+  const qs = '?select=username,event_type,created_at&order=created_at.desc&limit=500';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function buildModelReports() {
   const now = Date.now();
   const period = getQuincena(now);
-  const inPeriod = all.filter((t) => t.ts >= period.start && t.ts <= period.end);
-  const total = inPeriod.reduce((sum, t) => sum + t.tokens, 0);
+  const startIso = new Date(period.start).toISOString();
+  const endIso = new Date(period.end).toISOString();
 
-  let trackingSince = null;
-  let periodCoveragePct = 0;
-  if (all.length > 0) {
-    trackingSince = Math.min(...all.map((t) => t.ts));
+  const [models, tips, broadcastEvents] = await Promise.all([
+    sbFetchAllModels(),
+    sbFetchTipsInRange(startIso, endIso),
+    sbFetchLatestBroadcastEvents(),
+  ]);
+
+  const tipsByUser = {};
+  for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+
+  const latestBroadcastByUser = {};
+  for (const e of broadcastEvents) {
+    if (!(e.username in latestBroadcastByUser)) latestBroadcastByUser[e.username] = e;
+  }
+
+  return models.map((m) => {
+    const tr = trackers.get(m.username);
+    const trackingSince = new Date(m.created_at).getTime();
     const trackedFrom = Math.max(trackingSince, period.start);
     const trackedTo = Math.min(now, period.end);
     const periodLenMs = period.end - period.start;
-    periodCoveragePct = Math.max(0, Math.min(100, ((trackedTo - trackedFrom) / periodLenMs) * 100));
-  }
+    const periodCoveragePct = Math.max(0, Math.min(100, ((trackedTo - trackedFrom) / periodLenMs) * 100));
 
-  const tr = trackers.get(username.toLowerCase());
-  const online = tr
-    ? { state: tr.isOnline === true ? 'online' : tr.isOnline === false ? 'offline' : 'unknown', since: tr.onlineSince }
-    : { state: 'unknown', since: null };
+    const be = latestBroadcastByUser[m.username];
+    const online = be
+      ? { state: be.event_type === 'start' ? 'online' : 'offline', since: be.event_type === 'start' ? new Date(be.created_at).getTime() : null }
+      : { state: 'unknown', since: null };
 
-  return {
-    account: username,
-    role: 'modelo',
-    period: { label: period.label, payoutLabel: period.payoutLabel },
-    totalTokensPeriod: total,
-    reportGeneratedAt: now,
-    trackingSince,
-    periodCoveragePct,
-    online,
-    connection: {
-      running: !!(tr && tr.running),
-      status: tr ? tr.status : 'idle',
-      lastError: tr ? tr.lastError : null,
-    },
-  };
+    return {
+      account: m.username,
+      role: m.role || 'modelo',
+      period: { label: period.label, payoutLabel: period.payoutLabel },
+      totalTokensPeriod: tipsByUser[m.username] || 0,
+      reportGeneratedAt: now,
+      trackingSince,
+      periodCoveragePct,
+      online,
+      connection: {
+        running: !!(tr && tr.running),
+        status: tr ? tr.status : 'idle',
+        lastError: tr ? tr.lastError : null,
+      },
+    };
+  });
 }
 
 async function pollLoop(tracker) {
@@ -174,13 +205,11 @@ async function pollLoop(tracker) {
     const events = data.events || [];
     for (const ev of events) {
       if (ev.method === 'tip' && ev.object && ev.object.tip) {
-        appendTip(username, ev.object.tip.tokens || 0, ev.id);
+        await sbInsertTip(username, ev.object.tip.tokens || 0, ev.id);
       } else if (ev.method === 'broadcastStart') {
-        tracker.isOnline = true;
-        tracker.onlineSince = Date.now();
+        await sbInsertBroadcastEvent(username, 'start', ev.id);
       } else if (ev.method === 'broadcastStop') {
-        tracker.isOnline = false;
-        tracker.onlineSince = null;
+        await sbInsertBroadcastEvent(username, 'stop', ev.id);
       }
     }
 
@@ -253,16 +282,13 @@ const server = http.createServer(async (req, res) => {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     if (!username || !token) return sendJson(res, 400, { error: 'username o token inválido' });
 
-    const key = username.toLowerCase();
-    const existing = trackers.get(key);
+    await sbUpsertModel(username);
+
+    const existing = trackers.get(username);
     if (existing && existing.abortCtl) existing.abortCtl.abort();
 
-    const tracker = {
-      username, token, running: true, status: 'connecting', lastError: null, abortCtl: null,
-      isOnline: existing ? existing.isOnline : null,
-      onlineSince: existing ? existing.onlineSince : null,
-    };
-    trackers.set(key, tracker);
+    const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null };
+    trackers.set(username, tracker);
     pollLoop(tracker);
     return sendJson(res, 200, { ok: true });
   }
@@ -272,7 +298,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
     if (!username) return sendJson(res, 400, { error: 'username inválido' });
-    const tracker = trackers.get(username.toLowerCase());
+    const tracker = trackers.get(username);
     if (tracker) {
       tracker.running = false;
       if (tracker.abortCtl) tracker.abortCtl.abort();
@@ -282,10 +308,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/models' && req.method === 'GET') {
-    const usernames = knownUsernames();
-    const models = usernames.map(buildReport).sort((a, b) => a.account.localeCompare(b.account));
-    const dollar = await getDollarRate();
-    return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY } });
+    try {
+      const [models, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
+      return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY } });
+    } catch (e) {
+      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+    }
   }
 
   return serveStatic(req, res, parsed.pathname);

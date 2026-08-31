@@ -23,9 +23,9 @@
   .btnStop { background: #2a2e38; color: var(--text); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   .errbox { background: rgba(226,85,77,0.1); border: 1px solid var(--bad); color: #ff9d97; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 12px; display: none; }
-  .dollar { display: flex; align-items: baseline; gap: 10px; }
-  .dollar .amt { font-size: 26px; font-weight: 700; }
-  .dollar .meta { font-size: 12px; color: var(--muted); }
+  .summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .summary-row .stat { padding: 14px; }
+  .meta-small { font-size: 11px; color: var(--muted); margin-top: 4px; }
   .models { display: grid; gap: 14px; }
   .model { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
   .model-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -55,10 +55,11 @@
   <h1>Rastreador de Tokens — Chaturbate</h1>
   <div class="sub">Escuchando la Events API oficial en tiempo real, por modelo, con reporte de quincena.</div>
 
-  <div class="card">
-    <div class="dollar">
-      <div class="amt" id="dollarAmt">—</div>
-      <div class="meta" id="dollarMeta">Cargando cotización del dólar…</div>
+  <div class="summary-row">
+    <div class="stat">
+      <div class="k">Dólar hoy (USD → COP)</div>
+      <div class="v" id="dollarAmt">—</div>
+      <div class="meta-small" id="dollarMeta">Cargando cotización…</div>
     </div>
   </div>
 
@@ -172,11 +173,11 @@
       const data = await r.json();
 
       if (data.dollar && data.dollar.rate) {
-        el.dollarAmt.textContent = 'Dólar hoy: $' + Math.round(data.dollar.rate).toLocaleString('es-CO') + ' COP';
-        el.dollarMeta.textContent = 'por 1 USD · actualizado ' + fmtDate(data.dollar.updatedAt);
+        el.dollarAmt.textContent = '$' + Math.round(data.dollar.rate).toLocaleString('es-CO') + ' COP';
+        el.dollarMeta.textContent = 'actualizado ' + fmtDate(data.dollar.updatedAt);
       } else if (data.dollar && data.dollar.error) {
         el.dollarAmt.textContent = '—';
-        el.dollarMeta.textContent = 'No se pudo obtener la cotización: ' + data.dollar.error;
+        el.dollarMeta.textContent = 'No se pudo obtener: ' + data.dollar.error;
       }
 
       if (!formOpenDecided) {
