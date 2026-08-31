@@ -156,9 +156,9 @@ async function buildModelReports() {
     const periodCoveragePct = Math.max(0, Math.min(100, ((trackedTo - trackedFrom) / periodLenMs) * 100));
 
     const be = latestBroadcastByUser[m.username];
-    const online = be
-      ? { state: be.event_type === 'start' ? 'online' : 'offline', since: be.event_type === 'start' ? new Date(be.created_at).getTime() : null }
-      : { state: 'unknown', since: null };
+    const online = be && be.event_type === 'start'
+      ? { state: 'online', since: new Date(be.created_at).getTime() }
+      : { state: 'offline', since: null };
 
     return {
       account: m.username,

@@ -141,8 +141,7 @@
       const dur = online.since ? fmtDuration(Date.now() - online.since) : '';
       return '<span class="badge online">🟢 En línea' + (dur ? ' — ' + dur : '') + '</span>';
     }
-    if (online.state === 'offline') return '<span class="badge offline">🔴 Desconectada</span>';
-    return '<span class="badge unknown">⚪ Desconocido</span>';
+    return '<span class="badge offline">🔴 Desconectada</span>';
   }
 
   function connDot(status) {
