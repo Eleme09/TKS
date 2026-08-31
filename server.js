@@ -87,6 +87,13 @@ async function sbFetchModelsWithTokens() {
   return r.ok ? r.json() : [];
 }
 
+async function sbFetchSavedToken(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=token', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0].token : null;
+}
+
 async function sbInsertTip(username, tokens, eventId) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_tips', {
     method: 'POST',
@@ -311,6 +318,17 @@ const server = http.createServer(async (req, res) => {
     if (!username || !token) return sendJson(res, 400, { error: 'username o token inválido' });
 
     await sbUpsertModel(username, token);
+    startTracker(username, token);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/reconnect' && req.method === 'POST') {
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'username inválido' });
+    const token = await sbFetchSavedToken(username);
+    if (!token) return sendJson(res, 400, { error: 'Esta modelo no tiene un token guardado. Agrégala de nuevo con su token.' });
     startTracker(username, token);
     return sendJson(res, 200, { ok: true });
   }

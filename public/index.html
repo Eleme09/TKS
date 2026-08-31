@@ -20,6 +20,7 @@
   .row { display: flex; gap: 10px; margin-top: 18px; }
   button { padding: 10px 14px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
   #btnAdd { background: var(--accent); color: white; flex: 1; }
+  .btnStart { background: rgba(52,199,123,0.15); color: var(--good); }
   .btnStop { background: #2a2e38; color: var(--text); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   .errbox { background: rgba(226,85,77,0.1); border: 1px solid var(--bad); color: #ff9d97; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 12px; display: none; }
@@ -195,6 +196,7 @@
             '<div class="conn">' +
               '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
               '<div style="display:flex; gap:8px;">' +
+                '<button class="btnStart" data-user="' + m.account + '"' + (m.connection.running ? ' disabled title="Ya está corriendo"' : '') + '>Iniciar</button>' +
                 '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
                 '<button class="btnDelete" data-user="' + m.account + '" style="background:#402226; color:#ff9d97;">Eliminar</button>' +
               '</div>' +
@@ -202,6 +204,9 @@
           '</div>';
       }).join('');
 
+      el.models.querySelectorAll('.btnStart').forEach(function (btn) {
+        btn.addEventListener('click', function () { startModel(btn.getAttribute('data-user')); });
+      });
       el.models.querySelectorAll('.btnStop').forEach(function (btn) {
         btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
       });
@@ -233,6 +238,18 @@
     el.token.value = '';
     el.tokenInfo.textContent = '';
     setFormOpen(false);
+    refresh();
+  }
+
+  async function startModel(username) {
+    const r = await fetch('/api/reconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      showError(err.error || 'No se pudo iniciar');
+    }
     refresh();
   }
 
