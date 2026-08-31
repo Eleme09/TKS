@@ -16,12 +16,13 @@
   .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
-  input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: #0d0f13; color: var(--text); font-size: 14px; }
+  input, select { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: #0d0f13; color: var(--text); font-size: 14px; }
   .row { display: flex; gap: 10px; margin-top: 18px; }
   button { padding: 10px 14px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
-  #btnAdd { background: var(--accent); color: white; flex: 1; }
+  #btnAdd, #btnLogin, #btnCreateAdmin { background: var(--accent); color: white; }
   .btnStart { background: rgba(52,199,123,0.15); color: var(--good); }
   .btnStop { background: #2a2e38; color: var(--text); }
+  .btnKey { background: #2a2e38; color: var(--text); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   .errbox { background: rgba(226,85,77,0.1); border: 1px solid var(--bad); color: #ff9d97; padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 12px; display: none; }
   .meta-small { font-size: 11px; color: var(--muted); margin-top: 4px; }
@@ -30,23 +31,30 @@
   .model-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .model-name-row { display: flex; align-items: center; gap: 8px; }
   .model-name { font-size: 16px; font-weight: 700; }
-  .role-badge { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgba(94,200,242,0.15); color: #5ec8f2; }
+  .role-badge { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+  .role-badge.modelo { background: rgba(94,200,242,0.15); color: #5ec8f2; }
+  .role-badge.administrador { background: rgba(224,166,58,0.18); color: var(--warn); }
+  .role-badge.ceo-m { background: rgba(79,140,255,0.18); color: var(--accent); }
+  .role-badge.ceo-f { background: rgba(255,105,180,0.18); color: #ff8fc7; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
   .badge.online { background: rgba(52,199,123,0.15); color: var(--good); }
   .badge.offline { background: rgba(226,85,77,0.12); color: var(--bad); }
-  .badge.unknown { background: rgba(154,160,172,0.12); color: var(--muted); }
   .model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .stat { background: #0d0f13; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
   .stat .k { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .stat .v { font-size: 17px; font-weight: 700; }
   .stat .v.small { font-size: 13px; font-weight: 600; }
-  .conn { font-size: 12px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .conn { font-size: 12px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
   .dot.on { background: var(--good); }
   .dot.err { background: var(--bad); }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
   details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   details p, details li { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .topbar .who { font-size: 13px; color: var(--muted); }
+  .admin-list-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .admin-list-row:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -54,40 +62,82 @@
   <h1>PLACER SERVICES</h1>
   <div class="sub">Más de 3 años acompañando a nuestras modelos con cercanía y un enfoque real en su crecimiento económico. Panel de seguimiento de ingresos por quincena.</div>
 
-  <button id="btnShowForm" style="display:none; background:#2a2e38; color:var(--text); margin-bottom:16px;">+ Agregar otra modelo</button>
-
-  <div class="card" id="addModelCard">
-    <label for="username">Username de la modelo (broadcaster)</label>
-    <input id="username" placeholder="ej: nombre_del_modelo" autocomplete="off">
-    <label for="token">API Token (Events API)</label>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <input id="token" type="password" placeholder="token" autocomplete="off" style="flex:1;">
-      <button id="btnShowToken" type="button" style="background:#2a2e38; color:var(--text);">Mostrar</button>
-    </div>
-    <div id="tokenInfo" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
-    <div class="row">
-      <button id="btnAdd">Agregar modelo y empezar a rastrear</button>
-    </div>
-    <div id="errbox" class="errbox"></div>
+  <div class="card" id="loginCard">
+    <label for="loginUser">Usuario</label>
+    <input id="loginUser" autocomplete="username">
+    <label for="loginPass">Contraseña</label>
+    <input id="loginPass" type="password" autocomplete="current-password">
+    <div class="row"><button id="btnLogin" style="flex:1;">Entrar</button></div>
+    <div id="loginError" class="errbox"></div>
   </div>
 
-  <div class="models" id="models">
-    <div class="empty">Todavía no has agregado ninguna modelo.</div>
-  </div>
+  <div id="appArea" style="display:none;">
+    <div class="topbar">
+      <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span></div>
+      <button id="btnLogout" style="background:#2a2e38; color:var(--text);">Salir</button>
+    </div>
 
-  <details class="card" style="margin-top:16px;">
-    <summary>Sobre los pagos</summary>
-    <ul>
-      <li>Periodo del 1 al 15: se paga el día 20 del mismo mes.</li>
-      <li>Periodo del 16 al fin de mes: se paga el día 5 del mes siguiente.</li>
-      <li>Los montos que ves reflejan lo acumulado desde que cada cuenta fue dada de alta en el sistema.</li>
-    </ul>
-  </details>
+    <button id="btnShowForm" style="display:none; background:#2a2e38; color:var(--text); margin-bottom:16px;">+ Agregar otra modelo</button>
+
+    <div class="card" id="addModelCard" style="display:none;">
+      <label for="username">Username de la modelo (broadcaster)</label>
+      <input id="username" placeholder="ej: nombre_del_modelo" autocomplete="off">
+      <label for="token">API Token (Events API)</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="token" type="password" placeholder="token" autocomplete="off" style="flex:1;">
+        <button id="btnShowToken" type="button" style="background:#2a2e38; color:var(--text);">Mostrar</button>
+      </div>
+      <div id="tokenInfo" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+      <div class="row">
+        <button id="btnAdd">Agregar modelo y empezar a rastrear</button>
+      </div>
+      <div id="errbox" class="errbox"></div>
+    </div>
+
+    <div class="models" id="models">
+      <div class="empty">Todavía no hay modelos agregadas.</div>
+    </div>
+
+    <div class="card" id="adminAccountsCard" style="display:none; margin-top:16px;">
+      <h3 style="margin:0 0 4px; font-size:15px;">Cuentas administrativas</h3>
+      <div class="meta-small" style="margin-bottom:12px;">Cuentas CEO PLACER STUDIO — acceso de solo lectura a todas las modelos.</div>
+      <div id="adminList"></div>
+      <label for="ceoUser" style="margin-top:16px;">Nuevo usuario CEO</label>
+      <input id="ceoUser" autocomplete="off">
+      <label for="ceoPass">Contraseña</label>
+      <input id="ceoPass" type="password" autocomplete="off">
+      <label for="ceoGender">Identificación (color del badge)</label>
+      <select id="ceoGender">
+        <option value="m">Hombre (azul)</option>
+        <option value="f">Mujer (rosa)</option>
+      </select>
+      <div class="row"><button id="btnCreateAdmin" style="flex:1;">Crear cuenta CEO</button></div>
+      <div id="adminError" class="errbox"></div>
+    </div>
+
+    <details class="card" style="margin-top:16px;">
+      <summary>Sobre los pagos</summary>
+      <ul>
+        <li>Periodo del 1 al 15: se paga el día 20 del mismo mes.</li>
+        <li>Periodo del 16 al fin de mes: se paga el día 5 del mes siguiente.</li>
+        <li>Los montos que ves reflejan lo acumulado desde que cada cuenta fue dada de alta en el sistema.</li>
+      </ul>
+    </details>
+  </div>
 </div>
 
 <script>
 (function () {
   const el = {
+    loginCard: document.getElementById('loginCard'),
+    loginUser: document.getElementById('loginUser'),
+    loginPass: document.getElementById('loginPass'),
+    btnLogin: document.getElementById('btnLogin'),
+    loginError: document.getElementById('loginError'),
+    appArea: document.getElementById('appArea'),
+    whoUser: document.getElementById('whoUser'),
+    whoRoleBadge: document.getElementById('whoRoleBadge'),
+    btnLogout: document.getElementById('btnLogout'),
     username: document.getElementById('username'),
     token: document.getElementById('token'),
     btnAdd: document.getElementById('btnAdd'),
@@ -97,9 +147,24 @@
     models: document.getElementById('models'),
     addModelCard: document.getElementById('addModelCard'),
     btnShowForm: document.getElementById('btnShowForm'),
+    adminAccountsCard: document.getElementById('adminAccountsCard'),
+    adminList: document.getElementById('adminList'),
+    ceoUser: document.getElementById('ceoUser'),
+    ceoPass: document.getElementById('ceoPass'),
+    ceoGender: document.getElementById('ceoGender'),
+    btnCreateAdmin: document.getElementById('btnCreateAdmin'),
+    adminError: document.getElementById('adminError'),
   };
 
+  let currentRole = null;
   let formOpenDecided = false;
+  let pollTimer = null;
+
+  function roleBadgeHtml(role, gender) {
+    if (role === 'administrador') return '<span class="role-badge administrador">administrador</span>';
+    if (role === 'ceo') return '<span class="role-badge ' + (gender === 'f' ? 'ceo-f' : 'ceo-m') + '">CEO PLACER STUDIO</span>';
+    return '<span class="role-badge modelo">modelo</span>';
+  }
 
   function setFormOpen(open) {
     el.addModelCard.style.display = open ? 'block' : 'none';
@@ -154,6 +219,7 @@
   async function refresh() {
     try {
       const r = await fetch('/api/models');
+      if (r.status === 401) { showLogin(); return; }
       const data = await r.json();
 
       let dollarValue = '—';
@@ -165,21 +231,34 @@
         dollarMeta = 'No se pudo obtener: ' + data.dollar.error;
       }
 
-      if (!formOpenDecided) {
+      const isAdmin = currentRole === 'administrador';
+
+      if (isAdmin && !formOpenDecided) {
         setFormOpen(!data.models || data.models.length === 0);
         formOpenDecided = true;
       }
 
       if (!data.models || data.models.length === 0) {
-        el.models.innerHTML = '<div class="empty">Todavía no has agregado ninguna modelo.</div>';
+        el.models.innerHTML = '<div class="empty">Todavía no hay modelos agregadas.</div>';
         return;
       }
 
       el.models.innerHTML = data.models.map(function (m) {
+        const controls = isAdmin ? (
+          '<div class="conn">' +
+            '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
+            '<div style="display:flex; gap:8px;">' +
+              '<button class="btnStart" data-user="' + m.account + '"' + (m.connection.running ? ' disabled title="Ya está corriendo"' : '') + '>Iniciar</button>' +
+              '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
+              '<button class="btnKey" data-user="' + m.account + '">Contraseña</button>' +
+              '<button class="btnDelete" data-user="' + m.account + '" style="background:#402226; color:#ff9d97;">Eliminar</button>' +
+            '</div>' +
+          '</div>'
+        ) : '';
         return '' +
           '<div class="model">' +
             '<div class="model-head">' +
-              '<div class="model-name-row"><div class="model-name">' + m.account + '</div><span class="role-badge">' + (m.role || 'modelo') + '</span></div>' +
+              '<div class="model-name-row"><div class="model-name">' + m.account + '</div><span class="role-badge modelo">modelo</span></div>' +
               onlineBadge(m.online) +
             '</div>' +
             '<div class="model-grid">' +
@@ -188,26 +267,24 @@
               '<div class="stat"><div class="k">Fecha de pago</div><div class="v small">' + m.period.payoutLabel + '</div></div>' +
               '<div class="stat"><div class="k">Dólar hoy (USD → COP)</div><div class="v small">' + dollarValue + '</div><div class="meta-small">' + dollarMeta + '</div></div>' +
             '</div>' +
-            '<div class="conn">' +
-              '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
-              '<div style="display:flex; gap:8px;">' +
-                '<button class="btnStart" data-user="' + m.account + '"' + (m.connection.running ? ' disabled title="Ya está corriendo"' : '') + '>Iniciar</button>' +
-                '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
-                '<button class="btnDelete" data-user="' + m.account + '" style="background:#402226; color:#ff9d97;">Eliminar</button>' +
-              '</div>' +
-            '</div>' +
+            controls +
           '</div>';
       }).join('');
 
-      el.models.querySelectorAll('.btnStart').forEach(function (btn) {
-        btn.addEventListener('click', function () { startModel(btn.getAttribute('data-user')); });
-      });
-      el.models.querySelectorAll('.btnStop').forEach(function (btn) {
-        btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
-      });
-      el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
-        btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
-      });
+      if (isAdmin) {
+        el.models.querySelectorAll('.btnStart').forEach(function (btn) {
+          btn.addEventListener('click', function () { startModel(btn.getAttribute('data-user')); });
+        });
+        el.models.querySelectorAll('.btnStop').forEach(function (btn) {
+          btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
+        });
+        el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
+          btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
+        });
+        el.models.querySelectorAll('.btnKey').forEach(function (btn) {
+          btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
+        });
+      }
     } catch (e) {
       showError('No se pudo consultar el servidor: ' + e.message);
     }
@@ -266,10 +343,139 @@
     refresh();
   }
 
+  async function setModelPassword(username) {
+    const password = prompt('Nueva contraseña de acceso para "' + username + '" (mínimo 4 caracteres):');
+    if (!password) return;
+    const r = await fetch('/api/models/set-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert(err.error || 'No se pudo cambiar la contraseña');
+    } else {
+      alert('Contraseña actualizada para ' + username + '.');
+    }
+  }
+
+  async function refreshAdminAccounts() {
+    const r = await fetch('/api/admins');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.admins || data.admins.length === 0) {
+      el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO creadas.</div>';
+      return;
+    }
+    el.adminList.innerHTML = data.admins.map(function (a) {
+      return '<div class="admin-list-row"><span>' + a.username + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
+        '<button class="btnDeleteAdmin" data-user="' + a.username + '" style="background:#402226; color:#ff9d97; padding:4px 10px; font-size:12px;">Eliminar</button></div>';
+    }).join('');
+    el.adminList.querySelectorAll('.btnDeleteAdmin').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const username = btn.getAttribute('data-user');
+        if (!confirm('¿Eliminar la cuenta "' + username + '"?')) return;
+        await fetch('/api/admins/delete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        });
+        refreshAdminAccounts();
+      });
+    });
+  }
+
+  el.btnCreateAdmin.addEventListener('click', async function () {
+    const username = el.ceoUser.value.trim();
+    const password = el.ceoPass.value;
+    const gender = el.ceoGender.value;
+    if (!username || password.length < 4) {
+      el.adminError.style.display = 'block';
+      el.adminError.textContent = 'Usuario y contraseña (mínimo 4 caracteres) son requeridos.';
+      return;
+    }
+    el.adminError.style.display = 'none';
+    const r = await fetch('/api/admins/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, gender }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      el.adminError.style.display = 'block';
+      el.adminError.textContent = err.error || 'No se pudo crear la cuenta';
+      return;
+    }
+    el.ceoUser.value = '';
+    el.ceoPass.value = '';
+    refreshAdminAccounts();
+  });
+
   el.btnAdd.addEventListener('click', addModel);
 
-  refresh();
-  setInterval(refresh, 4000);
+  function showApp(session) {
+    currentRole = session.role;
+    el.loginCard.style.display = 'none';
+    el.appArea.style.display = 'block';
+    el.whoUser.textContent = session.username;
+    el.whoRoleBadge.innerHTML = roleBadgeHtml(session.role, session.gender);
+
+    const isAdmin = session.role === 'administrador';
+    el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
+    el.adminAccountsCard.style.display = isAdmin ? 'block' : 'none';
+    if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
+    if (isAdmin) refreshAdminAccounts();
+
+    refresh();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(refresh, 4000);
+  }
+
+  function showLogin() {
+    currentRole = null;
+    formOpenDecided = false;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    el.appArea.style.display = 'none';
+    el.loginCard.style.display = 'block';
+  }
+
+  el.btnLogin.addEventListener('click', async function () {
+    const username = el.loginUser.value.trim();
+    const password = el.loginPass.value;
+    if (!username || !password) { el.loginError.style.display = 'block'; el.loginError.textContent = 'Completa usuario y contraseña.'; return; }
+    el.loginError.style.display = 'none';
+    const r = await fetch('/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      el.loginError.style.display = 'block';
+      el.loginError.textContent = err.error || 'No se pudo iniciar sesión';
+      return;
+    }
+    const data = await r.json();
+    el.loginPass.value = '';
+    showApp({ username: data.username, role: data.role, gender: null });
+  });
+
+  el.loginPass.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.btnLogin.click(); });
+
+  el.btnLogout.addEventListener('click', async function () {
+    await fetch('/api/logout', { method: 'POST' });
+    showLogin();
+  });
+
+  (async function init() {
+    try {
+      const r = await fetch('/api/me');
+      if (r.ok) {
+        const session = await r.json();
+        showApp(session);
+      } else {
+        showLogin();
+      }
+    } catch (e) {
+      showLogin();
+    }
+  })();
 })();
 </script>
 </body>

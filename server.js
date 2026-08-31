@@ -7,6 +7,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -14,10 +15,12 @@ const EVENTS_BASE = 'https://eventsapi.chaturbate.com/events/';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Faltan las variables de entorno SUPABASE_URL y/o SUPABASE_ANON_KEY. Revisa env.bat (local) o las Environment Variables en Render.');
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SESSION_SECRET) {
+  console.error('Faltan variables de entorno (SUPABASE_URL, SUPABASE_ANON_KEY, SESSION_SECRET). Revisa env.bat (local) o las Environment Variables en Render.');
   process.exit(1);
 }
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const SB_HEADERS = {
   apikey: SUPABASE_ANON_KEY,
   Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
@@ -65,6 +68,76 @@ function sanitizeUsername(u) {
   return clean.toLowerCase();
 }
 
+// ---- Contraseñas (scrypt, sin dependencias externas) ----
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return salt + ':' + hash;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || typeof password !== 'string') return false;
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const hashBuf = Buffer.from(hash, 'hex');
+  const testBuf = crypto.scryptSync(password, salt, 64);
+  return hashBuf.length === testBuf.length && crypto.timingSafeEqual(hashBuf, testBuf);
+}
+
+// ---- Sesiones (cookie firmada, sin estado en el servidor) ----
+
+function signSession(payload) {
+  const body = { ...payload, exp: Date.now() + SESSION_MAX_AGE_MS };
+  const b64 = Buffer.from(JSON.stringify(body)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(b64).digest('base64url');
+  return b64 + '.' + sig;
+}
+
+function verifySession(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [b64, sig] = parts;
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(b64).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(b64, 'base64url').toString());
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function getSession(req) {
+  const cookies = parseCookies(req);
+  return verifySession(cookies.session);
+}
+
+function setSessionCookie(res, token) {
+  const secure = process.env.NODE_ENV !== 'development' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', 'session=' + encodeURIComponent(token) + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + Math.floor(SESSION_MAX_AGE_MS / 1000) + secure);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+}
+
 // ---- Supabase (Postgres via REST/PostgREST) ----
 
 async function sbUpsertModel(username, token) {
@@ -92,6 +165,49 @@ async function sbFetchSavedToken(username) {
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0].token : null;
+}
+
+async function sbFindAdmin(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbFindModelPasswordHash(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0].password_hash : null;
+}
+
+async function sbCreateAdmin(username, passwordHash, role, gender) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ username, password_hash: passwordHash, role, gender: gender || null }),
+  });
+  return resp.ok;
+}
+
+async function sbListAdmins() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?select=username,role,gender,created_at&order=created_at.asc', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbDeleteAdmin(username) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
+    method: 'DELETE',
+    headers: SB_HEADERS,
+  }).catch(() => {});
+}
+
+async function sbSetModelPassword(username, passwordHash) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ password_hash: passwordHash }),
+  }).catch(() => {});
 }
 
 async function sbInsertTip(username, tokens, eventId) {
@@ -307,10 +423,114 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+function requireSession(req, res) {
+  const session = getSession(req);
+  if (!session) {
+    sendJson(res, 401, { error: 'No autenticado' });
+    return null;
+  }
+  return session;
+}
+
+function requireAdmin(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return null;
+  if (session.role !== 'administrador') {
+    sendJson(res, 403, { error: 'No autorizado' });
+    return null;
+  }
+  return session;
+}
+
 const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
 
+  // ---- Auth ----
+
+  if (parsed.pathname === '/api/login' && req.method === 'POST') {
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const usernameRaw = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!usernameRaw || !password) return sendJson(res, 400, { error: 'Completa usuario y contraseña' });
+
+    const admin = await sbFindAdmin(usernameRaw);
+    if (admin && verifyPassword(password, admin.password_hash)) {
+      const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null });
+      setSessionCookie(res, token);
+      return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username });
+    }
+
+    const modelUsername = sanitizeUsername(usernameRaw);
+    if (modelUsername) {
+      const hash = await sbFindModelPasswordHash(modelUsername);
+      if (hash && verifyPassword(password, hash)) {
+        const token = signSession({ type: 'model', username: modelUsername, role: 'modelo' });
+        setSessionCookie(res, token);
+        return sendJson(res, 200, { ok: true, role: 'modelo', username: modelUsername });
+      }
+    }
+
+    return sendJson(res, 401, { error: 'Usuario o contraseña incorrectos' });
+  }
+
+  if (parsed.pathname === '/api/logout' && req.method === 'POST') {
+    clearSessionCookie(res);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/me' && req.method === 'GET') {
+    const session = getSession(req);
+    if (!session) return sendJson(res, 401, { error: 'No autenticado' });
+    return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null });
+  }
+
+  // ---- Gestion de cuentas (solo administrador) ----
+
+  if (parsed.pathname === '/api/admins' && req.method === 'GET') {
+    if (!requireAdmin(req, res)) return;
+    const admins = await sbListAdmins();
+    return sendJson(res, 200, { admins });
+  }
+
+  if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const gender = body.gender === 'f' ? 'f' : body.gender === 'm' ? 'm' : null;
+    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Usuario y contraseña (min. 4 caracteres) son requeridos' });
+    const ok = await sbCreateAdmin(username, hashPassword(password), 'ceo', gender);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo crear (¿el usuario ya existe?)' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/admins/delete' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    if (!username) return sendJson(res, 400, { error: 'username inválido' });
+    await sbDeleteAdmin(username);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/models/set-password' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
+    await sbSetModelPassword(username, hashPassword(password));
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // ---- Tracking (solo administrador) ----
+
   if (parsed.pathname === '/api/start' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -323,6 +543,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/reconnect' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -334,6 +555,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/stop' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -348,6 +570,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/delete' && req.method === 'POST') {
+    if (!requireAdmin(req, res)) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -363,9 +586,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/models' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
     try {
-      const [models, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
-      return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY } });
+      const [allModels, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
+      let models = allModels;
+      if (session.role === 'modelo') {
+        models = allModels.filter((m) => m.account === session.username);
+      } else if (session.role === 'ceo') {
+        models = allModels.map((m) => ({ ...m, connection: { running: m.connection.running, status: m.connection.status, lastError: null } }));
+      }
+      return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY }, session: { username: session.username, role: session.role, gender: session.gender || null } });
     } catch (e) {
       return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
     }
