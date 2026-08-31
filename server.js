@@ -1,16 +1,22 @@
 // Chaturbate token tracker — minimal backend, zero npm dependencies.
 // Listens to the official Events API server-side (no CORS issue, unlike a browser)
-// and persists tips to a local JSON file so a real quincena report can be built over time.
+// and persists tips to a local JSON file per model so a real quincena report can be
+// built over time. Tracks multiple models at once.
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const EVENTS_BASE = 'https://eventsapi.chaturbate.com/events/';
+
+// Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
+const CURRENCY = 'COP';
+const RATE_CACHE_MS = 10 * 60 * 1000;
+let rateCache = { rate: null, updatedAt: 0, error: null };
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
@@ -39,15 +45,9 @@ function getQuincena(now) {
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// In-memory state for the single active tracked account (kept simple on purpose).
-let active = {
-  username: null,
-  token: null,     // credential lives in memory only, never written to disk
-  running: false,
-  status: 'idle',  // idle | connecting | connected | error
-  lastError: null,
-  abortCtl: null,
-};
+// Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
+// El token SOLO vive aquí en memoria, nunca se escribe a disco.
+const trackers = new Map();
 
 function sanitizeUsername(u) {
   if (typeof u !== 'string') return null;
@@ -78,6 +78,17 @@ function appendTip(username, tokens, id) {
   fs.writeFileSync(file, JSON.stringify(list));
 }
 
+function knownUsernames() {
+  const set = new Set();
+  for (const key of trackers.keys()) set.add(trackers.get(key).username);
+  if (fs.existsSync(DATA_DIR)) {
+    for (const f of fs.readdirSync(DATA_DIR)) {
+      if (f.endsWith('.json')) set.add(f.slice(0, -5));
+    }
+  }
+  return Array.from(set);
+}
+
 function buildReport(username) {
   const all = loadTips(username);
   const now = Date.now();
@@ -89,54 +100,59 @@ function buildReport(username) {
   let periodCoveragePct = 0;
   if (all.length > 0) {
     trackingSince = Math.min(...all.map((t) => t.ts));
-    // How much of the CURRENT period is actually covered by tracked data so far.
     const trackedFrom = Math.max(trackingSince, period.start);
     const trackedTo = Math.min(now, period.end);
     const periodLenMs = period.end - period.start;
     periodCoveragePct = Math.max(0, Math.min(100, ((trackedTo - trackedFrom) / periodLenMs) * 100));
   }
 
+  const tr = trackers.get(username.toLowerCase());
+  const online = tr
+    ? { state: tr.isOnline === true ? 'online' : tr.isOnline === false ? 'offline' : 'unknown', since: tr.onlineSince }
+    : { state: 'unknown', since: null };
+
   return {
     account: username,
     period: { label: period.label, payoutLabel: period.payoutLabel },
     totalTokensPeriod: total,
-    tipCountPeriod: inPeriod.length,
     reportGeneratedAt: now,
     trackingSince,
     periodCoveragePct,
+    online,
     connection: {
-      running: active.running && active.username === username,
-      status: active.status,
-      lastError: active.lastError,
+      running: !!(tr && tr.running),
+      status: tr ? tr.status : 'idle',
+      lastError: tr ? tr.lastError : null,
     },
   };
 }
 
-async function pollLoop(username, token) {
-  let nextUrl = EVENTS_BASE + encodeURIComponent(username) + '/' + encodeURIComponent(token) + '/?timeout=10';
+async function pollLoop(tracker) {
+  const username = tracker.username;
+  let nextUrl = EVENTS_BASE + encodeURIComponent(username) + '/' + encodeURIComponent(tracker.token) + '/?timeout=10';
 
-  while (active.running && active.username === username) {
-    active.abortCtl = new AbortController();
+  while (tracker.running) {
+    tracker.abortCtl = new AbortController();
     let resp;
     try {
-      resp = await fetch(nextUrl, { signal: active.abortCtl.signal });
+      resp = await fetch(nextUrl, { signal: tracker.abortCtl.signal });
     } catch (e) {
-      if (!active.running) break;
-      active.status = 'error';
-      active.lastError = 'Error de red: ' + e.message;
+      if (!tracker.running) break;
+      tracker.status = 'error';
+      tracker.lastError = 'Error de red: ' + e.message;
       await sleep(5000);
       continue;
     }
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
-      active.status = 'error';
-      if (resp.status === 401 || resp.status === 403) {
-        active.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
-        active.running = false;
+      tracker.status = 'error';
+      if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
+        tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
+        tracker.running = false;
         break;
       }
-      active.lastError = 'HTTP ' + resp.status + ' — ' + body.slice(0, 200);
+      tracker.lastError = 'HTTP ' + resp.status + ' — ' + body.slice(0, 200);
       await sleep(5000);
       continue;
     }
@@ -145,33 +161,54 @@ async function pollLoop(username, token) {
     try {
       data = await resp.json();
     } catch (e) {
-      active.status = 'error';
-      active.lastError = 'Respuesta no-JSON de la API';
+      tracker.status = 'error';
+      tracker.lastError = 'Respuesta no-JSON de la API';
       await sleep(5000);
       continue;
     }
 
-    active.status = 'connected';
-    active.lastError = null;
+    tracker.status = 'connected';
+    tracker.lastError = null;
 
     const events = data.events || [];
     for (const ev of events) {
       if (ev.method === 'tip' && ev.object && ev.object.tip) {
         appendTip(username, ev.object.tip.tokens || 0, ev.id);
+      } else if (ev.method === 'broadcastStart') {
+        tracker.isOnline = true;
+        tracker.onlineSince = Date.now();
+      } else if (ev.method === 'broadcastStop') {
+        tracker.isOnline = false;
+        tracker.onlineSince = null;
       }
     }
 
     if (data.nextUrl) nextUrl = data.nextUrl;
   }
 
-  if (active.username === username) {
-    active.running = false;
-    if (active.status !== 'error') active.status = 'idle';
-  }
+  if (tracker.status !== 'error') tracker.status = 'idle';
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getDollarRate() {
+  const now = Date.now();
+  if (rateCache.rate && now - rateCache.updatedAt < RATE_CACHE_MS) return rateCache;
+  try {
+    const resp = await fetch('https://open.er-api.com/v6/latest/USD');
+    const data = await resp.json();
+    const rate = data && data.rates ? data.rates[CURRENCY] : null;
+    if (rate) {
+      rateCache = { rate, updatedAt: now, error: null };
+    } else {
+      rateCache = { rate: rateCache.rate, updatedAt: rateCache.updatedAt, error: 'Moneda ' + CURRENCY + ' no encontrada' };
+    }
+  } catch (e) {
+    rateCache = { rate: rateCache.rate, updatedAt: rateCache.updatedAt, error: e.message };
+  }
+  return rateCache;
 }
 
 function sendJson(res, code, obj) {
@@ -215,23 +252,39 @@ const server = http.createServer(async (req, res) => {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     if (!username || !token) return sendJson(res, 400, { error: 'username o token inválido' });
 
-    if (active.abortCtl) active.abortCtl.abort();
-    active = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null };
-    pollLoop(username, token);
+    const key = username.toLowerCase();
+    const existing = trackers.get(key);
+    if (existing && existing.abortCtl) existing.abortCtl.abort();
+
+    const tracker = {
+      username, token, running: true, status: 'connecting', lastError: null, abortCtl: null,
+      isOnline: existing ? existing.isOnline : null,
+      onlineSince: existing ? existing.onlineSince : null,
+    };
+    trackers.set(key, tracker);
+    pollLoop(tracker);
     return sendJson(res, 200, { ok: true });
   }
 
   if (parsed.pathname === '/api/stop' && req.method === 'POST') {
-    active.running = false;
-    if (active.abortCtl) active.abortCtl.abort();
-    active.status = 'idle';
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'username inválido' });
+    const tracker = trackers.get(username.toLowerCase());
+    if (tracker) {
+      tracker.running = false;
+      if (tracker.abortCtl) tracker.abortCtl.abort();
+      tracker.status = 'idle';
+    }
     return sendJson(res, 200, { ok: true });
   }
 
-  if (parsed.pathname === '/api/report' && req.method === 'GET') {
-    const username = sanitizeUsername(parsed.query.username);
-    if (!username) return sendJson(res, 400, { error: 'username inválido' });
-    return sendJson(res, 200, buildReport(username));
+  if (parsed.pathname === '/api/models' && req.method === 'GET') {
+    const usernames = knownUsernames();
+    const models = usernames.map(buildReport).sort((a, b) => a.account.localeCompare(b.account));
+    const dollar = await getDollarRate();
+    return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY } });
   }
 
   return serveStatic(req, res, parsed.pathname);
