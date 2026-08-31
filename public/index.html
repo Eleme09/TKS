@@ -194,13 +194,19 @@
             '</div>' +
             '<div class="conn">' +
               '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
-              '<button class="btnStop" data-user="' + m.account + '">Detener</button>' +
+              '<div style="display:flex; gap:8px;">' +
+                '<button class="btnStop" data-user="' + m.account + '">Detener</button>' +
+                '<button class="btnDelete" data-user="' + m.account + '" style="background:#402226; color:#ff9d97;">Eliminar</button>' +
+              '</div>' +
             '</div>' +
           '</div>';
       }).join('');
 
       el.models.querySelectorAll('.btnStop').forEach(function (btn) {
         btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
+      });
+      el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
+        btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
       });
     } catch (e) {
       showError('No se pudo consultar el servidor: ' + e.message);
@@ -232,6 +238,16 @@
 
   async function stopModel(username) {
     await fetch('/api/stop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+    refresh();
+  }
+
+  async function deleteModel(username) {
+    const ok = confirm('¿Eliminar a "' + username + '" por completo? Esto borra también todo su historial de tokens. No se puede deshacer.');
+    if (!ok) return;
+    await fetch('/api/delete', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
     });

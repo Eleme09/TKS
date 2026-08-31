@@ -67,12 +67,24 @@ function sanitizeUsername(u) {
 
 // ---- Supabase (Postgres via REST/PostgREST) ----
 
-async function sbUpsertModel(username) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_models', {
+async function sbUpsertModel(username, token) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models?on_conflict=username', {
     method: 'POST',
-    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
-    body: JSON.stringify({ username, role: 'modelo' }),
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ username, role: 'modelo', token }),
   }).catch(() => {});
+}
+
+async function sbDeleteModel(username) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    method: 'DELETE',
+    headers: SB_HEADERS,
+  }).catch(() => {});
+}
+
+async function sbFetchModelsWithTokens() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,token&token=not.is.null', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
 }
 
 async function sbInsertTip(username, tokens, eventId) {
@@ -157,6 +169,22 @@ async function buildModelReports() {
       },
     };
   });
+}
+
+function startTracker(username, token) {
+  const existing = trackers.get(username);
+  if (existing && existing.abortCtl) existing.abortCtl.abort();
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null };
+  trackers.set(username, tracker);
+  pollLoop(tracker);
+}
+
+async function reconnectAllModels() {
+  const models = await sbFetchModelsWithTokens();
+  for (const m of models) {
+    startTracker(m.username, m.token);
+  }
+  if (models.length) console.log('Reconectadas ' + models.length + ' modelo(s) automáticamente.');
 }
 
 async function pollLoop(tracker) {
@@ -282,14 +310,8 @@ const server = http.createServer(async (req, res) => {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     if (!username || !token) return sendJson(res, 400, { error: 'username o token inválido' });
 
-    await sbUpsertModel(username);
-
-    const existing = trackers.get(username);
-    if (existing && existing.abortCtl) existing.abortCtl.abort();
-
-    const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null };
-    trackers.set(username, tracker);
-    pollLoop(tracker);
+    await sbUpsertModel(username, token);
+    startTracker(username, token);
     return sendJson(res, 200, { ok: true });
   }
 
@@ -304,6 +326,21 @@ const server = http.createServer(async (req, res) => {
       if (tracker.abortCtl) tracker.abortCtl.abort();
       tracker.status = 'idle';
     }
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/delete' && req.method === 'POST') {
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'username inválido' });
+    const tracker = trackers.get(username);
+    if (tracker) {
+      tracker.running = false;
+      if (tracker.abortCtl) tracker.abortCtl.abort();
+      trackers.delete(username);
+    }
+    await sbDeleteModel(username);
     return sendJson(res, 200, { ok: true });
   }
 
@@ -335,4 +372,5 @@ server.on('error', (err) => {
 
 server.listen(PORT, () => {
   console.log('Chaturbate token tracker corriendo en http://localhost:' + PORT);
+  reconnectAllModels();
 });
