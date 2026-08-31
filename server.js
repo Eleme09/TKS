@@ -32,6 +32,9 @@ const CURRENCY = 'COP';
 const RATE_CACHE_MS = 5 * 60 * 1000;
 let rateCache = { rate: null, updatedAt: 0, error: null };
 
+// Tarifa de pago a la modelo: USD por token.
+const PAYOUT_RATE_USD_PER_TOKEN = 0.023;
+
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
 // Quincena del estudio: día 1-15 se paga el 20 del mismo mes;
@@ -649,7 +652,12 @@ const server = http.createServer(async (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
     try {
-      const [allModels, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
+      const [rawModels, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
+      let allModels = rawModels.map((m) => {
+        const payoutUSD = m.totalTokensPeriod * PAYOUT_RATE_USD_PER_TOKEN;
+        const payoutCOP = dollar.rate ? payoutUSD * dollar.rate : null;
+        return { ...m, payoutUSD, payoutCOP };
+      });
       let models = allModels;
       if (session.role === 'modelo') {
         models = allModels.filter((m) => m.account === session.username);

@@ -248,6 +248,13 @@
     return '<span class="dot"></span>Desconectado';
   }
 
+  function fmtPayout(m) {
+    const usd = '$' + m.payoutUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
+    if (m.payoutCOP == null) return usd;
+    const cop = '$' + Math.round(m.payoutCOP).toLocaleString('es-CO') + ' COP';
+    return usd + ' ≈ ' + cop;
+  }
+
   async function refresh() {
     try {
       const r = await fetch('/api/models');
@@ -298,6 +305,7 @@
               '<div class="stat"><div class="k">Periodo</div><div class="v small">' + m.period.label + '</div></div>' +
               '<div class="stat"><div class="k">Fecha de pago</div><div class="v small">' + m.period.payoutLabel + '</div></div>' +
               '<div class="stat"><div class="k">Dólar hoy (USD → COP)</div><div class="v small">' + dollarValue + '</div><div class="meta-small">' + dollarMeta + '</div></div>' +
+              '<div class="stat"><div class="k">Desprendible estimado</div><div class="v small">' + fmtPayout(m) + '</div></div>' +
             '</div>' +
             controls +
           '</div>';
