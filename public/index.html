@@ -29,7 +29,9 @@
   .models { display: grid; gap: 14px; }
   .model { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
   .model-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .model-name-row { display: flex; align-items: center; gap: 8px; }
   .model-name { font-size: 16px; font-weight: 700; }
+  .role-badge { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgba(94,200,242,0.15); color: #5ec8f2; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
   .badge.online { background: rgba(52,199,123,0.15); color: var(--good); }
   .badge.offline { background: rgba(226,85,77,0.12); color: var(--bad); }
@@ -60,7 +62,9 @@
     </div>
   </div>
 
-  <div class="card">
+  <button id="btnShowForm" style="display:none; background:#2a2e38; color:var(--text); margin-bottom:16px;">+ Agregar otra modelo</button>
+
+  <div class="card" id="addModelCard">
     <label for="username">Username de la modelo (broadcaster)</label>
     <input id="username" placeholder="ej: nombre_del_modelo" autocomplete="off">
     <label for="token">API Token (Events API)</label>
@@ -88,7 +92,7 @@
       <li>Periodos: día 1-15 se paga el 20 del mismo mes; día 16-fin de mes se paga el 5 del mes siguiente.</li>
       <li><b>En línea / desconectada:</b> se detecta con los eventos oficiales de inicio/fin de transmisión. Si la modelo ya estaba transmitiendo antes de agregarla aquí, el estado aparece como "Desconocido" hasta el primer evento real (el próximo inicio o fin de transmisión).</li>
       <li>El token de cada modelo solo vive en memoria del servidor mientras está conectado; no se guarda en disco.</li>
-      <li>Cotización del dólar (USD → COP) de una fuente pública, actualizada aprox. cada 10 minutos.</li>
+      <li>Cotización del dólar (USD → COP) de una fuente pública gratuita. Esa fuente se actualiza aprox. una vez al día (no segundo a segundo — eso solo lo dan feeds de mercado de pago), por eso siempre se muestra la hora exacta de la última actualización junto al precio.</li>
     </ul>
   </details>
 </div>
@@ -105,7 +109,18 @@
     models: document.getElementById('models'),
     dollarAmt: document.getElementById('dollarAmt'),
     dollarMeta: document.getElementById('dollarMeta'),
+    addModelCard: document.getElementById('addModelCard'),
+    btnShowForm: document.getElementById('btnShowForm'),
   };
+
+  let formOpenDecided = false;
+
+  function setFormOpen(open) {
+    el.addModelCard.style.display = open ? 'block' : 'none';
+    el.btnShowForm.style.display = open ? 'none' : 'block';
+  }
+
+  el.btnShowForm.addEventListener('click', function () { setFormOpen(true); });
 
   el.btnShowToken.addEventListener('click', function () {
     const showing = el.token.type === 'text';
@@ -157,11 +172,16 @@
       const data = await r.json();
 
       if (data.dollar && data.dollar.rate) {
-        el.dollarAmt.textContent = '$' + Math.round(data.dollar.rate).toLocaleString('es-CO') + ' COP';
+        el.dollarAmt.textContent = 'Dólar hoy: $' + Math.round(data.dollar.rate).toLocaleString('es-CO') + ' COP';
         el.dollarMeta.textContent = 'por 1 USD · actualizado ' + fmtDate(data.dollar.updatedAt);
       } else if (data.dollar && data.dollar.error) {
         el.dollarAmt.textContent = '—';
         el.dollarMeta.textContent = 'No se pudo obtener la cotización: ' + data.dollar.error;
+      }
+
+      if (!formOpenDecided) {
+        setFormOpen(!data.models || data.models.length === 0);
+        formOpenDecided = true;
       }
 
       if (!data.models || data.models.length === 0) {
@@ -173,7 +193,7 @@
         return '' +
           '<div class="model">' +
             '<div class="model-head">' +
-              '<div class="model-name">' + m.account + '</div>' +
+              '<div class="model-name-row"><div class="model-name">' + m.account + '</div><span class="role-badge">' + (m.role || 'modelo') + '</span></div>' +
               onlineBadge(m.online) +
             '</div>' +
             '<div class="model-grid">' +
@@ -215,6 +235,7 @@
     el.username.value = '';
     el.token.value = '';
     el.tokenInfo.textContent = '';
+    setFormOpen(false);
     refresh();
   }
 

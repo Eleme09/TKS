@@ -15,7 +15,7 @@ const EVENTS_BASE = 'https://eventsapi.chaturbate.com/events/';
 
 // Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
 const CURRENCY = 'COP';
-const RATE_CACHE_MS = 10 * 60 * 1000;
+const RATE_CACHE_MS = 5 * 60 * 1000;
 let rateCache = { rate: null, updatedAt: 0, error: null };
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -113,6 +113,7 @@ function buildReport(username) {
 
   return {
     account: username,
+    role: 'modelo',
     period: { label: period.label, payoutLabel: period.payoutLabel },
     totalTokensPeriod: total,
     reportGeneratedAt: now,
