@@ -60,6 +60,18 @@ function getQuincena(now) {
   return { start: start.getTime(), end: end.getTime(), payout: payout.getTime(), label, payoutLabel };
 }
 
+// Devuelve las ultimas `count` quincenas, la actual primero.
+function getQuincenaHistory(count, now) {
+  const periods = [];
+  let cursor = now;
+  for (let i = 0; i < count; i++) {
+    const p = getQuincena(cursor);
+    periods.push(p);
+    cursor = p.start - 1;
+  }
+  return periods;
+}
+
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
 // El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
 const trackers = new Map();
@@ -286,6 +298,12 @@ async function sbFetchAllModels() {
 
 async function sbFetchTipsInRange(startIso, endIso) {
   const qs = '?select=username,tokens&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchUserTipsSince(username, sinceIso) {
+  const qs = '?select=tokens,created_at&username=eq.' + encodeURIComponent(username) + '&created_at=gte.' + encodeURIComponent(sinceIso);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
@@ -665,6 +683,46 @@ const server = http.createServer(async (req, res) => {
         models = allModels.map((m) => ({ ...m, connection: { running: m.connection.running, status: m.connection.status, lastError: null } }));
       }
       return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY }, session: { username: session.username, role: session.role, gender: session.gender || null } });
+    } catch (e) {
+      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+    }
+  }
+
+  // ---- Desprendibles (historial por quincena) ----
+
+  if (parsed.pathname === '/api/payslips' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let username = sanitizeUsername(parsed.query.username);
+    if (session.role === 'modelo') username = session.username;
+    if (!username) return sendJson(res, 400, { error: 'username requerido' });
+
+    try {
+      const now = Date.now();
+      const periods = getQuincenaHistory(6, now);
+      const oldestStart = periods[periods.length - 1].start;
+      const [tips, dollar] = await Promise.all([
+        sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
+        getDollarRate(),
+      ]);
+
+      const rows = periods.map((p, idx) => {
+        const total = tips
+          .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; })
+          .reduce((sum, t) => sum + t.tokens, 0);
+        const payoutUSD = total * PAYOUT_RATE_USD_PER_TOKEN;
+        const payoutCOP = dollar.rate ? payoutUSD * dollar.rate : null;
+        return {
+          label: p.label,
+          payoutLabel: p.payoutLabel,
+          totalTokens: total,
+          payoutUSD,
+          payoutCOP,
+          copIsApproximate: idx !== 0,
+        };
+      });
+
+      return sendJson(res, 200, { username, periods: rows, currency: CURRENCY });
     } catch (e) {
       return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
     }
