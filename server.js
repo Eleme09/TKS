@@ -210,6 +210,56 @@ async function sbSetModelPassword(username, passwordHash) {
   }).catch(() => {});
 }
 
+// ---- Turnos / horas extra ----
+
+async function sbListShifts() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?select=*&order=shift_date.asc,start_time.asc', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbCreateShift(shiftDate, startTime, endTime, note) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ shift_date: shiftDate, start_time: startTime, end_time: endTime, note: note || null }),
+  });
+  return resp.ok;
+}
+
+async function sbDeleteShift(id) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: SB_HEADERS,
+  }).catch(() => {});
+}
+
+// Solo reclama si claimed_by todavia es null (evita que dos se apunten al mismo horario a la vez).
+async function sbClaimShift(id, username) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&claimed_by=is.null', {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify({ claimed_by: username, claimed_at: new Date().toISOString() }),
+  });
+  if (!resp.ok) return false;
+  const rows = await resp.json();
+  return rows.length > 0;
+}
+
+async function sbUnclaimShift(id) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ claimed_by: null, claimed_at: null }),
+  }).catch(() => {});
+}
+
+async function sbFetchShift(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
 async function sbInsertTip(username, tokens, eventId) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_tips', {
     method: 'POST',
@@ -442,6 +492,16 @@ function requireAdmin(req, res) {
   return session;
 }
 
+function requireAdminOrCeo(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return null;
+  if (session.role !== 'administrador' && session.role !== 'ceo') {
+    sendJson(res, 403, { error: 'No autorizado' });
+    return null;
+  }
+  return session;
+}
+
 const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
 
@@ -600,6 +660,70 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
     }
+  }
+
+  // ---- Turnos / horas extra ----
+
+  if (parsed.pathname === '/api/shifts' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const shifts = await sbListShifts();
+    return sendJson(res, 200, { shifts });
+  }
+
+  if (parsed.pathname === '/api/shifts/create' && req.method === 'POST') {
+    if (!requireAdminOrCeo(req, res)) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const shiftDate = typeof body.shift_date === 'string' ? body.shift_date.trim() : '';
+    const startTime = typeof body.start_time === 'string' ? body.start_time.trim() : '';
+    const endTime = typeof body.end_time === 'string' ? body.end_time.trim() : '';
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return sendJson(res, 400, { error: 'Fecha inválida' });
+    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return sendJson(res, 400, { error: 'Hora inválida' });
+    const ok = await sbCreateShift(shiftDate, startTime, endTime, note);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo crear el horario' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/shifts/delete' && req.method === 'POST') {
+    if (!requireAdminOrCeo(req, res)) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    await sbDeleteShift(id);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/shifts/claim' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos pueden apuntarse a un horario' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const claimed = await sbClaimShift(id, session.username);
+    if (!claimed) return sendJson(res, 400, { error: 'Ese horario ya no está disponible' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/shifts/unclaim' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    if (session.role === 'modelo') {
+      const shift = await sbFetchShift(id);
+      if (!shift || shift.claimed_by !== session.username) return sendJson(res, 403, { error: 'No es tu horario' });
+    } else if (session.role !== 'administrador' && session.role !== 'ceo') {
+      return sendJson(res, 403, { error: 'No autorizado' });
+    }
+    await sbUnclaimShift(id);
+    return sendJson(res, 200, { ok: true });
   }
 
   return serveStatic(req, res, parsed.pathname);

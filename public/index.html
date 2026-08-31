@@ -117,6 +117,25 @@
       <div id="adminError" class="errbox"></div>
     </div>
 
+    <div class="card" id="shiftsCard" style="margin-top:16px;">
+      <h3 style="margin:0 0 4px; font-size:15px;">Horas extra</h3>
+      <div class="meta-small" style="margin-bottom:12px;" id="shiftsHint"></div>
+
+      <div id="shiftCreateForm" style="display:none; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--border);">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap:10px;">
+          <div><label for="shiftDate">Fecha</label><input id="shiftDate" type="date"></div>
+          <div><label for="shiftStart">Inicio</label><input id="shiftStart" type="time"></div>
+          <div><label for="shiftEnd">Fin</label><input id="shiftEnd" type="time"></div>
+        </div>
+        <label for="shiftNote">Nota (opcional)</label>
+        <input id="shiftNote" placeholder="ej: turno de madrugada">
+        <div class="row"><button id="btnCreateShift" style="flex:1;">Publicar horario</button></div>
+        <div id="shiftError" class="errbox"></div>
+      </div>
+
+      <div id="shiftsList"></div>
+    </div>
+
     <details class="card" style="margin-top:16px;">
       <summary>Sobre los pagos</summary>
       <ul>
@@ -157,9 +176,19 @@
     ceoGender: document.getElementById('ceoGender'),
     btnCreateAdmin: document.getElementById('btnCreateAdmin'),
     adminError: document.getElementById('adminError'),
+    shiftsHint: document.getElementById('shiftsHint'),
+    shiftCreateForm: document.getElementById('shiftCreateForm'),
+    shiftDate: document.getElementById('shiftDate'),
+    shiftStart: document.getElementById('shiftStart'),
+    shiftEnd: document.getElementById('shiftEnd'),
+    shiftNote: document.getElementById('shiftNote'),
+    btnCreateShift: document.getElementById('btnCreateShift'),
+    shiftError: document.getElementById('shiftError'),
+    shiftsList: document.getElementById('shiftsList'),
   };
 
   let currentRole = null;
+  let currentUsername = null;
   let formOpenDecided = false;
   let pollTimer = null;
 
@@ -386,6 +415,99 @@
     });
   }
 
+  function fmtShiftDate(iso) {
+    const [y, m, d] = iso.split('-');
+    return d + '/' + m + '/' + y;
+  }
+
+  async function refreshShifts() {
+    const r = await fetch('/api/shifts');
+    if (r.status === 401) return;
+    const data = await r.json();
+    const shifts = data.shifts || [];
+    const canManage = currentRole === 'administrador' || currentRole === 'ceo';
+    const isModel = currentRole === 'modelo';
+
+    el.shiftsHint.textContent = canManage
+      ? 'Publica horarios disponibles para que las modelos se apunten.'
+      : (isModel ? 'Elige un horario disponible para hora extra.' : 'Horarios de hora extra publicados.');
+
+    if (shifts.length === 0) {
+      el.shiftsList.innerHTML = '<div class="meta-small">No hay horarios publicados todavía.</div>';
+      return;
+    }
+
+    el.shiftsList.innerHTML = shifts.map(function (s) {
+      const range = fmtShiftDate(s.shift_date) + ' · ' + s.start_time.slice(0, 5) + ' - ' + s.end_time.slice(0, 5);
+      const note = s.note ? ' — ' + s.note : '';
+      let statusHtml, actionHtml = '';
+      if (s.claimed_by) {
+        statusHtml = '<span class="badge online">Apuntada: ' + s.claimed_by + '</span>';
+        if (canManage) {
+          actionHtml = '<button class="btnUnclaimShift" data-id="' + s.id + '" style="background:#2a2e38; color:var(--text); padding:4px 10px; font-size:12px;">Quitar apunte</button>';
+        } else if (isModel && s.claimed_by === currentUsername) {
+          actionHtml = '<button class="btnUnclaimShift" data-id="' + s.id + '" style="background:#2a2e38; color:var(--text); padding:4px 10px; font-size:12px;">Cancelar</button>';
+        }
+      } else {
+        statusHtml = '<span class="badge offline">Abierto</span>';
+        if (isModel) {
+          actionHtml = '<button class="btnClaimShift" data-id="' + s.id + '" style="background:rgba(52,199,123,0.15); color:var(--good); padding:4px 10px; font-size:12px;">Elegir este horario</button>';
+        }
+      }
+      const deleteBtn = canManage ? '<button class="btnDeleteShift" data-id="' + s.id + '" style="background:#402226; color:#ff9d97; padding:4px 10px; font-size:12px;">Eliminar</button>' : '';
+      return '<div class="admin-list-row"><span>' + range + note + ' ' + statusHtml + '</span><div style="display:flex; gap:6px;">' + actionHtml + deleteBtn + '</div></div>';
+    }).join('');
+
+    el.shiftsList.querySelectorAll('.btnClaimShift').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const r2 = await fetch('/api/shifts/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
+        if (!r2.ok) { const err = await r2.json().catch(() => ({})); alert(err.error || 'No se pudo apuntar'); }
+        refreshShifts();
+      });
+    });
+    el.shiftsList.querySelectorAll('.btnUnclaimShift').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        await fetch('/api/shifts/unclaim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
+        refreshShifts();
+      });
+    });
+    el.shiftsList.querySelectorAll('.btnDeleteShift').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('¿Eliminar este horario?')) return;
+        await fetch('/api/shifts/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
+        refreshShifts();
+      });
+    });
+  }
+
+  el.btnCreateShift.addEventListener('click', async function () {
+    const shift_date = el.shiftDate.value;
+    const start_time = el.shiftStart.value;
+    const end_time = el.shiftEnd.value;
+    const note = el.shiftNote.value.trim();
+    if (!shift_date || !start_time || !end_time) {
+      el.shiftError.style.display = 'block';
+      el.shiftError.textContent = 'Completa fecha, hora de inicio y hora de fin.';
+      return;
+    }
+    el.shiftError.style.display = 'none';
+    const r = await fetch('/api/shifts/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shift_date, start_time, end_time, note }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      el.shiftError.style.display = 'block';
+      el.shiftError.textContent = err.error || 'No se pudo publicar el horario';
+      return;
+    }
+    el.shiftDate.value = '';
+    el.shiftStart.value = '';
+    el.shiftEnd.value = '';
+    el.shiftNote.value = '';
+    refreshShifts();
+  });
+
   el.btnCreateAdmin.addEventListener('click', async function () {
     const username = el.ceoUser.value.trim();
     const password = el.ceoPass.value;
@@ -433,6 +555,7 @@
 
   function showApp(session) {
     currentRole = session.role;
+    currentUsername = session.username;
     lastUsername = session.username;
     el.loginCard.style.display = 'none';
     el.appArea.style.display = 'block';
@@ -440,18 +563,22 @@
     el.whoRoleBadge.innerHTML = roleBadgeHtml(session.role, session.gender);
 
     const isAdmin = session.role === 'administrador';
+    const canManageShifts = session.role === 'administrador' || session.role === 'ceo';
     el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
     el.adminAccountsCard.style.display = isAdmin ? 'block' : 'none';
+    el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     if (isAdmin) refreshAdminAccounts();
 
     refresh();
+    refreshShifts();
     if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(refresh, 4000);
+    pollTimer = setInterval(function () { refresh(); refreshShifts(); }, 4000);
   }
 
   function showLogin() {
     currentRole = null;
+    currentUsername = null;
     formOpenDecided = false;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.appArea.style.display = 'none';
