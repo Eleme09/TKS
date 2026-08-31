@@ -58,6 +58,15 @@
   .tabnav { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
   .tabbtn { background: none; border: none; color: var(--muted); font-size: 14px; font-weight: 600; padding: 10px 4px; margin-right: 18px; cursor: pointer; border-bottom: 2px solid transparent; border-radius: 0; }
   .tabbtn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .shift-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 16px; }
+  .shift-day { background: #0d0f13; border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-height: 76px; }
+  .shift-day .daylabel { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: capitalize; font-weight: 600; }
+  .shift-pill { font-size: 11px; padding: 3px 6px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; display: block; line-height: 1.4; }
+  .shift-pill.open { background: rgba(52,199,123,0.15); color: var(--good); }
+  .shift-pill.taken { background: rgba(154,160,172,0.12); color: var(--muted); cursor: default; }
+  .shift-pill.mine { background: rgba(79,140,255,0.18); color: var(--accent); cursor: pointer; }
+  .shift-addday { font-size: 16px; color: var(--muted); cursor: pointer; text-align: center; padding: 2px; border-radius: 6px; }
+  .shift-addday:hover { background: #1c2029; }
 </style>
 </head>
 <body>
@@ -83,7 +92,7 @@
     </div>
 
     <div class="tabnav" id="tabnav">
-      <button class="tabbtn" data-tab="modelos">Modelos</button>
+      <button class="tabbtn" data-tab="modelos" id="tabBtnModelos">Modelos</button>
       <button class="tabbtn" data-tab="horas">Horas extra</button>
       <button class="tabbtn" data-tab="cuentas" id="tabBtnCuentas" style="display:none;">Cuentas</button>
     </div>
@@ -206,10 +215,12 @@
   let currentUsername = null;
   let formOpenDecided = false;
   let pollTimer = null;
+  let sessionGen = 0; // se incrementa en cada login/logout; las respuestas de una sesion vieja se descartan
 
   const tabButtons = document.querySelectorAll('.tabbtn');
   const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), cuentas: document.getElementById('tab-cuentas') };
   const tabBtnCuentas = document.getElementById('tabBtnCuentas');
+  const tabBtnModelos = document.getElementById('tabBtnModelos');
 
   function switchTab(name) {
     Object.keys(tabPanels).forEach(function (k) { tabPanels[k].style.display = k === name ? 'block' : 'none'; });
@@ -284,10 +295,13 @@
   }
 
   async function refresh() {
+    const gen = sessionGen;
     try {
       const r = await fetch('/api/models');
+      if (gen !== sessionGen) return; // la sesion cambio mientras esperabamos la respuesta
       if (r.status === 401) { showLogin(); return; }
       const data = await r.json();
+      if (gen !== sessionGen) return;
 
       let dollarValue = '—';
       let dollarMeta = 'No disponible';
@@ -451,67 +465,91 @@
     });
   }
 
-  function fmtShiftDate(iso) {
-    const [y, m, d] = iso.split('-');
-    return d + '/' + m + '/' + y;
+  function getQuincenaDays() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+    let startDay, endDay;
+    if (day <= 15) { startDay = 1; endDay = 15; } else { startDay = 16; endDay = new Date(year, month + 1, 0).getDate(); }
+    const days = [];
+    for (let d = startDay; d <= endDay; d++) {
+      const iso = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const weekday = new Date(year, month, d).toLocaleDateString('es-ES', { weekday: 'short' });
+      days.push({ iso, day: d, weekday: weekday });
+    }
+    return days;
+  }
+
+  async function claimShiftAction(id) {
+    const r2 = await fetch('/api/shifts/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
+    if (!r2.ok) { const err = await r2.json().catch(() => ({})); alert(err.error || 'No se pudo apuntar'); }
+    refreshShifts();
+  }
+
+  async function unclaimShiftAction(id) {
+    await fetch('/api/shifts/unclaim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
+    refreshShifts();
+  }
+
+  async function deleteShiftAction(id) {
+    await fetch('/api/shifts/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
+    refreshShifts();
   }
 
   async function refreshShifts() {
+    const gen = sessionGen;
     const r = await fetch('/api/shifts');
+    if (gen !== sessionGen) return;
     if (r.status === 401) return;
     const data = await r.json();
+    if (gen !== sessionGen) return;
     const shifts = data.shifts || [];
     const canManage = currentRole === 'administrador' || currentRole === 'ceo';
     const isModel = currentRole === 'modelo';
 
     el.shiftsHint.textContent = canManage
-      ? 'Publica horarios disponibles para que las modelos se apunten.'
+      ? 'Publica horarios disponibles para que las modelos se apunten. Clic en "+" en un día para agregar ahí.'
       : (isModel ? 'Elige un horario disponible para hora extra.' : 'Horarios de hora extra publicados.');
 
-    if (shifts.length === 0) {
-      el.shiftsList.innerHTML = '<div class="meta-small">No hay horarios publicados todavía.</div>';
-      return;
-    }
+    const byDate = {};
+    shifts.forEach(function (s) { (byDate[s.shift_date] = byDate[s.shift_date] || []).push(s); });
 
-    el.shiftsList.innerHTML = shifts.map(function (s) {
-      const range = fmtShiftDate(s.shift_date) + ' · ' + s.start_time.slice(0, 5) + ' - ' + s.end_time.slice(0, 5);
-      const note = s.note ? ' — ' + s.note : '';
-      let statusHtml, actionHtml = '';
-      if (s.claimed_by) {
-        statusHtml = '<span class="badge online">Apuntada: ' + s.claimed_by + '</span>';
+    const days = getQuincenaDays();
+    el.shiftsList.innerHTML = '<div class="shift-calendar">' + days.map(function (d) {
+      const dayShifts = (byDate[d.iso] || []).slice().sort(function (a, b) { return a.start_time.localeCompare(b.start_time); });
+      const pills = dayShifts.map(function (s) {
+        const range = s.start_time.slice(0, 5) + '-' + s.end_time.slice(0, 5);
+        if (s.claimed_by) {
+          const mine = isModel && s.claimed_by === currentUsername;
+          const cls = mine ? 'mine' : 'taken';
+          const label = mine ? (range + ' · tú') : (range + ' · ' + s.claimed_by);
+          return '<span class="shift-pill ' + cls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '" title="' + (s.note || '') + '">' + label + '</span>';
+        }
+        return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open" title="' + (s.note || '') + '">' + range + '</span>';
+      }).join('');
+      const addCell = canManage ? '<div class="shift-addday" data-date="' + d.iso + '">+</div>' : '';
+      return '<div class="shift-day"><div class="daylabel">' + d.weekday + ' ' + d.day + '</div>' + pills + addCell + '</div>';
+    }).join('') + '</div>';
+
+    el.shiftsList.querySelectorAll('.shift-pill').forEach(function (pill) {
+      const id = pill.getAttribute('data-id');
+      const state = pill.getAttribute('data-state');
+      pill.addEventListener('click', function () {
         if (canManage) {
-          actionHtml = '<button class="btnUnclaimShift" data-id="' + s.id + '" style="background:#2a2e38; color:var(--text); padding:4px 10px; font-size:12px;">Quitar apunte</button>';
-        } else if (isModel && s.claimed_by === currentUsername) {
-          actionHtml = '<button class="btnUnclaimShift" data-id="' + s.id + '" style="background:#2a2e38; color:var(--text); padding:4px 10px; font-size:12px;">Cancelar</button>';
+          if (state === 'open') { if (confirm('¿Eliminar este horario?')) deleteShiftAction(id); }
+          else { if (confirm('¿Quitar el apunte de este horario? (queda abierto de nuevo)')) unclaimShiftAction(id); }
+        } else if (isModel) {
+          if (state === 'open') claimShiftAction(id);
+          else if (state === 'mine') { if (confirm('¿Cancelar tu apunte a este horario?')) unclaimShiftAction(id); }
         }
-      } else {
-        statusHtml = '<span class="badge offline">Abierto</span>';
-        if (isModel) {
-          actionHtml = '<button class="btnClaimShift" data-id="' + s.id + '" style="background:rgba(52,199,123,0.15); color:var(--good); padding:4px 10px; font-size:12px;">Elegir este horario</button>';
-        }
-      }
-      const deleteBtn = canManage ? '<button class="btnDeleteShift" data-id="' + s.id + '" style="background:#402226; color:#ff9d97; padding:4px 10px; font-size:12px;">Eliminar</button>' : '';
-      return '<div class="admin-list-row"><span>' + range + note + ' ' + statusHtml + '</span><div style="display:flex; gap:6px;">' + actionHtml + deleteBtn + '</div></div>';
-    }).join('');
+      });
+    });
 
-    el.shiftsList.querySelectorAll('.btnClaimShift').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        const r2 = await fetch('/api/shifts/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
-        if (!r2.ok) { const err = await r2.json().catch(() => ({})); alert(err.error || 'No se pudo apuntar'); }
-        refreshShifts();
-      });
-    });
-    el.shiftsList.querySelectorAll('.btnUnclaimShift').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        await fetch('/api/shifts/unclaim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
-        refreshShifts();
-      });
-    });
-    el.shiftsList.querySelectorAll('.btnDeleteShift').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        if (!confirm('¿Eliminar este horario?')) return;
-        await fetch('/api/shifts/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.getAttribute('data-id') }) });
-        refreshShifts();
+    el.shiftsList.querySelectorAll('.shift-addday').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        el.shiftDate.value = btn.getAttribute('data-date');
+        el.shiftStart.focus();
       });
     });
   }
@@ -590,6 +628,7 @@
   let lastUsername = '';
 
   function showApp(session) {
+    sessionGen++;
     currentRole = session.role;
     currentUsername = session.username;
     lastUsername = session.username;
@@ -602,6 +641,7 @@
     const canManageShifts = session.role === 'administrador' || session.role === 'ceo';
     el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
     tabBtnCuentas.style.display = isAdmin ? 'inline-block' : 'none';
+    tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     if (isAdmin) refreshAdminAccounts();
@@ -614,6 +654,7 @@
   }
 
   function showLogin() {
+    sessionGen++;
     currentRole = null;
     currentUsername = null;
     formOpenDecided = false;
