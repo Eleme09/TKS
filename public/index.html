@@ -191,8 +191,14 @@
     margin-bottom: 16px; overflow: hidden; position: relative; animation: fadeUp .35s ease both;
     height: 180px;
   }
-  .section-banner svg { display: block; width: 100%; height: 180px; position: relative; z-index: 1; }
   .banner-glow { position: absolute; inset: -45%; filter: blur(48px); pointer-events: none; z-index: 0; }
+  .banner-title {
+    position: relative; z-index: 1; height: 100%; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4.4vw, 44px);
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--pink); text-align: center;
+    text-shadow: 0 0 4px var(--pink), 0 0 11px var(--pink), 0 0 19px var(--pink), 0 0 40px var(--pink-line);
+    animation: neonFlicker 6s ease-in-out infinite;
+  }
   .banner-modelos .banner-glow {
     background: radial-gradient(46% 58% at 30% 40%, rgba(255,143,190,0.55), transparent 70%),
                 radial-gradient(40% 50% at 74% 62%, rgba(255,143,190,0.32), transparent 70%);
@@ -293,27 +299,7 @@
     <div class="tabpanel" id="tab-modelos">
       <div class="section-banner banner-modelos" aria-hidden="true">
         <div class="banner-glow"></div>
-        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <line x1="0" y1="90" x2="900" y2="90" stroke="var(--border-soft)" stroke-width="1"></line>
-          <path d="M0 90 L260 90 L296 30 L332 150 L368 46 L404 132 L440 90 L900 90" fill="none" stroke="var(--placer-color)" stroke-width="2.2" opacity="0.92" stroke-dasharray="1000" stroke-dashoffset="1000">
-            <animate attributeName="stroke-dashoffset" from="1000" to="0" dur="2.4s" fill="freeze"></animate>
-          </path>
-          <circle cx="296" cy="30" r="4.5" fill="var(--placer-color)"></circle>
-          <circle cx="332" cy="150" r="4.5" fill="var(--placer-color)"></circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
-            <animate attributeName="r" values="6;62" dur="2.8s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.85;0" dur="2.8s" repeatCount="indefinite"></animate>
-          </circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
-            <animate attributeName="r" values="6;62" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
-          </circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
-            <animate attributeName="r" values="6;62" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
-          </circle>
-          <circle cx="650" cy="90" r="7" fill="var(--placer-color)"></circle>
-        </svg>
+        <div class="banner-title">Modelos</div>
       </div>
       <button id="btnShowForm" style="display:none; background:var(--surface-2); color:var(--text); border:1px solid var(--border); margin-bottom:16px;">+ Agregar otra modelo</button>
 
@@ -350,29 +336,7 @@
     <div class="tabpanel" id="tab-horas" style="display:none;">
       <div class="section-banner banner-horas" aria-hidden="true">
         <div class="banner-glow"></div>
-        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <g transform="translate(450 90)">
-            <circle r="66" fill="none" stroke="var(--border)" stroke-width="1.2"></circle>
-            <circle r="66" fill="none" stroke="var(--placer-color)" stroke-width="1.6" stroke-dasharray="5 8" opacity="0.55">
-              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="40s" repeatCount="indefinite"></animateTransform>
-            </circle>
-            <line x1="0" y1="0" x2="0" y2="-32" stroke="var(--text)" stroke-width="3" stroke-linecap="round">
-              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="14s" repeatCount="indefinite"></animateTransform>
-            </line>
-            <line x1="0" y1="0" x2="0" y2="-48" stroke="var(--placer-color)" stroke-width="3" stroke-linecap="round">
-              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="4s" repeatCount="indefinite"></animateTransform>
-            </line>
-            <circle r="5" fill="var(--text)"></circle>
-          </g>
-          <g opacity="0.5">
-            <circle cx="260" cy="90" r="2.5" fill="var(--muted)"></circle>
-            <circle cx="300" cy="90" r="2.5" fill="var(--muted)"></circle>
-            <circle cx="340" cy="90" r="2.5" fill="var(--muted)"></circle>
-            <circle cx="560" cy="90" r="2.5" fill="var(--muted)"></circle>
-            <circle cx="600" cy="90" r="2.5" fill="var(--muted)"></circle>
-            <circle cx="640" cy="90" r="2.5" fill="var(--muted)"></circle>
-          </g>
-        </svg>
+        <div class="banner-title">Horas extra</div>
       </div>
       <div class="card" id="shiftsCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Horas extra</h3>
@@ -413,22 +377,7 @@
     <div class="tabpanel" id="tab-desprendibles" style="display:none;">
       <div class="section-banner banner-desprendibles" aria-hidden="true">
         <div class="banner-glow"></div>
-        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <line x1="0" y1="150" x2="900" y2="150" stroke="var(--border)" stroke-width="1"></line>
-          <g fill="var(--surface-2)" stroke="var(--border)" stroke-width="1">
-            <rect x="390" y="100" width="34" height="50"><animate attributeName="height" values="50;64;50" dur="2.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="100;86;100" dur="2.3s" repeatCount="indefinite"></animate></rect>
-            <rect x="440" y="76" width="34" height="74"><animate attributeName="height" values="74;58;74" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="76;92;76" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate></rect>
-            <rect x="490" y="112" width="34" height="38"><animate attributeName="height" values="38;50;38" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate><animate attributeName="y" values="112;100;112" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate></rect>
-            <rect x="540" y="54" width="34" height="96"><animate attributeName="height" values="96;80;96" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate><animate attributeName="y" values="54;70;54" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate></rect>
-            <rect x="590" y="84" width="34" height="66"><animate attributeName="height" values="66;78;66" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate><animate attributeName="y" values="84;72;84" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate></rect>
-          </g>
-          <path d="M390 122 L457 90 L507 126 L557 58 L607 98" fill="none" stroke="var(--placer-color)" stroke-width="2.4" opacity="0.92" stroke-dasharray="420" stroke-dashoffset="420">
-            <animate attributeName="stroke-dashoffset" from="420" to="0" dur="2s" fill="freeze"></animate>
-          </path>
-          <circle cx="607" cy="98" r="5" fill="var(--placer-color)">
-            <animate attributeName="r" values="5;10;5" dur="1.6s" repeatCount="indefinite"></animate>
-          </circle>
-        </svg>
+        <div class="banner-title">Desprendibles</div>
       </div>
       <div class="card">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Desprendibles</h3>
@@ -444,22 +393,7 @@
     <div class="tabpanel" id="tab-cuentas" style="display:none;">
       <div class="section-banner banner-cuentas" aria-hidden="true">
         <div class="banner-glow"></div>
-        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <g transform="translate(450 90)">
-            <polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30" fill="none" stroke="var(--placer-color)" stroke-width="1.8" opacity="0.75"></polygon>
-            <clipPath id="shieldClip"><polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30"></polygon></clipPath>
-            <line x1="-54" y1="-58" x2="54" y2="-58" stroke="var(--placer-color)" stroke-width="2.4" opacity="0.7" clip-path="url(#shieldClip)">
-              <animate attributeName="y1" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
-              <animate attributeName="y2" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
-            </line>
-            <circle r="15" fill="none" stroke="var(--text)" stroke-width="3"></circle>
-            <line x1="0" y1="15" x2="0" y2="34" stroke="var(--text)" stroke-width="3" stroke-linecap="round"></line>
-          </g>
-          <g opacity="0.45">
-            <line x1="130" y1="90" x2="310" y2="90" stroke="var(--border)" stroke-width="1"></line>
-            <line x1="590" y1="90" x2="770" y2="90" stroke="var(--border)" stroke-width="1"></line>
-          </g>
-        </svg>
+        <div class="banner-title">Cuentas</div>
       </div>
       <div class="card" id="adminAccountsCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Cuentas administrativas</h3>
