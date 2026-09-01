@@ -14,7 +14,7 @@
     --border: #242427; --border-soft: #1c1c1f;
     --text: #f5f5f7; --muted: #8c8c93; --muted-dim: #55555b;
     --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4); --pink-glow: rgba(255,143,190,0.17);
-    --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow);
+    --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow); --placer-color: var(--pink);
     --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
     --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
     --ceo-f: #ff8fbe; --ceo-f-soft: rgba(255,143,190,0.14);
@@ -38,10 +38,10 @@
   }
   @keyframes neonFlicker {
     0%, 18%, 22%, 25%, 53%, 57%, 100% {
-      text-shadow: 0 0 4px var(--pink), 0 0 11px var(--pink), 0 0 19px var(--pink), 0 0 40px var(--pink-line);
+      text-shadow: 0 0 4px var(--placer-color), 0 0 11px var(--placer-color), 0 0 19px var(--placer-color), 0 0 40px var(--placer-color);
       opacity: 1;
     }
-    20%, 24%, 55% { text-shadow: 0 0 2px var(--pink); opacity: 0.72; }
+    20%, 24%, 55% { text-shadow: 0 0 2px var(--placer-color); opacity: 0.72; }
   }
   @keyframes neonGlowGood {
     0%, 100% { box-shadow: 0 0 4px 0 rgba(111,231,184,0.45), inset 0 0 6px rgba(111,231,184,0.12); text-shadow: 0 0 4px rgba(111,231,184,0.55); }
@@ -66,10 +66,10 @@
     0%, 100% { transform: translate(-3%, -3%) scale(1); }
     50% { transform: translate(1%, 1%) scale(1.14); }
   }
-  body.theme-modelos { --theme-glow: rgba(255,63,140,0.32); --theme-glow-2: rgba(255,63,140,0.2); }
-  body.theme-horas { --theme-glow: rgba(255,171,102,0.3); --theme-glow-2: rgba(255,171,102,0.18); }
-  body.theme-desprendibles { --theme-glow: rgba(246,196,84,0.32); --theme-glow-2: rgba(246,196,84,0.2); }
-  body.theme-cuentas { --theme-glow: rgba(196,120,255,0.3); --theme-glow-2: rgba(196,120,255,0.18); }
+  body.theme-modelos { --placer-color: #4f8cff; --theme-glow: rgba(79,140,255,0.32); --theme-glow-2: rgba(79,140,255,0.2); }
+  body.theme-horas { --placer-color: #ffd23f; --theme-glow: rgba(255,210,63,0.3); --theme-glow-2: rgba(255,210,63,0.18); }
+  body.theme-desprendibles { --placer-color: #22c55e; --theme-glow: rgba(34,197,94,0.32); --theme-glow-2: rgba(34,197,94,0.2); }
+  body.theme-cuentas { --placer-color: #a855f7; --theme-glow: rgba(168,85,247,0.3); --theme-glow-2: rgba(168,85,247,0.18); }
   body.theme-modelos::after { animation: themePulse 3.4s ease-in-out infinite; }
   body.theme-horas::after { animation: themeOrbit 18s linear infinite; }
   body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
@@ -107,7 +107,7 @@
     text-transform: uppercase; margin: 0 0 4px; color: var(--text);
     text-shadow: 0 0 14px rgba(245,245,247,0.22);
   }
-  h1 .placer { color: var(--pink); animation: neonFlicker 6s ease-in-out infinite; }
+  h1 .placer { color: var(--placer-color); animation: neonFlicker 6s ease-in-out infinite; transition: color .5s ease; }
   .hrule { height: 1px; width: 46px; background: linear-gradient(90deg, var(--pink), transparent); margin: 14px 0 16px; }
   .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-bottom: 28px; max-width: 42ch; }
   .card {
@@ -196,23 +196,23 @@
   .section-banner svg { display: block; width: 100%; height: 180px; position: relative; z-index: 1; }
   .banner-glow { position: absolute; inset: -45%; filter: blur(48px); pointer-events: none; z-index: 0; }
   .banner-modelos .banner-glow {
-    background: radial-gradient(46% 58% at 30% 40%, rgba(255,63,140,0.55), transparent 70%),
-                radial-gradient(40% 50% at 74% 62%, rgba(255,63,140,0.32), transparent 70%);
+    background: radial-gradient(46% 58% at 30% 40%, rgba(79,140,255,0.55), transparent 70%),
+                radial-gradient(40% 50% at 74% 62%, rgba(79,140,255,0.32), transparent 70%);
     animation: themePulse 3.4s ease-in-out infinite;
   }
   .banner-horas .banner-glow {
-    background: radial-gradient(46% 58% at 34% 46%, rgba(255,171,102,0.5), transparent 70%),
-                radial-gradient(40% 50% at 70% 56%, rgba(255,171,102,0.28), transparent 70%);
+    background: radial-gradient(46% 58% at 34% 46%, rgba(255,210,63,0.5), transparent 70%),
+                radial-gradient(40% 50% at 70% 56%, rgba(255,210,63,0.28), transparent 70%);
     animation: themeOrbit 18s linear infinite;
   }
   .banner-desprendibles .banner-glow {
-    background: radial-gradient(46% 58% at 42% 56%, rgba(246,196,84,0.5), transparent 70%),
-                radial-gradient(40% 50% at 64% 40%, rgba(246,196,84,0.3), transparent 70%);
+    background: radial-gradient(46% 58% at 42% 56%, rgba(34,197,94,0.5), transparent 70%),
+                radial-gradient(40% 50% at 64% 40%, rgba(34,197,94,0.3), transparent 70%);
     animation: themeRise 11s ease-in-out infinite;
   }
   .banner-cuentas .banner-glow {
-    background: radial-gradient(46% 58% at 50% 50%, rgba(196,120,255,0.5), transparent 70%),
-                radial-gradient(38% 48% at 66% 60%, rgba(196,120,255,0.3), transparent 70%);
+    background: radial-gradient(46% 58% at 50% 50%, rgba(168,85,247,0.5), transparent 70%),
+                radial-gradient(38% 48% at 66% 60%, rgba(168,85,247,0.3), transparent 70%);
     animation: themeSteady 8s ease-in-out infinite;
   }
   .shift-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 16px; }
@@ -278,24 +278,24 @@
         <div class="banner-glow"></div>
         <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <line x1="0" y1="90" x2="900" y2="90" stroke="var(--border-soft)" stroke-width="1"></line>
-          <path d="M0 90 L260 90 L296 30 L332 150 L368 46 L404 132 L440 90 L900 90" fill="none" stroke="var(--pink)" stroke-width="2.2" opacity="0.92" stroke-dasharray="1000" stroke-dashoffset="1000">
+          <path d="M0 90 L260 90 L296 30 L332 150 L368 46 L404 132 L440 90 L900 90" fill="none" stroke="var(--placer-color)" stroke-width="2.2" opacity="0.92" stroke-dasharray="1000" stroke-dashoffset="1000">
             <animate attributeName="stroke-dashoffset" from="1000" to="0" dur="2.4s" fill="freeze"></animate>
           </path>
-          <circle cx="296" cy="30" r="4.5" fill="var(--pink)"></circle>
-          <circle cx="332" cy="150" r="4.5" fill="var(--pink)"></circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+          <circle cx="296" cy="30" r="4.5" fill="var(--placer-color)"></circle>
+          <circle cx="332" cy="150" r="4.5" fill="var(--placer-color)"></circle>
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
             <animate attributeName="r" values="6;62" dur="2.8s" repeatCount="indefinite"></animate>
             <animate attributeName="opacity" values="0.85;0" dur="2.8s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
             <animate attributeName="r" values="6;62" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
             <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--placer-color)" stroke-width="2">
             <animate attributeName="r" values="6;62" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
             <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="650" cy="90" r="7" fill="var(--pink)"></circle>
+          <circle cx="650" cy="90" r="7" fill="var(--placer-color)"></circle>
         </svg>
       </div>
       <button id="btnShowForm" style="display:none; background:var(--surface-2); color:var(--text); border:1px solid var(--border); margin-bottom:16px;">+ Agregar otra modelo</button>
@@ -336,13 +336,13 @@
         <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <g transform="translate(450 90)">
             <circle r="66" fill="none" stroke="var(--border)" stroke-width="1.2"></circle>
-            <circle r="66" fill="none" stroke="var(--pink)" stroke-width="1.6" stroke-dasharray="5 8" opacity="0.55">
+            <circle r="66" fill="none" stroke="var(--placer-color)" stroke-width="1.6" stroke-dasharray="5 8" opacity="0.55">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="40s" repeatCount="indefinite"></animateTransform>
             </circle>
             <line x1="0" y1="0" x2="0" y2="-32" stroke="var(--text)" stroke-width="3" stroke-linecap="round">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="14s" repeatCount="indefinite"></animateTransform>
             </line>
-            <line x1="0" y1="0" x2="0" y2="-48" stroke="var(--pink)" stroke-width="3" stroke-linecap="round">
+            <line x1="0" y1="0" x2="0" y2="-48" stroke="var(--placer-color)" stroke-width="3" stroke-linecap="round">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="4s" repeatCount="indefinite"></animateTransform>
             </line>
             <circle r="5" fill="var(--text)"></circle>
@@ -405,10 +405,10 @@
             <rect x="540" y="54" width="34" height="96"><animate attributeName="height" values="96;80;96" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate><animate attributeName="y" values="54;70;54" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate></rect>
             <rect x="590" y="84" width="34" height="66"><animate attributeName="height" values="66;78;66" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate><animate attributeName="y" values="84;72;84" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate></rect>
           </g>
-          <path d="M390 122 L457 90 L507 126 L557 58 L607 98" fill="none" stroke="var(--pink)" stroke-width="2.4" opacity="0.92" stroke-dasharray="420" stroke-dashoffset="420">
+          <path d="M390 122 L457 90 L507 126 L557 58 L607 98" fill="none" stroke="var(--placer-color)" stroke-width="2.4" opacity="0.92" stroke-dasharray="420" stroke-dashoffset="420">
             <animate attributeName="stroke-dashoffset" from="420" to="0" dur="2s" fill="freeze"></animate>
           </path>
-          <circle cx="607" cy="98" r="5" fill="var(--pink)">
+          <circle cx="607" cy="98" r="5" fill="var(--placer-color)">
             <animate attributeName="r" values="5;10;5" dur="1.6s" repeatCount="indefinite"></animate>
           </circle>
         </svg>
@@ -429,9 +429,9 @@
         <div class="banner-glow"></div>
         <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <g transform="translate(450 90)">
-            <polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30" fill="none" stroke="var(--pink)" stroke-width="1.8" opacity="0.75"></polygon>
+            <polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30" fill="none" stroke="var(--placer-color)" stroke-width="1.8" opacity="0.75"></polygon>
             <clipPath id="shieldClip"><polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30"></polygon></clipPath>
-            <line x1="-54" y1="-58" x2="54" y2="-58" stroke="var(--pink)" stroke-width="2.4" opacity="0.7" clip-path="url(#shieldClip)">
+            <line x1="-54" y1="-58" x2="54" y2="-58" stroke="var(--placer-color)" stroke-width="2.4" opacity="0.7" clip-path="url(#shieldClip)">
               <animate attributeName="y1" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
               <animate attributeName="y2" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
             </line>
