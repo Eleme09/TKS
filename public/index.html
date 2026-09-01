@@ -28,11 +28,23 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
   @keyframes tabIn { from { opacity: 0; transform: translateY(10px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
   @keyframes drift { from { background-position: 0 0; } to { background-position: 0 220px; } }
-  @keyframes orbit {
-    0%   { transform: translate(-4%, -3%) scale(1); }
-    33%  { transform: translate(5%, 2%) scale(1.08); }
-    66%  { transform: translate(-2%, 5%) scale(0.96); }
-    100% { transform: translate(-4%, -3%) scale(1); }
+  @keyframes smokeDrift {
+    0%   { transform: translate(-6%, -4%) scale(1) rotate(0deg); }
+    25%  { transform: translate(4%, -8%) scale(1.16) rotate(7deg); }
+    50%  { transform: translate(8%, 5%) scale(0.94) rotate(-6deg); }
+    75%  { transform: translate(-4%, 8%) scale(1.1) rotate(4deg); }
+    100% { transform: translate(-6%, -4%) scale(1) rotate(0deg); }
+  }
+  @keyframes neonFlicker {
+    0%, 18%, 22%, 25%, 53%, 57%, 100% {
+      text-shadow: 0 0 4px var(--pink), 0 0 11px var(--pink), 0 0 19px var(--pink), 0 0 40px var(--pink-line);
+      opacity: 1;
+    }
+    20%, 24%, 55% { text-shadow: 0 0 2px var(--pink); opacity: 0.72; }
+  }
+  @keyframes neonGlowGood {
+    0%, 100% { box-shadow: 0 0 4px 0 rgba(111,231,184,0.45), inset 0 0 6px rgba(111,231,184,0.12); text-shadow: 0 0 4px rgba(111,231,184,0.55); }
+    50% { box-shadow: 0 0 14px 2px rgba(111,231,184,0.85), inset 0 0 10px rgba(111,231,184,0.3); text-shadow: 0 0 8px rgba(111,231,184,0.85); }
   }
   html { scrollbar-color: #333 transparent; background: var(--bg); }
   body {
@@ -47,22 +59,25 @@
     animation: drift 26s linear infinite;
   }
   body::after {
-    content: ''; position: fixed; inset: -15%; pointer-events: none; z-index: 0; filter: blur(6px);
+    content: ''; position: fixed; inset: -25%; pointer-events: none; z-index: 0; filter: blur(50px);
     background:
-      radial-gradient(560px 380px at 30% 22%, var(--pink-glow), transparent 62%),
-      radial-gradient(460px 340px at 78% 68%, var(--pink-glow), transparent 62%);
-    animation: orbit 22s ease-in-out infinite;
+      radial-gradient(38% 30% at 28% 24%, var(--pink-glow), transparent 70%),
+      radial-gradient(34% 26% at 76% 64%, var(--pink-glow), transparent 70%),
+      radial-gradient(30% 24% at 55% 88%, rgba(255,255,255,0.05), transparent 70%);
+    animation: smokeDrift 34s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
     body::before, body::after { animation: none; }
-    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav { animation: none !important; }
+    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav, .badge.online, h1 .placer { animation: none !important; }
+    .section-banner animate, .section-banner animateTransform { display: none; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
   h1 {
     font-family: var(--font-display); font-weight: 600; font-size: 19px; letter-spacing: 0.02em;
     text-transform: uppercase; margin: 0 0 4px; color: var(--text);
+    text-shadow: 0 0 14px rgba(245,245,247,0.22);
   }
-  h1 .placer { color: var(--pink); }
+  h1 .placer { color: var(--pink); animation: neonFlicker 6s ease-in-out infinite; }
   .hrule { height: 1px; width: 46px; background: linear-gradient(90deg, var(--pink), transparent); margin: 14px 0 16px; }
   .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-bottom: 28px; max-width: 42ch; }
   .card {
@@ -110,9 +125,10 @@
   .role-badge.ceo-m { background: var(--ceo-m-soft); color: var(--ceo-m); border: 1px solid rgba(127,212,232,0.25); }
   .role-badge.ceo-f { background: var(--ceo-f-soft); color: var(--ceo-f); border: 1px solid rgba(255,143,190,0.25); }
   .badge { font-size: 10.5px; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .badge.online { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.22); }
-  .badge.offline { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.2); }
-  .badge.online::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px var(--good); animation: pulse 1.8s ease-in-out infinite; }
+  .badge.online { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.35); animation: neonGlowGood 2.1s ease-in-out infinite; }
+  .badge.offline { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.2); opacity: 0.6; }
+  .badge.online::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px 2px var(--good); animation: pulse 1.8s ease-in-out infinite; }
+  .badge.offline::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--bad); display: inline-block; }
   .model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   .stat { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 12px; transition: border-color .15s ease; }
   .stat:hover { border-color: #2c2c30; }
@@ -174,9 +190,11 @@
 </head>
 <body>
 <div class="wrap">
-  <h1><span class="placer">Placer</span> Services</h1>
-  <div class="hrule"></div>
-  <div class="sub">Tu quincena, en tiempo real. Entra y mira cuánto llevas ganado, cuándo te toca cobrar y cuánto es en pesos — sin adivinar, sin tener que preguntarle a nadie.</div>
+  <div id="masthead">
+    <h1><span class="placer">Placer</span> Services</h1>
+    <div class="hrule"></div>
+    <div class="sub">Tu quincena, en tiempo real. Entra y mira cuánto llevas ganado, cuándo te toca cobrar y cuánto es en pesos — sin adivinar, sin tener que preguntarle a nadie.</div>
+  </div>
 
   <div class="card" id="loginCard">
     <label for="loginUser">Usuario</label>
@@ -208,12 +226,23 @@
         <svg viewBox="0 0 900 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <rect width="900" height="84" fill="var(--surface)"></rect>
           <line x1="0" y1="42" x2="900" y2="42" stroke="var(--border-soft)" stroke-width="1"></line>
-          <path d="M0 42 L140 42 L162 14 L184 68 L206 22 L228 58 L250 42 L900 42" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.85"></path>
-          <path d="M0 42 L100 42 L950 42" fill="none" stroke="var(--border)" stroke-width="1" opacity="0.5"></path>
+          <path d="M0 42 L140 42 L162 14 L184 68 L206 22 L228 58 L250 42 L900 42" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.85" stroke-dasharray="700" stroke-dashoffset="700">
+            <animate attributeName="stroke-dashoffset" from="700" to="0" dur="2.4s" fill="freeze"></animate>
+          </path>
           <circle cx="162" cy="14" r="3" fill="var(--pink)"></circle>
           <circle cx="184" cy="68" r="3" fill="var(--pink)"></circle>
-          <circle cx="700" cy="42" r="26" fill="none" stroke="var(--pink)" stroke-width="1" opacity="0.35"></circle>
-          <circle cx="700" cy="42" r="14" fill="none" stroke="var(--pink)" stroke-width="1" opacity="0.55"></circle>
+          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
+            <animate attributeName="r" values="4;30" dur="2.6s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.8;0" dur="2.6s" repeatCount="indefinite"></animate>
+          </circle>
+          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
+            <animate attributeName="r" values="4;30" dur="2.6s" begin="0.9s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.8;0" dur="2.6s" begin="0.9s" repeatCount="indefinite"></animate>
+          </circle>
+          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
+            <animate attributeName="r" values="4;30" dur="2.6s" begin="1.8s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.8;0" dur="2.6s" begin="1.8s" repeatCount="indefinite"></animate>
+          </circle>
           <circle cx="700" cy="42" r="4" fill="var(--pink)"></circle>
         </svg>
       </div>
@@ -255,9 +284,15 @@
           <rect width="900" height="84" fill="var(--surface)"></rect>
           <g transform="translate(450 42)">
             <circle r="32" fill="none" stroke="var(--border)" stroke-width="1"></circle>
-            <circle r="32" fill="none" stroke="var(--pink)" stroke-width="1.4" stroke-dasharray="4 6" opacity="0.55"></circle>
-            <line x1="0" y1="0" x2="0" y2="-20" stroke="var(--text)" stroke-width="2" stroke-linecap="round"></line>
-            <line x1="0" y1="0" x2="15" y2="8" stroke="var(--pink)" stroke-width="2" stroke-linecap="round"></line>
+            <circle r="32" fill="none" stroke="var(--pink)" stroke-width="1.4" stroke-dasharray="4 6" opacity="0.5">
+              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="40s" repeatCount="indefinite"></animateTransform>
+            </circle>
+            <line x1="0" y1="0" x2="0" y2="-15" stroke="var(--text)" stroke-width="2" stroke-linecap="round">
+              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="14s" repeatCount="indefinite"></animateTransform>
+            </line>
+            <line x1="0" y1="0" x2="0" y2="-22" stroke="var(--pink)" stroke-width="2" stroke-linecap="round">
+              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="4s" repeatCount="indefinite"></animateTransform>
+            </line>
             <circle r="2.5" fill="var(--text)"></circle>
           </g>
           <g opacity="0.5">
@@ -312,14 +347,18 @@
           <rect width="900" height="84" fill="var(--surface)"></rect>
           <line x1="0" y1="70" x2="900" y2="70" stroke="var(--border)" stroke-width="1"></line>
           <g fill="var(--surface-2)" stroke="var(--border)" stroke-width="1">
-            <rect x="420" y="46" width="18" height="24"></rect>
-            <rect x="450" y="34" width="18" height="36"></rect>
-            <rect x="480" y="52" width="18" height="18"></rect>
-            <rect x="510" y="22" width="18" height="48"></rect>
-            <rect x="540" y="38" width="18" height="32"></rect>
+            <rect x="420" y="46" width="18" height="24"><animate attributeName="height" values="24;30;24" dur="2.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="46;40;46" dur="2.3s" repeatCount="indefinite"></animate></rect>
+            <rect x="450" y="34" width="18" height="36"><animate attributeName="height" values="36;28;36" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="34;42;34" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate></rect>
+            <rect x="480" y="52" width="18" height="18"><animate attributeName="height" values="18;24;18" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate><animate attributeName="y" values="52;46;52" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate></rect>
+            <rect x="510" y="22" width="18" height="48"><animate attributeName="height" values="48;40;48" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate><animate attributeName="y" values="22;30;22" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate></rect>
+            <rect x="540" y="38" width="18" height="32"><animate attributeName="height" values="32;38;32" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate><animate attributeName="y" values="38;32;38" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate></rect>
           </g>
-          <path d="M420 58 L459 42 L489 60 L519 26 L549 46" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.9"></path>
-          <circle cx="549" cy="46" r="3" fill="var(--pink)"></circle>
+          <path d="M420 58 L459 42 L489 60 L519 26 L549 46" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.9" stroke-dasharray="220" stroke-dashoffset="220">
+            <animate attributeName="stroke-dashoffset" from="220" to="0" dur="2s" fill="freeze"></animate>
+          </path>
+          <circle cx="549" cy="46" r="3" fill="var(--pink)">
+            <animate attributeName="r" values="3;6;3" dur="1.6s" repeatCount="indefinite"></animate>
+          </circle>
         </svg>
       </div>
       <div class="card">
@@ -339,6 +378,11 @@
           <rect width="900" height="84" fill="var(--surface)"></rect>
           <g transform="translate(450 42)">
             <polygon points="0,-28 24,-14 24,14 0,28 -24,14 -24,-14" fill="none" stroke="var(--pink)" stroke-width="1.4" opacity="0.7"></polygon>
+            <clipPath id="shieldClip"><polygon points="0,-28 24,-14 24,14 0,28 -24,14 -24,-14"></polygon></clipPath>
+            <line x1="-26" y1="-28" x2="26" y2="-28" stroke="var(--pink)" stroke-width="2" opacity="0.7" clip-path="url(#shieldClip)">
+              <animate attributeName="y1" values="-28;28;-28" dur="3.4s" repeatCount="indefinite"></animate>
+              <animate attributeName="y2" values="-28;28;-28" dur="3.4s" repeatCount="indefinite"></animate>
+            </line>
             <circle r="7" fill="none" stroke="var(--text)" stroke-width="2"></circle>
             <line x1="0" y1="7" x2="0" y2="17" stroke="var(--text)" stroke-width="2" stroke-linecap="round"></line>
           </g>
@@ -371,6 +415,7 @@
 <script>
 (function () {
   const el = {
+    masthead: document.getElementById('masthead'),
     loginCard: document.getElementById('loginCard'),
     loginUser: document.getElementById('loginUser'),
     loginPass: document.getElementById('loginPass'),
@@ -985,6 +1030,7 @@
     sessionGen++;
     currentRole = session.role;
     currentUsername = session.username;
+    el.masthead.style.display = 'none';
     el.loginCard.style.display = 'none';
     el.appArea.style.display = 'block';
     el.whoUser.textContent = session.username;
@@ -1016,6 +1062,7 @@
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
+    el.masthead.style.display = 'block';
     el.loginCard.style.display = 'block';
   }
 

@@ -317,31 +317,19 @@ async function sbFetchUserTipsSince(username, sinceIso) {
   return r.ok ? r.json() : [];
 }
 
-async function sbFetchLatestBroadcastEvents() {
-  const qs = '?select=username,event_type,created_at&order=created_at.desc&limit=500';
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
-}
-
 async function buildModelReports() {
   const now = Date.now();
   const period = getQuincena(now);
   const startIso = new Date(period.start).toISOString();
   const endIso = new Date(period.end).toISOString();
 
-  const [models, tips, broadcastEvents] = await Promise.all([
+  const [models, tips] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
-    sbFetchLatestBroadcastEvents(),
   ]);
 
   const tipsByUser = {};
   for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
-
-  const latestBroadcastByUser = {};
-  for (const e of broadcastEvents) {
-    if (!(e.username in latestBroadcastByUser)) latestBroadcastByUser[e.username] = e;
-  }
 
   return models.map((m) => {
     const tr = trackers.get(m.username);
@@ -351,9 +339,13 @@ async function buildModelReports() {
     const periodLenMs = period.end - period.start;
     const periodCoveragePct = Math.max(0, Math.min(100, ((trackedTo - trackedFrom) / periodLenMs) * 100));
 
-    const be = latestBroadcastByUser[m.username];
-    const online = be && be.event_type === 'start'
-      ? { state: 'online', since: new Date(be.created_at).getTime() }
+    // El estado en linea se toma SOLO del evento recibido en esta conexion en vivo (tr.online),
+    // nunca del historico en la base: si el servidor estuvo dormido (spin-down de Render) y se
+    // perdio un broadcastStop, el ultimo evento guardado queda como "start" para siempre y la
+    // modelo aparece en linea sin estarlo. Por eso cada reconexion arranca en "desconocida" hasta
+    // que llega un evento real durante esa sesion.
+    const online = tr && tr.online
+      ? { state: 'online', since: tr.onlineSince || now }
       : { state: 'offline', since: null };
 
     return {
@@ -377,7 +369,7 @@ async function buildModelReports() {
 function startTracker(username, token) {
   const existing = trackers.get(username);
   if (existing && existing.abortCtl) existing.abortCtl.abort();
-  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null };
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null };
   trackers.set(username, tracker);
   pollLoop(tracker);
 }
@@ -438,8 +430,12 @@ async function pollLoop(tracker) {
       if (ev.method === 'tip' && ev.object && ev.object.tip) {
         await sbInsertTip(username, ev.object.tip.tokens || 0, ev.id);
       } else if (ev.method === 'broadcastStart') {
+        tracker.online = true;
+        tracker.onlineSince = Date.now();
         await sbInsertBroadcastEvent(username, 'start', ev.id);
       } else if (ev.method === 'broadcastStop') {
+        tracker.online = false;
+        tracker.onlineSince = null;
         await sbInsertBroadcastEvent(username, 'stop', ev.id);
       }
     }
