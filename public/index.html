@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>PLACER SERVICES</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -234,6 +234,25 @@
   @media (max-width: 640px) {
     #loginCard { max-width: 100%; }
     .models { grid-template-columns: 1fr; }
+    .model-grid { grid-template-columns: 1fr 1fr; }
+    .section-banner, .section-banner svg { height: 110px; }
+    .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .topbar > button { width: 100%; }
+    .conn { flex-direction: column; align-items: stretch; gap: 10px; }
+    .conn > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+    .conn button { width: 100%; }
+    .quincena-nav button { padding: 6px 8px; font-size: 11.5px; }
+    .shift-calendar { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+    /* Barra de pestanas fija abajo, al alcance del pulgar */
+    .tabnav {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+      margin: 0; border-top: 1px solid var(--border-soft); border-bottom: none;
+      background: var(--surface); padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+      justify-content: space-around; gap: 2px; animation: none;
+    }
+    .tabbtn { flex: 1; text-align: center; padding: 9px 2px; font-size: 10.5px; letter-spacing: 0.02em; border-bottom: none; border-top: 2px solid transparent; }
+    .tabbtn.active { border-top-color: var(--pink); border-bottom-color: transparent; }
+    body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
