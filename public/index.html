@@ -103,7 +103,7 @@
 <body>
 <div class="wrap">
   <h1>PLACER SERVICES</h1>
-  <div class="sub">Más de 3 años acompañando a nuestras modelos con cercanía y un enfoque real en su crecimiento económico. Panel de seguimiento de ingresos por quincena.</div>
+  <div class="sub">Tu quincena, en tiempo real. Entra y mira cuánto llevas ganado, cuándo te toca cobrar y cuánto es en pesos — sin adivinar, sin tener que preguntarle a nadie.</div>
 
   <div class="card" id="loginCard">
     <label for="loginUser">Usuario</label>
@@ -111,6 +111,7 @@
     <label for="loginPass">Contraseña</label>
     <input id="loginPass" type="password" autocomplete="current-password">
     <div class="row"><button id="btnLogin" style="flex:1;">Entrar</button></div>
+    <div class="meta-small" style="text-align:center; margin-top:10px;">Es tu cuenta, son tus números — aquí no los ve nadie más.</div>
     <div id="loginError" class="errbox"></div>
   </div>
 
@@ -157,6 +158,7 @@
           <li>Periodo del 1 al 15: se paga el día 20 del mismo mes.</li>
           <li>Periodo del 16 al fin de mes: se paga el día 5 del mes siguiente.</li>
           <li>Los montos que ves reflejan lo acumulado desde que cada cuenta fue dada de alta en el sistema.</li>
+          <li style="color:var(--warn);">⚠ Ojo: el monto en pesos puede variar un poco, se calcula con la tasa del dólar del día en que se paga — no con la de hoy.</li>
         </ul>
       </details>
     </div>
@@ -175,6 +177,15 @@
           <input id="shiftNote" placeholder="ej: turno de madrugada">
           <div class="row"><button id="btnCreateShift" style="flex:1;">Publicar horario</button></div>
           <div id="shiftError" class="errbox"></div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">
+          <button id="btnPrevQuincena" type="button" style="background:#2a2e38; color:var(--text); padding:6px 12px; font-size:13px;">‹ Anterior</button>
+          <div style="text-align:center;">
+            <div id="shiftsPeriodLabel" style="font-size:13px; font-weight:600;"></div>
+            <button id="btnTodayQuincena" type="button" style="background:none; border:none; color:var(--accent); font-size:11px; text-decoration:underline; cursor:pointer; padding:2px;">ir a hoy</button>
+          </div>
+          <button id="btnNextQuincena" type="button" style="background:#2a2e38; color:var(--text); padding:6px 12px; font-size:13px;">Siguiente ›</button>
         </div>
 
         <div id="shiftsList"></div>
@@ -251,6 +262,10 @@
     btnCreateShift: document.getElementById('btnCreateShift'),
     shiftError: document.getElementById('shiftError'),
     shiftsList: document.getElementById('shiftsList'),
+    shiftsPeriodLabel: document.getElementById('shiftsPeriodLabel'),
+    btnPrevQuincena: document.getElementById('btnPrevQuincena'),
+    btnNextQuincena: document.getElementById('btnNextQuincena'),
+    btnTodayQuincena: document.getElementById('btnTodayQuincena'),
     payslipModelPicker: document.getElementById('payslipModelPicker'),
     payslipUser: document.getElementById('payslipUser'),
     payslipsList: document.getElementById('payslipsList'),
@@ -513,13 +528,10 @@
     if (gen !== sessionGen) return;
 
     el.payslipsList.innerHTML = (data.periods || []).map(function (p, idx) {
-      if (p.closed) {
-        return '<div class="admin-list-row"><span><b>' + p.label + '</b> <span class="badge offline">Quincena cerrada</span></span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
-      }
       const usd = '$' + p.payoutUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
       const cop = p.payoutCOP != null ? '$' + Math.round(p.payoutCOP).toLocaleString('es-CO') + ' COP' + (p.copIsApproximate ? ' (aprox.)' : '') : '—';
-      const currentTag = ' <span class="badge online">Quincena actual</span>';
-      return '<div class="admin-list-row"><span><b>' + p.label + '</b>' + currentTag + ' · ' + p.totalTokens.toLocaleString('es-ES') + ' tokens · ' + usd + ' · ' + cop + '</span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
+      const stateTag = p.closed ? ' <span class="badge offline">Quincena cerrada</span>' : ' <span class="badge online">Quincena actual</span>';
+      return '<div class="admin-list-row"><span><b>' + p.label + '</b>' + stateTag + ' · ' + p.totalTokens.toLocaleString('es-ES') + ' tokens · ' + usd + ' · ' + cop + '</span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
     }).join('');
   }
 
@@ -553,11 +565,13 @@
     });
   }
 
-  function getQuincenaDays() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const day = now.getDate();
+  const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  let shiftsViewDate = new Date();
+
+  function getQuincenaDays(ref) {
+    const year = ref.getFullYear();
+    const month = ref.getMonth();
+    const day = ref.getDate();
     let startDay, endDay;
     if (day <= 15) { startDay = 1; endDay = 15; } else { startDay = 16; endDay = new Date(year, month + 1, 0).getDate(); }
     const days = [];
@@ -566,8 +580,34 @@
       const weekday = new Date(year, month, d).toLocaleDateString('es-ES', { weekday: 'short' });
       days.push({ iso, day: d, weekday: weekday });
     }
-    return days;
+    return { days: days, startDay: startDay, endDay: endDay, year: year, month: month };
   }
+
+  function quincenaLabel(ref) {
+    const info = getQuincenaDays(ref);
+    return info.startDay + ' al ' + info.endDay + ' de ' + MESES[info.month] + ' ' + info.year;
+  }
+
+  function isCurrentQuincena(ref) {
+    const now = new Date();
+    const a = getQuincenaDays(ref);
+    const b = getQuincenaDays(now);
+    return a.year === b.year && a.month === b.month && a.startDay === b.startDay;
+  }
+
+  function shiftQuincena(ref, dir) {
+    const day = ref.getDate();
+    if (dir > 0) {
+      if (day <= 15) return new Date(ref.getFullYear(), ref.getMonth(), 16);
+      return new Date(ref.getFullYear(), ref.getMonth() + 1, 1);
+    }
+    if (day <= 15) return new Date(ref.getFullYear(), ref.getMonth() - 1, 16);
+    return new Date(ref.getFullYear(), ref.getMonth(), 1);
+  }
+
+  el.btnPrevQuincena.addEventListener('click', function () { shiftsViewDate = shiftQuincena(shiftsViewDate, -1); refreshShifts(); });
+  el.btnNextQuincena.addEventListener('click', function () { shiftsViewDate = shiftQuincena(shiftsViewDate, 1); refreshShifts(); });
+  el.btnTodayQuincena.addEventListener('click', function () { shiftsViewDate = new Date(); refreshShifts(); });
 
   async function claimShiftAction(id) {
     const r2 = await fetch('/api/shifts/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
@@ -600,10 +640,13 @@
       ? 'Publica horarios disponibles para que las modelos se apunten. Clic en "+" en un día para agregar ahí.'
       : (isModel ? 'Elige un horario disponible para hora extra.' : 'Horarios de hora extra publicados.');
 
+    el.shiftsPeriodLabel.textContent = quincenaLabel(shiftsViewDate) + (isCurrentQuincena(shiftsViewDate) ? ' (actual)' : '');
+    el.btnTodayQuincena.style.display = isCurrentQuincena(shiftsViewDate) ? 'none' : 'inline-block';
+
     const byDate = {};
     shifts.forEach(function (s) { (byDate[s.shift_date] = byDate[s.shift_date] || []).push(s); });
 
-    const days = getQuincenaDays();
+    const days = getQuincenaDays(shiftsViewDate).days;
     el.shiftsList.innerHTML = '<div class="shift-calendar">' + days.map(function (d) {
       const dayShifts = (byDate[d.iso] || []).slice().sort(function (a, b) { return a.start_time.localeCompare(b.start_time); });
       const pills = dayShifts.map(function (s) {
@@ -732,6 +775,7 @@
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     if (isAdmin) refreshAdminAccounts();
     switchTab('modelos');
+    shiftsViewDate = new Date();
 
     refresh();
     refreshShifts();
