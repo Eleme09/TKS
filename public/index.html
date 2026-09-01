@@ -14,6 +14,7 @@
     --border: #242427; --border-soft: #1c1c1f;
     --text: #f5f5f7; --muted: #8c8c93; --muted-dim: #55555b;
     --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4); --pink-glow: rgba(255,143,190,0.17);
+    --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow);
     --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
     --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
     --ceo-f: #ff8fbe; --ceo-f-soft: rgba(255,143,190,0.14);
@@ -29,11 +30,11 @@
   @keyframes tabIn { from { opacity: 0; transform: translateY(10px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
   @keyframes drift { from { background-position: 0 0; } to { background-position: 0 220px; } }
   @keyframes smokeDrift {
-    0%   { transform: translate(-6%, -4%) scale(1) rotate(0deg); }
-    25%  { transform: translate(4%, -8%) scale(1.16) rotate(7deg); }
-    50%  { transform: translate(8%, 5%) scale(0.94) rotate(-6deg); }
-    75%  { transform: translate(-4%, 8%) scale(1.1) rotate(4deg); }
-    100% { transform: translate(-6%, -4%) scale(1) rotate(0deg); }
+    0%   { transform: translate(-9%, -7%) scale(1) rotate(0deg); }
+    25%  { transform: translate(7%, -12%) scale(1.28) rotate(10deg); }
+    50%  { transform: translate(12%, 8%) scale(0.88) rotate(-9deg); }
+    75%  { transform: translate(-7%, 11%) scale(1.2) rotate(6deg); }
+    100% { transform: translate(-9%, -7%) scale(1) rotate(0deg); }
   }
   @keyframes neonFlicker {
     0%, 18%, 22%, 25%, 53%, 57%, 100% {
@@ -50,25 +51,29 @@
      orbita (Horas extra, reloj), ascenso (Desprendibles, crecimiento), quieto/contenido (Cuentas, seguridad). */
   @keyframes themePulse {
     0%, 100% { transform: translate(-6%, -4%) scale(1); }
-    50% { transform: translate(-6%, -4%) scale(1.32); }
+    50% { transform: translate(-6%, -4%) scale(1.5); }
   }
   @keyframes themeOrbit {
-    from { transform: translate(-8%, -6%) rotate(0deg); }
-    to { transform: translate(-8%, -6%) rotate(360deg); }
+    from { transform: translate(-11%, -9%) rotate(0deg) scale(1.1); }
+    to { transform: translate(-11%, -9%) rotate(360deg) scale(1.1); }
   }
   @keyframes themeRise {
-    0%   { transform: translate(-4%, 8%) scale(1); }
-    50%  { transform: translate(3%, -10%) scale(1.1); }
-    100% { transform: translate(-4%, 8%) scale(1); }
+    0%   { transform: translate(-6%, 12%) scale(1); }
+    50%  { transform: translate(5%, -15%) scale(1.24); }
+    100% { transform: translate(-6%, 12%) scale(1); }
   }
   @keyframes themeSteady {
-    0%, 100% { transform: translate(-2%, -2%) scale(1); }
-    50% { transform: translate(0%, 0%) scale(1.05); }
+    0%, 100% { transform: translate(-3%, -3%) scale(1); }
+    50% { transform: translate(1%, 1%) scale(1.14); }
   }
-  body.theme-modelos::after { animation: themePulse 3.6s ease-in-out infinite; }
-  body.theme-horas::after { animation: themeOrbit 20s linear infinite; }
-  body.theme-desprendibles::after { animation: themeRise 12s ease-in-out infinite; }
-  body.theme-cuentas::after { animation: themeSteady 9s ease-in-out infinite; }
+  body.theme-modelos { --theme-glow: rgba(255,63,140,0.32); --theme-glow-2: rgba(255,63,140,0.2); }
+  body.theme-horas { --theme-glow: rgba(255,171,102,0.3); --theme-glow-2: rgba(255,171,102,0.18); }
+  body.theme-desprendibles { --theme-glow: rgba(246,196,84,0.32); --theme-glow-2: rgba(246,196,84,0.2); }
+  body.theme-cuentas { --theme-glow: rgba(196,120,255,0.3); --theme-glow-2: rgba(196,120,255,0.18); }
+  body.theme-modelos::after { animation: themePulse 3.4s ease-in-out infinite; }
+  body.theme-horas::after { animation: themeOrbit 18s linear infinite; }
+  body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
+  body.theme-cuentas::after { animation: themeSteady 8s ease-in-out infinite; }
   html { scrollbar-color: #333 transparent; background: var(--bg); }
   body {
     margin: 0; font-family: var(--font-body); color: var(--text);
@@ -82,12 +87,13 @@
     animation: drift 26s linear infinite;
   }
   body::after {
-    content: ''; position: fixed; inset: -25%; pointer-events: none; z-index: 0; filter: blur(50px);
+    content: ''; position: fixed; inset: -30%; pointer-events: none; z-index: 0; filter: blur(52px);
     background:
-      radial-gradient(38% 30% at 28% 24%, var(--pink-glow), transparent 70%),
-      radial-gradient(34% 26% at 76% 64%, var(--pink-glow), transparent 70%),
-      radial-gradient(30% 24% at 55% 88%, rgba(255,255,255,0.05), transparent 70%);
-    animation: smokeDrift 34s ease-in-out infinite;
+      radial-gradient(42% 34% at 26% 22%, var(--theme-glow), transparent 70%),
+      radial-gradient(38% 30% at 78% 68%, var(--theme-glow-2), transparent 70%),
+      radial-gradient(32% 26% at 52% 90%, rgba(255,255,255,0.06), transparent 70%);
+    animation: smokeDrift 28s ease-in-out infinite;
+    transition: background 1.2s ease;
   }
   @media (prefers-reduced-motion: reduce) {
     body::before, body::after,
@@ -185,8 +191,30 @@
   .section-banner {
     border: 1px solid var(--border-soft); border-radius: 4px; background: var(--surface);
     margin-bottom: 16px; overflow: hidden; position: relative; animation: fadeUp .35s ease both;
+    height: 180px;
   }
-  .section-banner svg { display: block; width: 100%; height: 84px; }
+  .section-banner svg { display: block; width: 100%; height: 180px; position: relative; z-index: 1; }
+  .banner-glow { position: absolute; inset: -45%; filter: blur(48px); pointer-events: none; z-index: 0; }
+  .banner-modelos .banner-glow {
+    background: radial-gradient(46% 58% at 30% 40%, rgba(255,63,140,0.55), transparent 70%),
+                radial-gradient(40% 50% at 74% 62%, rgba(255,63,140,0.32), transparent 70%);
+    animation: themePulse 3.4s ease-in-out infinite;
+  }
+  .banner-horas .banner-glow {
+    background: radial-gradient(46% 58% at 34% 46%, rgba(255,171,102,0.5), transparent 70%),
+                radial-gradient(40% 50% at 70% 56%, rgba(255,171,102,0.28), transparent 70%);
+    animation: themeOrbit 18s linear infinite;
+  }
+  .banner-desprendibles .banner-glow {
+    background: radial-gradient(46% 58% at 42% 56%, rgba(246,196,84,0.5), transparent 70%),
+                radial-gradient(40% 50% at 64% 40%, rgba(246,196,84,0.3), transparent 70%);
+    animation: themeRise 11s ease-in-out infinite;
+  }
+  .banner-cuentas .banner-glow {
+    background: radial-gradient(46% 58% at 50% 50%, rgba(196,120,255,0.5), transparent 70%),
+                radial-gradient(38% 48% at 66% 60%, rgba(196,120,255,0.3), transparent 70%);
+    animation: themeSteady 8s ease-in-out infinite;
+  }
   .shift-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 16px; }
   .shift-day { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 8px; min-height: 76px; transition: border-color .15s ease; animation: fadeUp .3s ease both; }
   .shift-day:hover { border-color: #2c2c30; }
@@ -217,7 +245,7 @@
   <div id="masthead">
     <h1><span class="placer">Placer</span> Services</h1>
     <div class="hrule"></div>
-    <div class="sub">Tu quincena, en tiempo real. Entra y mira cuánto llevas ganado, cuándo te toca cobrar y cuánto es en pesos — sin adivinar, sin tener que preguntarle a nadie.</div>
+    <div class="sub" id="subtext">Tus estadísticas en un solo lugar: tokens, horas extra y tu aproximado en COP — todo aquí.</div>
   </div>
 
   <div class="card" id="loginCard">
@@ -246,28 +274,28 @@
     </div>
 
     <div class="tabpanel" id="tab-modelos">
-      <div class="section-banner" aria-hidden="true">
-        <svg viewBox="0 0 900 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="900" height="84" fill="var(--surface)"></rect>
-          <line x1="0" y1="42" x2="900" y2="42" stroke="var(--border-soft)" stroke-width="1"></line>
-          <path d="M0 42 L140 42 L162 14 L184 68 L206 22 L228 58 L250 42 L900 42" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.85" stroke-dasharray="700" stroke-dashoffset="700">
-            <animate attributeName="stroke-dashoffset" from="700" to="0" dur="2.4s" fill="freeze"></animate>
+      <div class="section-banner banner-modelos" aria-hidden="true">
+        <div class="banner-glow"></div>
+        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="0" y1="90" x2="900" y2="90" stroke="var(--border-soft)" stroke-width="1"></line>
+          <path d="M0 90 L260 90 L296 30 L332 150 L368 46 L404 132 L440 90 L900 90" fill="none" stroke="var(--pink)" stroke-width="2.2" opacity="0.92" stroke-dasharray="1000" stroke-dashoffset="1000">
+            <animate attributeName="stroke-dashoffset" from="1000" to="0" dur="2.4s" fill="freeze"></animate>
           </path>
-          <circle cx="162" cy="14" r="3" fill="var(--pink)"></circle>
-          <circle cx="184" cy="68" r="3" fill="var(--pink)"></circle>
-          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
-            <animate attributeName="r" values="4;30" dur="2.6s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.8;0" dur="2.6s" repeatCount="indefinite"></animate>
+          <circle cx="296" cy="30" r="4.5" fill="var(--pink)"></circle>
+          <circle cx="332" cy="150" r="4.5" fill="var(--pink)"></circle>
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+            <animate attributeName="r" values="6;62" dur="2.8s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.85;0" dur="2.8s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
-            <animate attributeName="r" values="4;30" dur="2.6s" begin="0.9s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.8;0" dur="2.6s" begin="0.9s" repeatCount="indefinite"></animate>
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+            <animate attributeName="r" values="6;62" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="0.95s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="700" cy="42" r="4" fill="none" stroke="var(--pink)" stroke-width="1.4">
-            <animate attributeName="r" values="4;30" dur="2.6s" begin="1.8s" repeatCount="indefinite"></animate>
-            <animate attributeName="opacity" values="0.8;0" dur="2.6s" begin="1.8s" repeatCount="indefinite"></animate>
+          <circle cx="650" cy="90" r="6" fill="none" stroke="var(--pink)" stroke-width="2">
+            <animate attributeName="r" values="6;62" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
+            <animate attributeName="opacity" values="0.85;0" dur="2.8s" begin="1.9s" repeatCount="indefinite"></animate>
           </circle>
-          <circle cx="700" cy="42" r="4" fill="var(--pink)"></circle>
+          <circle cx="650" cy="90" r="7" fill="var(--pink)"></circle>
         </svg>
       </div>
       <button id="btnShowForm" style="display:none; background:var(--surface-2); color:var(--text); border:1px solid var(--border); margin-bottom:16px;">+ Agregar otra modelo</button>
@@ -303,29 +331,29 @@
     </div>
 
     <div class="tabpanel" id="tab-horas" style="display:none;">
-      <div class="section-banner" aria-hidden="true">
-        <svg viewBox="0 0 900 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="900" height="84" fill="var(--surface)"></rect>
-          <g transform="translate(450 42)">
-            <circle r="32" fill="none" stroke="var(--border)" stroke-width="1"></circle>
-            <circle r="32" fill="none" stroke="var(--pink)" stroke-width="1.4" stroke-dasharray="4 6" opacity="0.5">
+      <div class="section-banner banner-horas" aria-hidden="true">
+        <div class="banner-glow"></div>
+        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(450 90)">
+            <circle r="66" fill="none" stroke="var(--border)" stroke-width="1.2"></circle>
+            <circle r="66" fill="none" stroke="var(--pink)" stroke-width="1.6" stroke-dasharray="5 8" opacity="0.55">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="40s" repeatCount="indefinite"></animateTransform>
             </circle>
-            <line x1="0" y1="0" x2="0" y2="-15" stroke="var(--text)" stroke-width="2" stroke-linecap="round">
+            <line x1="0" y1="0" x2="0" y2="-32" stroke="var(--text)" stroke-width="3" stroke-linecap="round">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="14s" repeatCount="indefinite"></animateTransform>
             </line>
-            <line x1="0" y1="0" x2="0" y2="-22" stroke="var(--pink)" stroke-width="2" stroke-linecap="round">
+            <line x1="0" y1="0" x2="0" y2="-48" stroke="var(--pink)" stroke-width="3" stroke-linecap="round">
               <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="4s" repeatCount="indefinite"></animateTransform>
             </line>
-            <circle r="2.5" fill="var(--text)"></circle>
+            <circle r="5" fill="var(--text)"></circle>
           </g>
           <g opacity="0.5">
-            <circle cx="130" cy="42" r="2" fill="var(--muted)"></circle>
-            <circle cx="160" cy="42" r="2" fill="var(--muted)"></circle>
-            <circle cx="190" cy="42" r="2" fill="var(--muted)"></circle>
-            <circle cx="710" cy="42" r="2" fill="var(--muted)"></circle>
-            <circle cx="740" cy="42" r="2" fill="var(--muted)"></circle>
-            <circle cx="770" cy="42" r="2" fill="var(--muted)"></circle>
+            <circle cx="260" cy="90" r="2.5" fill="var(--muted)"></circle>
+            <circle cx="300" cy="90" r="2.5" fill="var(--muted)"></circle>
+            <circle cx="340" cy="90" r="2.5" fill="var(--muted)"></circle>
+            <circle cx="560" cy="90" r="2.5" fill="var(--muted)"></circle>
+            <circle cx="600" cy="90" r="2.5" fill="var(--muted)"></circle>
+            <circle cx="640" cy="90" r="2.5" fill="var(--muted)"></circle>
           </g>
         </svg>
       </div>
@@ -366,22 +394,22 @@
     </div>
 
     <div class="tabpanel" id="tab-desprendibles" style="display:none;">
-      <div class="section-banner" aria-hidden="true">
-        <svg viewBox="0 0 900 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="900" height="84" fill="var(--surface)"></rect>
-          <line x1="0" y1="70" x2="900" y2="70" stroke="var(--border)" stroke-width="1"></line>
+      <div class="section-banner banner-desprendibles" aria-hidden="true">
+        <div class="banner-glow"></div>
+        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="0" y1="150" x2="900" y2="150" stroke="var(--border)" stroke-width="1"></line>
           <g fill="var(--surface-2)" stroke="var(--border)" stroke-width="1">
-            <rect x="420" y="46" width="18" height="24"><animate attributeName="height" values="24;30;24" dur="2.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="46;40;46" dur="2.3s" repeatCount="indefinite"></animate></rect>
-            <rect x="450" y="34" width="18" height="36"><animate attributeName="height" values="36;28;36" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="34;42;34" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate></rect>
-            <rect x="480" y="52" width="18" height="18"><animate attributeName="height" values="18;24;18" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate><animate attributeName="y" values="52;46;52" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate></rect>
-            <rect x="510" y="22" width="18" height="48"><animate attributeName="height" values="48;40;48" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate><animate attributeName="y" values="22;30;22" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate></rect>
-            <rect x="540" y="38" width="18" height="32"><animate attributeName="height" values="32;38;32" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate><animate attributeName="y" values="38;32;38" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate></rect>
+            <rect x="390" y="100" width="34" height="50"><animate attributeName="height" values="50;64;50" dur="2.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="100;86;100" dur="2.3s" repeatCount="indefinite"></animate></rect>
+            <rect x="440" y="76" width="34" height="74"><animate attributeName="height" values="74;58;74" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate><animate attributeName="y" values="76;92;76" dur="2.3s" begin="0.3s" repeatCount="indefinite"></animate></rect>
+            <rect x="490" y="112" width="34" height="38"><animate attributeName="height" values="38;50;38" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate><animate attributeName="y" values="112;100;112" dur="2.3s" begin="0.6s" repeatCount="indefinite"></animate></rect>
+            <rect x="540" y="54" width="34" height="96"><animate attributeName="height" values="96;80;96" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate><animate attributeName="y" values="54;70;54" dur="2.3s" begin="0.9s" repeatCount="indefinite"></animate></rect>
+            <rect x="590" y="84" width="34" height="66"><animate attributeName="height" values="66;78;66" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate><animate attributeName="y" values="84;72;84" dur="2.3s" begin="1.2s" repeatCount="indefinite"></animate></rect>
           </g>
-          <path d="M420 58 L459 42 L489 60 L519 26 L549 46" fill="none" stroke="var(--pink)" stroke-width="1.6" opacity="0.9" stroke-dasharray="220" stroke-dashoffset="220">
-            <animate attributeName="stroke-dashoffset" from="220" to="0" dur="2s" fill="freeze"></animate>
+          <path d="M390 122 L457 90 L507 126 L557 58 L607 98" fill="none" stroke="var(--pink)" stroke-width="2.4" opacity="0.92" stroke-dasharray="420" stroke-dashoffset="420">
+            <animate attributeName="stroke-dashoffset" from="420" to="0" dur="2s" fill="freeze"></animate>
           </path>
-          <circle cx="549" cy="46" r="3" fill="var(--pink)">
-            <animate attributeName="r" values="3;6;3" dur="1.6s" repeatCount="indefinite"></animate>
+          <circle cx="607" cy="98" r="5" fill="var(--pink)">
+            <animate attributeName="r" values="5;10;5" dur="1.6s" repeatCount="indefinite"></animate>
           </circle>
         </svg>
       </div>
@@ -397,22 +425,22 @@
     </div>
 
     <div class="tabpanel" id="tab-cuentas" style="display:none;">
-      <div class="section-banner" aria-hidden="true">
-        <svg viewBox="0 0 900 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="900" height="84" fill="var(--surface)"></rect>
-          <g transform="translate(450 42)">
-            <polygon points="0,-28 24,-14 24,14 0,28 -24,14 -24,-14" fill="none" stroke="var(--pink)" stroke-width="1.4" opacity="0.7"></polygon>
-            <clipPath id="shieldClip"><polygon points="0,-28 24,-14 24,14 0,28 -24,14 -24,-14"></polygon></clipPath>
-            <line x1="-26" y1="-28" x2="26" y2="-28" stroke="var(--pink)" stroke-width="2" opacity="0.7" clip-path="url(#shieldClip)">
-              <animate attributeName="y1" values="-28;28;-28" dur="3.4s" repeatCount="indefinite"></animate>
-              <animate attributeName="y2" values="-28;28;-28" dur="3.4s" repeatCount="indefinite"></animate>
+      <div class="section-banner banner-cuentas" aria-hidden="true">
+        <div class="banner-glow"></div>
+        <svg viewBox="0 0 900 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(450 90)">
+            <polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30" fill="none" stroke="var(--pink)" stroke-width="1.8" opacity="0.75"></polygon>
+            <clipPath id="shieldClip"><polygon points="0,-58 50,-30 50,28 0,58 -50,28 -50,-30"></polygon></clipPath>
+            <line x1="-54" y1="-58" x2="54" y2="-58" stroke="var(--pink)" stroke-width="2.4" opacity="0.7" clip-path="url(#shieldClip)">
+              <animate attributeName="y1" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
+              <animate attributeName="y2" values="-58;58;-58" dur="3.4s" repeatCount="indefinite"></animate>
             </line>
-            <circle r="7" fill="none" stroke="var(--text)" stroke-width="2"></circle>
-            <line x1="0" y1="7" x2="0" y2="17" stroke="var(--text)" stroke-width="2" stroke-linecap="round"></line>
+            <circle r="15" fill="none" stroke="var(--text)" stroke-width="3"></circle>
+            <line x1="0" y1="15" x2="0" y2="34" stroke="var(--text)" stroke-width="3" stroke-linecap="round"></line>
           </g>
           <g opacity="0.45">
-            <line x1="150" y1="42" x2="330" y2="42" stroke="var(--border)" stroke-width="1"></line>
-            <line x1="570" y1="42" x2="750" y2="42" stroke="var(--border)" stroke-width="1"></line>
+            <line x1="130" y1="90" x2="310" y2="90" stroke="var(--border)" stroke-width="1"></line>
+            <line x1="590" y1="90" x2="770" y2="90" stroke="var(--border)" stroke-width="1"></line>
           </g>
         </svg>
       </div>
@@ -440,6 +468,7 @@
 (function () {
   const el = {
     masthead: document.getElementById('masthead'),
+    subtext: document.getElementById('subtext'),
     loginCard: document.getElementById('loginCard'),
     loginUser: document.getElementById('loginUser'),
     loginPass: document.getElementById('loginPass'),
@@ -1056,7 +1085,7 @@
     sessionGen++;
     currentRole = session.role;
     currentUsername = session.username;
-    el.masthead.style.display = 'none';
+    el.subtext.style.display = 'none';
     el.loginCard.style.display = 'none';
     el.appArea.style.display = 'block';
     el.whoUser.textContent = session.username;
@@ -1088,7 +1117,7 @@
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
-    el.masthead.style.display = 'block';
+    el.subtext.style.display = 'block';
     el.loginCard.style.display = 'block';
     document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas');
   }
