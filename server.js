@@ -206,8 +206,17 @@ async function sbCreateAdmin(username, passwordHash, role, gender) {
 }
 
 async function sbListAdmins() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?select=username,role,gender,created_at&order=created_at.asc', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?select=username,role,gender,hide_name,created_at&order=created_at.asc', { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
+}
+
+async function sbSetAdminHideName(username, hide) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ hide_name: !!hide }),
+  });
+  return resp.ok;
 }
 
 async function sbDeleteAdmin(username) {
@@ -232,11 +241,11 @@ async function sbListShifts() {
   return r.ok ? r.json() : [];
 }
 
-async function sbCreateShift(shiftDate, startTime, endTime, note) {
+async function sbCreateShift(shiftDate, startTime, note) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ shift_date: shiftDate, start_time: startTime, end_time: endTime, note: note || null }),
+    body: JSON.stringify({ shift_date: shiftDate, start_time: startTime, note: note || null }),
   });
   return resp.ok;
 }
@@ -539,7 +548,7 @@ const server = http.createServer(async (req, res) => {
     if (admin && verifyPassword(password, admin.password_hash)) {
       const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null });
       setSessionCookie(res, token);
-      return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username });
+      return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username, gender: admin.gender || null });
     }
 
     const modelUsername = sanitizeUsername(usernameRaw);
@@ -564,6 +573,18 @@ const server = http.createServer(async (req, res) => {
     const session = getSession(req);
     if (!session) return sendJson(res, 401, { error: 'No autenticado' });
     return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null });
+  }
+
+  // Oculta/muestra el nombre del administrador ante otros administradores (funcion exclusiva de rol administrador).
+  if (parsed.pathname === '/api/me/toggle-name' && req.method === 'POST') {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const hide = !!body.hide;
+    const ok = await sbSetAdminHideName(session.username, hide);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo actualizar' });
+    return sendJson(res, 200, { ok: true, hide });
   }
 
   // ---- Gestion de cuentas (solo administrador) ----
@@ -719,6 +740,7 @@ const server = http.createServer(async (req, res) => {
           payoutUSD,
           payoutCOP,
           copIsApproximate: idx !== 0,
+          closed: idx !== 0,
         };
       });
 
@@ -743,11 +765,10 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const shiftDate = typeof body.shift_date === 'string' ? body.shift_date.trim() : '';
     const startTime = typeof body.start_time === 'string' ? body.start_time.trim() : '';
-    const endTime = typeof body.end_time === 'string' ? body.end_time.trim() : '';
     const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return sendJson(res, 400, { error: 'Fecha inválida' });
-    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return sendJson(res, 400, { error: 'Hora inválida' });
-    const ok = await sbCreateShift(shiftDate, startTime, endTime, note);
+    if (!/^\d{2}:\d{2}$/.test(startTime)) return sendJson(res, 400, { error: 'Hora inválida' });
+    const ok = await sbCreateShift(shiftDate, startTime, note);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo crear el horario' });
     return sendJson(res, 200, { ok: true });
   }

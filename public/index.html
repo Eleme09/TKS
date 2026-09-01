@@ -169,8 +169,7 @@
         <div id="shiftCreateForm" style="display:none; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--border);">
           <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap:10px;">
             <div><label for="shiftDate">Fecha</label><input id="shiftDate" type="date"></div>
-            <div><label for="shiftStart">Inicio</label><input id="shiftStart" type="time"></div>
-            <div><label for="shiftEnd">Fin</label><input id="shiftEnd" type="time"></div>
+            <div><label for="shiftStart">Horario</label><input id="shiftStart" type="time"></div>
           </div>
           <label for="shiftNote">Nota (opcional)</label>
           <input id="shiftNote" placeholder="ej: turno de madrugada">
@@ -248,7 +247,6 @@
     shiftCreateForm: document.getElementById('shiftCreateForm'),
     shiftDate: document.getElementById('shiftDate'),
     shiftStart: document.getElementById('shiftStart'),
-    shiftEnd: document.getElementById('shiftEnd'),
     shiftNote: document.getElementById('shiftNote'),
     btnCreateShift: document.getElementById('btnCreateShift'),
     shiftError: document.getElementById('shiftError'),
@@ -515,9 +513,12 @@
     if (gen !== sessionGen) return;
 
     el.payslipsList.innerHTML = (data.periods || []).map(function (p, idx) {
+      if (p.closed) {
+        return '<div class="admin-list-row"><span><b>' + p.label + '</b> <span class="badge offline">Quincena cerrada</span></span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
+      }
       const usd = '$' + p.payoutUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
       const cop = p.payoutCOP != null ? '$' + Math.round(p.payoutCOP).toLocaleString('es-CO') + ' COP' + (p.copIsApproximate ? ' (aprox.)' : '') : '—';
-      const currentTag = idx === 0 ? ' <span class="badge online">Quincena actual</span>' : '';
+      const currentTag = ' <span class="badge online">Quincena actual</span>';
       return '<div class="admin-list-row"><span><b>' + p.label + '</b>' + currentTag + ' · ' + p.totalTokens.toLocaleString('es-ES') + ' tokens · ' + usd + ' · ' + cop + '</span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
     }).join('');
   }
@@ -526,12 +527,17 @@
     const r = await fetch('/api/admins');
     if (!r.ok) return;
     const data = await r.json();
+
+    const me = (data.admins || []).find(function (a) { return a.username === currentUsername; });
+    if (me) applyAnonButtonState(!!me.hide_name);
+
     if (!data.admins || data.admins.length === 0) {
       el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO creadas.</div>';
       return;
     }
     el.adminList.innerHTML = data.admins.map(function (a) {
-      return '<div class="admin-list-row"><span>' + a.username + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
+      const displayName = a.hide_name ? 'Anónimo' : a.username;
+      return '<div class="admin-list-row"><span>' + displayName + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
         '<button class="btnDeleteAdmin" data-user="' + a.username + '" style="background:#402226; color:#ff9d97; padding:4px 10px; font-size:12px;">Eliminar</button></div>';
     }).join('');
     el.adminList.querySelectorAll('.btnDeleteAdmin').forEach(function (btn) {
@@ -601,14 +607,14 @@
     el.shiftsList.innerHTML = '<div class="shift-calendar">' + days.map(function (d) {
       const dayShifts = (byDate[d.iso] || []).slice().sort(function (a, b) { return a.start_time.localeCompare(b.start_time); });
       const pills = dayShifts.map(function (s) {
-        const range = s.start_time.slice(0, 5) + '-' + s.end_time.slice(0, 5);
+        const horario = s.start_time.slice(0, 5);
         if (s.claimed_by) {
           const mine = isModel && s.claimed_by === currentUsername;
           const cls = mine ? 'mine' : 'taken';
-          const label = mine ? (range + ' · tú') : (range + ' · ' + s.claimed_by);
+          const label = mine ? (horario + ' · tú') : (horario + ' · ' + s.claimed_by);
           return '<span class="shift-pill ' + cls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '" title="' + (s.note || '') + '">' + label + '</span>';
         }
-        return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open" title="' + (s.note || '') + '">' + range + '</span>';
+        return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open" title="' + (s.note || '') + '">' + horario + '</span>';
       }).join('');
       const addCell = canManage ? '<div class="shift-addday" data-date="' + d.iso + '">+</div>' : '';
       return '<div class="shift-day"><div class="daylabel">' + d.weekday + ' ' + d.day + '</div>' + pills + addCell + '</div>';
@@ -639,17 +645,16 @@
   el.btnCreateShift.addEventListener('click', async function () {
     const shift_date = el.shiftDate.value;
     const start_time = el.shiftStart.value;
-    const end_time = el.shiftEnd.value;
     const note = el.shiftNote.value.trim();
-    if (!shift_date || !start_time || !end_time) {
+    if (!shift_date || !start_time) {
       el.shiftError.style.display = 'block';
-      el.shiftError.textContent = 'Completa fecha, hora de inicio y hora de fin.';
+      el.shiftError.textContent = 'Completa fecha y horario.';
       return;
     }
     el.shiftError.style.display = 'none';
     const r = await fetch('/api/shifts/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shift_date, start_time, end_time, note }),
+      body: JSON.stringify({ shift_date, start_time, note }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -659,7 +664,6 @@
     }
     el.shiftDate.value = '';
     el.shiftStart.value = '';
-    el.shiftEnd.value = '';
     el.shiftNote.value = '';
     refreshShifts();
   });
@@ -691,36 +695,36 @@
 
   el.btnAdd.addEventListener('click', addModel);
 
-  function isNameHidden() {
-    try { return localStorage.getItem('ps_hide_name') === '1'; } catch (e) { return false; }
+  let myHideName = false;
+
+  function applyAnonButtonState(hidden) {
+    myHideName = hidden;
+    el.btnToggleAnon.textContent = hidden ? 'mostrar nombre a otros' : 'ocultar nombre a otros';
   }
 
-  function applyNameDisplay(realUsername) {
-    const hidden = isNameHidden();
-    el.whoUser.textContent = hidden ? 'Anónimo' : realUsername;
-    el.btnToggleAnon.textContent = hidden ? 'mostrar nombre' : 'ocultar nombre';
-  }
-
-  el.btnToggleAnon.addEventListener('click', function () {
-    const hidden = !isNameHidden();
-    try { localStorage.setItem('ps_hide_name', hidden ? '1' : '0'); } catch (e) {}
-    applyNameDisplay(lastUsername);
+  el.btnToggleAnon.addEventListener('click', async function () {
+    const next = !myHideName;
+    const r = await fetch('/api/me/toggle-name', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hide: next }),
+    });
+    if (!r.ok) return;
+    applyAnonButtonState(next);
+    refreshAdminAccounts();
   });
-
-  let lastUsername = '';
 
   function showApp(session) {
     sessionGen++;
     currentRole = session.role;
     currentUsername = session.username;
-    lastUsername = session.username;
     el.loginCard.style.display = 'none';
     el.appArea.style.display = 'block';
-    applyNameDisplay(session.username);
+    el.whoUser.textContent = session.username;
     el.whoRoleBadge.innerHTML = roleBadgeHtml(session.role, session.gender);
 
     const isAdmin = session.role === 'administrador';
     const canManageShifts = session.role === 'administrador' || session.role === 'ceo';
+    el.btnToggleAnon.style.display = isAdmin ? 'inline-block' : 'none';
     el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
     tabBtnCuentas.style.display = isAdmin ? 'inline-block' : 'none';
     tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';
@@ -763,7 +767,7 @@
     }
     const data = await r.json();
     el.loginPass.value = '';
-    showApp({ username: data.username, role: data.role, gender: null });
+    showApp({ username: data.username, role: data.role, gender: data.gender || null });
   });
 
   el.loginPass.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.btnLogin.click(); });
