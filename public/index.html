@@ -66,10 +66,7 @@
     0%, 100% { transform: translate(-3%, -3%) scale(1); }
     50% { transform: translate(1%, 1%) scale(1.14); }
   }
-  body.theme-modelos { --placer-color: #4f8cff; --theme-glow: rgba(79,140,255,0.32); --theme-glow-2: rgba(79,140,255,0.2); }
-  body.theme-horas { --placer-color: #ffd23f; --theme-glow: rgba(255,210,63,0.3); --theme-glow-2: rgba(255,210,63,0.18); }
-  body.theme-desprendibles { --placer-color: #22c55e; --theme-glow: rgba(34,197,94,0.32); --theme-glow-2: rgba(34,197,94,0.2); }
-  body.theme-cuentas { --placer-color: #a855f7; --theme-glow: rgba(168,85,247,0.3); --theme-glow-2: rgba(168,85,247,0.18); }
+  /* El color se queda unicamente en rosa (identidad de marca); solo cambia el patron de movimiento por seccion. */
   body.theme-modelos::after { animation: themePulse 3.4s ease-in-out infinite; }
   body.theme-horas::after { animation: themeOrbit 18s linear infinite; }
   body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
@@ -196,23 +193,23 @@
   .section-banner svg { display: block; width: 100%; height: 180px; position: relative; z-index: 1; }
   .banner-glow { position: absolute; inset: -45%; filter: blur(48px); pointer-events: none; z-index: 0; }
   .banner-modelos .banner-glow {
-    background: radial-gradient(46% 58% at 30% 40%, rgba(79,140,255,0.55), transparent 70%),
-                radial-gradient(40% 50% at 74% 62%, rgba(79,140,255,0.32), transparent 70%);
+    background: radial-gradient(46% 58% at 30% 40%, rgba(255,143,190,0.55), transparent 70%),
+                radial-gradient(40% 50% at 74% 62%, rgba(255,143,190,0.32), transparent 70%);
     animation: themePulse 3.4s ease-in-out infinite;
   }
   .banner-horas .banner-glow {
-    background: radial-gradient(46% 58% at 34% 46%, rgba(255,210,63,0.5), transparent 70%),
-                radial-gradient(40% 50% at 70% 56%, rgba(255,210,63,0.28), transparent 70%);
+    background: radial-gradient(46% 58% at 34% 46%, rgba(255,143,190,0.5), transparent 70%),
+                radial-gradient(40% 50% at 70% 56%, rgba(255,143,190,0.28), transparent 70%);
     animation: themeOrbit 18s linear infinite;
   }
   .banner-desprendibles .banner-glow {
-    background: radial-gradient(46% 58% at 42% 56%, rgba(34,197,94,0.5), transparent 70%),
-                radial-gradient(40% 50% at 64% 40%, rgba(34,197,94,0.3), transparent 70%);
+    background: radial-gradient(46% 58% at 42% 56%, rgba(255,143,190,0.5), transparent 70%),
+                radial-gradient(40% 50% at 64% 40%, rgba(255,143,190,0.3), transparent 70%);
     animation: themeRise 11s ease-in-out infinite;
   }
   .banner-cuentas .banner-glow {
-    background: radial-gradient(46% 58% at 50% 50%, rgba(168,85,247,0.5), transparent 70%),
-                radial-gradient(38% 48% at 66% 60%, rgba(168,85,247,0.3), transparent 70%);
+    background: radial-gradient(46% 58% at 50% 50%, rgba(255,143,190,0.5), transparent 70%),
+                radial-gradient(38% 48% at 66% 60%, rgba(255,143,190,0.3), transparent 70%);
     animation: themeSteady 8s ease-in-out infinite;
   }
   .shift-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 16px; }
@@ -570,6 +567,8 @@
   let formOpenDecided = false;
   let pollTimer = null;
   let sessionGen = 0; // se incrementa en cada login/logout; las respuestas de una sesion vieja se descartan
+  let lastModelsHtml = null; // evita reconstruir el DOM (y parpadear la animacion de entrada) cuando el refresco cada 4s no trae cambios reales
+  let lastShiftsHtml = null;
 
   const tabButtons = document.querySelectorAll('.tabbtn');
   const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), cuentas: document.getElementById('tab-cuentas') };
@@ -691,11 +690,11 @@
       }
 
       if (!data.models || data.models.length === 0) {
-        el.models.innerHTML = '<div class="empty">Todavía no hay modelos agregadas.</div>';
+        if (lastModelsHtml !== '') { lastModelsHtml = ''; el.models.innerHTML = '<div class="empty">Todavía no hay modelos agregadas.</div>'; }
         return;
       }
 
-      el.models.innerHTML = data.models.map(function (m, idx) {
+      const modelsHtml = data.models.map(function (m, idx) {
         const controls = isAdmin ? (
           '<div class="conn">' +
             '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
@@ -723,6 +722,25 @@
           '</div>';
       }).join('');
 
+      if (modelsHtml !== lastModelsHtml) {
+        lastModelsHtml = modelsHtml;
+        el.models.innerHTML = modelsHtml;
+        if (isAdmin) {
+          el.models.querySelectorAll('.btnStart').forEach(function (btn) {
+            btn.addEventListener('click', function () { startModel(btn.getAttribute('data-user')); });
+          });
+          el.models.querySelectorAll('.btnStop').forEach(function (btn) {
+            btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
+          });
+          el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
+            btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
+          });
+          el.models.querySelectorAll('.btnKey').forEach(function (btn) {
+            btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
+          });
+        }
+      }
+
       data.models.forEach(function (m) {
         const tokNode = el.models.querySelector('[data-anim="tok-' + CSS.escape(m.account) + '"]');
         animateNumber(tokNode, 'tok-' + m.account, m.totalTokensPeriod, function (v) { return Math.round(v).toLocaleString('es-ES'); });
@@ -735,21 +753,6 @@
           });
         }
       });
-
-      if (isAdmin) {
-        el.models.querySelectorAll('.btnStart').forEach(function (btn) {
-          btn.addEventListener('click', function () { startModel(btn.getAttribute('data-user')); });
-        });
-        el.models.querySelectorAll('.btnStop').forEach(function (btn) {
-          btn.addEventListener('click', function () { stopModel(btn.getAttribute('data-user')); });
-        });
-        el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
-          btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
-        });
-        el.models.querySelectorAll('.btnKey').forEach(function (btn) {
-          btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
-        });
-      }
     } catch (e) {
       showError('No se pudo consultar el servidor: ' + e.message);
     }
@@ -969,7 +972,7 @@
     shifts.forEach(function (s) { (byDate[s.shift_date] = byDate[s.shift_date] || []).push(s); });
 
     const days = getQuincenaDays(shiftsViewDate).days;
-    el.shiftsList.innerHTML = '<div class="shift-calendar">' + days.map(function (d, idx) {
+    const shiftsHtml = '<div class="shift-calendar">' + days.map(function (d, idx) {
       const dayShifts = (byDate[d.iso] || []).slice().sort(function (a, b) { return a.start_time.localeCompare(b.start_time); });
       const pills = dayShifts.map(function (s) {
         const horario = fmt12h(s.start_time);
@@ -984,6 +987,10 @@
       const addCell = canManage ? '<div class="shift-addday" data-date="' + d.iso + '">+</div>' : '';
       return '<div class="shift-day" style="animation-delay:' + (idx * 12) + 'ms;"><div class="daylabel">' + d.weekday + ' ' + d.day + '</div>' + pills + addCell + '</div>';
     }).join('') + '</div>';
+
+    if (shiftsHtml === lastShiftsHtml) return;
+    lastShiftsHtml = shiftsHtml;
+    el.shiftsList.innerHTML = shiftsHtml;
 
     el.shiftsList.querySelectorAll('.shift-pill').forEach(function (pill) {
       const id = pill.getAttribute('data-id');
@@ -1114,6 +1121,8 @@
     currentRole = null;
     currentUsername = null;
     formOpenDecided = false;
+    lastModelsHtml = null;
+    lastShiftsHtml = null;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
