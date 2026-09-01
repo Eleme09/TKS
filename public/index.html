@@ -46,6 +46,29 @@
     0%, 100% { box-shadow: 0 0 4px 0 rgba(111,231,184,0.45), inset 0 0 6px rgba(111,231,184,0.12); text-shadow: 0 0 4px rgba(111,231,184,0.55); }
     50% { box-shadow: 0 0 14px 2px rgba(111,231,184,0.85), inset 0 0 10px rgba(111,231,184,0.3); text-shadow: 0 0 8px rgba(111,231,184,0.85); }
   }
+  /* Cada seccion le da un caracter de movimiento distinto al mismo humo rosa: pulso (Modelos, en vivo),
+     orbita (Horas extra, reloj), ascenso (Desprendibles, crecimiento), quieto/contenido (Cuentas, seguridad). */
+  @keyframes themePulse {
+    0%, 100% { transform: translate(-6%, -4%) scale(1); }
+    50% { transform: translate(-6%, -4%) scale(1.32); }
+  }
+  @keyframes themeOrbit {
+    from { transform: translate(-8%, -6%) rotate(0deg); }
+    to { transform: translate(-8%, -6%) rotate(360deg); }
+  }
+  @keyframes themeRise {
+    0%   { transform: translate(-4%, 8%) scale(1); }
+    50%  { transform: translate(3%, -10%) scale(1.1); }
+    100% { transform: translate(-4%, 8%) scale(1); }
+  }
+  @keyframes themeSteady {
+    0%, 100% { transform: translate(-2%, -2%) scale(1); }
+    50% { transform: translate(0%, 0%) scale(1.05); }
+  }
+  body.theme-modelos::after { animation: themePulse 3.6s ease-in-out infinite; }
+  body.theme-horas::after { animation: themeOrbit 20s linear infinite; }
+  body.theme-desprendibles::after { animation: themeRise 12s ease-in-out infinite; }
+  body.theme-cuentas::after { animation: themeSteady 9s ease-in-out infinite; }
   html { scrollbar-color: #333 transparent; background: var(--bg); }
   body {
     margin: 0; font-family: var(--font-body); color: var(--text);
@@ -67,7 +90,8 @@
     animation: smokeDrift 34s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
-    body::before, body::after { animation: none; }
+    body::before, body::after,
+    body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after { animation: none !important; }
     .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav, .badge.online, h1 .placer { animation: none !important; }
     .section-banner animate, .section-banner animateTransform { display: none; }
   }
@@ -538,6 +562,8 @@
       }
     });
     tabButtons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas');
+    document.body.classList.add('theme-' + name);
     if (name === 'desprendibles') refreshPayslips();
   }
 
@@ -1064,6 +1090,7 @@
     el.appArea.style.display = 'none';
     el.masthead.style.display = 'block';
     el.loginCard.style.display = 'block';
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas');
   }
 
   el.btnLogin.addEventListener('click', async function () {
