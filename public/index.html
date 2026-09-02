@@ -97,8 +97,8 @@
   @media (prefers-reduced-motion: reduce) {
     body::before, body::after,
     body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after { animation: none !important; }
-    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav, .badge.online, .brand-logo, .login-bg-cat { animation: none !important; }
-    .section-banner animate, .section-banner animateTransform { display: none; }
+    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .banner-title, .banner-vector path, .topbar, .tabnav, .badge.online, .brand-cat, .brand-word, .login-bg-cat { animation: none !important; }
+    .banner-vector path { stroke-dashoffset: 0; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
   @keyframes logoBreathe {
@@ -112,10 +112,23 @@
     91% { transform: rotate(-2deg); }
     96%, 100% { transform: rotate(0deg); }
   }
-  .brand-logo {
-    display: block; width: clamp(84px, 15vw, 170px); height: auto; margin: 0 0 18px;
-    transform-origin: 50% 90%;
+  .brand-mark {
+    --brand-w: clamp(108px, 19vw, 210px);
+    display: flex; flex-direction: column; align-items: center; margin: 0 0 16px;
+    transition: transform .3s ease;
+  }
+  .brand-mark:hover { transform: scale(1.04); }
+  .brand-cat {
+    width: var(--brand-w); aspect-ratio: 800 / 806;
+    background: url('/logo-placer-studios.svg') top center / 100% 142.7% no-repeat;
+    transform-origin: 50% 88%;
     animation: logoBreathe 4.5s ease-in-out infinite, catTilt 9s ease-in-out infinite;
+  }
+  .brand-word {
+    width: var(--brand-w); aspect-ratio: 800 / 344;
+    background: url('/logo-placer-studios.svg') bottom center / 100% 334.3% no-repeat;
+    margin-top: -2px;
+    animation: logoBreathe 4.5s ease-in-out infinite;
   }
   .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-bottom: 28px; max-width: 42ch; }
   .login-bg-cat {
@@ -157,9 +170,10 @@
   .models { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
   .model {
     background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 18px;
-    transition: border-color .18s ease, box-shadow .18s ease; animation: fadeUp .35s ease both;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; animation: fadeUp .35s ease both;
   }
-  .model:hover { border-color: #35353a; box-shadow: 0 10px 26px rgba(0,0,0,0.35); }
+  .model:hover { border-color: #35353a; box-shadow: 0 10px 26px rgba(0,0,0,0.35); transform: translateY(-3px); }
+  .model:active { transform: translateY(-1px) scale(0.99); }
   .model-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; gap: 8px; flex-wrap: wrap; }
   .model-name-row { display: flex; align-items: center; gap: 8px; }
   .model-name { font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
@@ -174,8 +188,8 @@
   .badge.online::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px 2px var(--good); animation: pulse 1.8s ease-in-out infinite; }
   .badge.offline::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--bad); display: inline-block; }
   .model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-  .stat { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 12px; transition: border-color .15s ease; }
-  .stat:hover { border-color: #2c2c30; }
+  .stat { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 12px; transition: border-color .15s ease, transform .15s ease; }
+  .stat:hover { border-color: #2c2c30; transform: translateY(-2px); }
   .stat .k { font-size: 10px; color: var(--muted-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
   .stat .v { font-size: 16px; font-weight: 700; font-family: var(--font-mono); }
   .stat .v.small { font-size: 12.5px; font-weight: 600; font-family: var(--font-body); }
@@ -204,37 +218,25 @@
   .tabbtn.active { color: var(--text); border-bottom-color: var(--pink); }
   .tabpanel { animation: tabIn .4s cubic-bezier(.2,.8,.3,1) both; }
   .section-banner {
-    border: 1px solid var(--border-soft); border-radius: 4px; background: var(--surface);
-    margin-bottom: 16px; overflow: hidden; position: relative; animation: fadeUp .35s ease both;
-    height: 180px;
+    margin: 4px 0 22px; position: relative; animation: fadeUp .35s ease both; text-align: center;
   }
-  .banner-glow { position: absolute; inset: -45%; filter: blur(48px); pointer-events: none; z-index: 0; }
+  @keyframes drawVector { to { stroke-dashoffset: 0; } }
+  @keyframes floatVector { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  .banner-vector {
+    display: block; width: min(260px, 60%); height: 30px; margin: 0 auto 4px; overflow: visible;
+  }
+  .banner-vector path {
+    fill: none; stroke: var(--pink); stroke-width: 2.25; stroke-linecap: round;
+    filter: drop-shadow(0 0 4px var(--pink)) drop-shadow(0 0 10px var(--pink-line));
+    stroke-dasharray: 360; stroke-dashoffset: 360;
+    animation: drawVector 1.6s ease forwards, floatVector 4.5s ease-in-out 1.6s infinite;
+  }
   .banner-title {
-    position: relative; z-index: 1; height: 100%; display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4.4vw, 44px);
+    position: relative; z-index: 1;
+    font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 3.6vw, 34px);
     text-transform: uppercase; letter-spacing: 0.04em; color: var(--pink); text-align: center;
     text-shadow: 0 0 4px var(--pink), 0 0 11px var(--pink), 0 0 19px var(--pink), 0 0 40px var(--pink-line);
     animation: neonFlicker 6s ease-in-out infinite;
-  }
-  .banner-modelos .banner-glow {
-    background: radial-gradient(46% 58% at 30% 40%, rgba(255,143,190,0.55), transparent 70%),
-                radial-gradient(40% 50% at 74% 62%, rgba(255,143,190,0.32), transparent 70%);
-    animation: themePulse 3.4s ease-in-out infinite;
-  }
-  .banner-horas .banner-glow {
-    background: radial-gradient(46% 58% at 34% 46%, rgba(255,143,190,0.5), transparent 70%),
-                radial-gradient(40% 50% at 70% 56%, rgba(255,143,190,0.28), transparent 70%);
-    animation: themeOrbit 18s linear infinite;
-  }
-  .banner-desprendibles .banner-glow {
-    background: radial-gradient(46% 58% at 42% 56%, rgba(255,143,190,0.5), transparent 70%),
-                radial-gradient(40% 50% at 64% 40%, rgba(255,143,190,0.3), transparent 70%);
-    animation: themeRise 11s ease-in-out infinite;
-  }
-  .banner-cuentas .banner-glow {
-    background: radial-gradient(46% 58% at 50% 50%, rgba(255,143,190,0.5), transparent 70%),
-                radial-gradient(38% 48% at 66% 60%, rgba(255,143,190,0.3), transparent 70%);
-    animation: themeSteady 8s ease-in-out infinite;
   }
   .shift-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 16px; }
   .shift-day { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 8px; min-height: 76px; transition: border-color .15s ease; animation: fadeUp .3s ease both; }
@@ -259,8 +261,8 @@
     #loginCard { max-width: 100%; }
     .models { grid-template-columns: 1fr; }
     .model-grid { grid-template-columns: 1fr 1fr; }
-    .section-banner, .section-banner svg { height: 110px; }
-    .banner-title { font-size: 22px; letter-spacing: 0.02em; padding: 0 12px; }
+    .banner-vector { width: min(200px, 70%); height: 24px; }
+    .banner-title { font-size: 19px; letter-spacing: 0.02em; padding: 0 12px; }
     .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
     .topbar > button { width: 100%; }
     .conn { flex-direction: column; align-items: stretch; gap: 10px; }
@@ -284,7 +286,10 @@
 <body>
 <div class="wrap">
   <div id="masthead">
-    <img src="/logo-placer-studios.svg" alt="Placer Studios" class="brand-logo">
+    <div class="brand-mark" role="img" aria-label="Placer Studios">
+      <div class="brand-cat" aria-hidden="true"></div>
+      <div class="brand-word" aria-hidden="true"></div>
+    </div>
     <div class="sub" id="subtext">Tus estadísticas en un solo lugar: tokens, horas extra y tu aproximado en COP — todo aquí.</div>
   </div>
 
@@ -318,7 +323,7 @@
 
     <div class="tabpanel" id="tab-modelos">
       <div class="section-banner banner-modelos" aria-hidden="true">
-        <div class="banner-glow"></div>
+        <svg class="banner-vector" viewBox="0 0 260 30"><path d="M6 20 C 50 2, 80 34, 130 16 S 210 -2, 254 14"/></svg>
         <div class="banner-title">Modelos</div>
       </div>
 
@@ -366,7 +371,7 @@
 
     <div class="tabpanel" id="tab-horas" style="display:none;">
       <div class="section-banner banner-horas" aria-hidden="true">
-        <div class="banner-glow"></div>
+        <svg class="banner-vector" viewBox="0 0 260 30"><path d="M10 22 A 120 16 0 1 1 250 18"/></svg>
         <div class="banner-title">Horas extra</div>
       </div>
       <div class="card" id="shiftsCard">
@@ -407,7 +412,7 @@
 
     <div class="tabpanel" id="tab-desprendibles" style="display:none;">
       <div class="section-banner banner-desprendibles" aria-hidden="true">
-        <div class="banner-glow"></div>
+        <svg class="banner-vector" viewBox="0 0 260 30"><path d="M6 26 C 70 26, 110 6, 160 8 S 230 -4, 254 2"/></svg>
         <div class="banner-title">Desprendibles</div>
       </div>
       <div class="card">
@@ -423,7 +428,7 @@
 
     <div class="tabpanel" id="tab-cuentas" style="display:none;">
       <div class="section-banner banner-cuentas" aria-hidden="true">
-        <div class="banner-glow"></div>
+        <svg class="banner-vector" viewBox="0 0 260 30"><path d="M6 16 C 60 2, 90 30, 130 16 S 200 2, 254 16"/></svg>
         <div class="banner-title">Cuentas</div>
       </div>
       <div class="card" id="adminAccountsCard">
