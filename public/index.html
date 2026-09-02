@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/logo-placer-studios.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/logo-placer-studios.svg">
 <title>PLACER SERVICES</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1139,16 +1140,18 @@
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
       const commentsHtml = (p.comments || []).map(function (c) {
         const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+        const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_username);
         return '<div class="admin-list-row" style="align-items:flex-start; padding:8px 0;">' +
-          '<span><b>' + escapeHtml(c.author_username) + '</b> ' + roleBadgeHtml(c.author_role, c.author_gender) + '<br>' +
+          '<span><b>' + cname + '</b> ' + roleBadgeHtml(c.author_role, c.author_gender) + '<br>' +
           '<span style="white-space:pre-wrap;">' + escapeHtml(c.body) + '</span></span>' +
           '<span class="meta-small" style="display:flex; align-items:center; gap:8px; white-space:nowrap;">' + cwhen +
           (isAdmin ? ' <button class="btnDeleteComment" data-id="' + c.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:3px 8px; font-size:11px;">Eliminar</button>' : '') +
           '</span></div>';
       }).join('');
+      const pname = p.author_anonymous ? 'Anónimo' : escapeHtml(p.author_username);
       return '<div class="card" style="animation-delay:' + (idx * 40) + 'ms;">' +
         '<div class="model-name-row" style="margin-bottom:4px;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + '</div>' +
-        '<div class="meta-small" style="margin-bottom:10px;">' + escapeHtml(p.author_username) + ' — ' + when + '</div>' +
+        '<div class="meta-small" style="margin-bottom:10px;">' + pname + ' — ' + when + '</div>' +
         '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
         (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px; margin-bottom:12px;">Eliminar noticia</button>' : '') +
         '<div style="border-top:1px solid var(--border-soft); padding-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
