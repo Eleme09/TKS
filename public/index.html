@@ -72,12 +72,12 @@
   body.theme-horas::after { animation: themeOrbit 18s linear infinite; }
   body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
   body.theme-cuentas::after { animation: themeSteady 8s ease-in-out infinite; }
-  html { scrollbar-color: #333 transparent; background: var(--bg); }
+  html { scrollbar-color: #333 transparent; background: var(--bg); overscroll-behavior-y: none; }
   body {
     margin: 0; font-family: var(--font-body); color: var(--text);
     display: flex; justify-content: center; padding: 40px clamp(16px, 4vw, 56px) 80px;
     background: var(--bg); position: relative; overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
+    -webkit-font-smoothing: antialiased; overscroll-behavior-y: none;
   }
   .ambient-fx { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
   .spark {
@@ -335,7 +335,7 @@
     <div class="topbar">
       <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span>
         <button id="btnToggleAnon" type="button" class="btnAnon">ocultar mi nombre</button>
-        <button id="btnEnablePush" type="button" class="btnAnon" style="display:none;">activar notificaciones</button>
+        <button id="btnEnablePush" type="button" class="btnAnon" style="display:none;">recordar novedades</button>
         <button id="btnLogoutEverywhere" type="button" class="btnAnon">cerrar mis sesiones en todos lados</button>
       </div>
       <button id="btnLogout" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Salir</button>
@@ -1273,9 +1273,9 @@
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
-      el.btnEnablePush.textContent = sub ? 'desactivar notificaciones' : 'activar notificaciones';
+      el.btnEnablePush.textContent = sub ? 'dejar de recordar novedades' : 'recordar novedades';
     } catch (e) {
-      el.btnEnablePush.textContent = 'activar notificaciones';
+      el.btnEnablePush.textContent = 'recordar novedades';
     }
   }
 

@@ -75,6 +75,28 @@ actually does, the code wins; fix this file to match.
   offline for a few minutes after any restart until a fresh event
   arrives — this is expected, not a bug to "fix" by reverting to
   DB-based status.
+- `startTracker(username, token, savedCursor)` **must** set
+  `existing.running = false` on the tracker it's replacing before
+  aborting its fetch — aborting alone does not stop that old poll loop
+  (its `while (tracker.running)` check would still pass), so it becomes
+  a "zombie" that keeps polling Chaturbate for the same account forever
+  in parallel with the new one. This was a real bug (fixed 2026-09-02);
+  don't reintroduce it if this function gets refactored. `/api/stop` and
+  `/api/delete` already had the correct pattern to copy.
+- `pollLoop` must not retry the exact same failing `nextUrl` forever on
+  a flat interval — Chaturbate can reject a URL (e.g. "You waited too
+  long. Please start over using 'nextUrl'", HTTP 400) in a way that a
+  flat 5s retry never recovers from. The fix: back off up to 60s based
+  on `tracker.consecutiveErrors`, and force `nextUrl` back to the
+  cursor-less `freshUrl` every 3rd consecutive failure. A model stuck
+  showing "error" and never reconnecting on its own is this bug if it
+  recurs — check `consecutiveErrors`/backoff logic first before assuming
+  it's something else.
+- Supabase writes that represent real tip/broadcast data go through
+  `sbWriteCritical` (retries 3x, logs loudly to console on final
+  failure instead of swallowing it silently). Keep using it — or
+  something at least as resilient — for any new write that represents
+  money, rather than a bare `fetch(...).catch(() => {})`.
 
 ## Business rules (stable — confirm before changing)
 

@@ -435,20 +435,33 @@ async function sbFetchShift(id) {
   return rows.length ? rows[0] : null;
 }
 
+// Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
+// falla, lo deja bien visible en los logs en vez de tragarselo en silencio.
+async function sbWriteCritical(label, url, body) {
+  const attempts = 3;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) return true;
+      if (i === attempts) console.error('FALLO GUARDANDO ' + label + ' tras ' + attempts + ' intentos: HTTP ' + resp.status + ' ' + JSON.stringify(body));
+    } catch (e) {
+      if (i === attempts) console.error('FALLO GUARDANDO ' + label + ' tras ' + attempts + ' intentos: ' + e.message + ' ' + JSON.stringify(body));
+    }
+    if (i < attempts) await sleep(1000 * i);
+  }
+  return false;
+}
+
 async function sbInsertTip(username, tokens, eventId) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_tips', {
-    method: 'POST',
-    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
-    body: JSON.stringify({ username, tokens, event_id: eventId }),
-  }).catch(() => {});
+  await sbWriteCritical('tip', SUPABASE_URL + '/rest/v1/cb_tips', { username, tokens, event_id: eventId });
 }
 
 async function sbInsertBroadcastEvent(username, eventType, eventId) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events', {
-    method: 'POST',
-    headers: { ...SB_HEADERS, Prefer: 'resolution=ignore-duplicates,return=minimal' },
-    body: JSON.stringify({ username, event_type: eventType, event_id: eventId }),
-  }).catch(() => {});
+  await sbWriteCritical('broadcast_event', SUPABASE_URL + '/rest/v1/cb_broadcast_events', { username, event_type: eventType, event_id: eventId });
 }
 
 async function sbFetchAllModels() {
@@ -519,7 +532,10 @@ async function buildModelReports() {
 
 function startTracker(username, token, savedCursor) {
   const existing = trackers.get(username);
-  if (existing && existing.abortCtl) existing.abortCtl.abort();
+  if (existing) {
+    existing.running = false; // sin esto, el poll loop viejo queda "zombie" reintentando para siempre
+    if (existing.abortCtl) existing.abortCtl.abort();
+  }
   const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false, savedCursor: savedCursor || null };
   trackers.set(username, tracker);
   pollLoop(tracker);
@@ -557,7 +573,10 @@ async function pollLoop(tracker) {
       tracker.status = 'error';
       tracker.lastError = 'Error de red: ' + e.message;
       noteTrackerError(tracker);
-      await sleep(5000);
+      // Tras varios fallos seguidos con la misma url, no seguir insistiendo con
+      // ella para siempre: se descarta y se vuelve a intentar desde cero.
+      if (tracker.consecutiveErrors % 3 === 0) nextUrl = freshUrl;
+      await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
       continue;
     }
 
@@ -579,7 +598,9 @@ async function pollLoop(tracker) {
       }
       tracker.lastError = 'HTTP ' + resp.status + ' — ' + body.slice(0, 200);
       noteTrackerError(tracker);
-      await sleep(5000);
+      // Igual que arriba: no insistir para siempre con la misma url si sigue fallando.
+      if (tracker.consecutiveErrors % 3 === 0) nextUrl = freshUrl;
+      await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
       continue;
     }
 
