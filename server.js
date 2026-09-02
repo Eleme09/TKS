@@ -333,6 +333,27 @@ async function sbBumpSessionVersion(type, username) {
   sessionVersionCache.delete(type + ':' + username);
 }
 
+// ---- Registro de auditoria ----
+
+async function sbLogAudit(session, action, target, details) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_audit_log', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      actor_username: session.username,
+      actor_role: session.role,
+      action,
+      target: target || null,
+      details: details || null,
+    }),
+  }).catch(() => {});
+}
+
+async function sbListAuditLog(limit) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_audit_log?select=*&order=created_at.desc&limit=' + (limit || 100), { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
 // ---- Turnos / horas extra ----
 
 async function sbListShifts() {
@@ -677,6 +698,7 @@ const server = http.createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await sbBumpSessionVersion(session.type, session.username);
+    await sbLogAudit(session, 'logout_everywhere', session.username);
     clearSessionCookie(res);
     return sendJson(res, 200, { ok: true });
   }
@@ -732,8 +754,15 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { admins });
   }
 
-  if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
+  if (parsed.pathname === '/api/audit-log' && req.method === 'GET') {
     if (!(await requireAdmin(req, res))) return;
+    const entries = await sbListAuditLog(100);
+    return sendJson(res, 200, { entries });
+  }
+
+  if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
@@ -742,21 +771,25 @@ const server = http.createServer(async (req, res) => {
     if (!username || password.length < 4) return sendJson(res, 400, { error: 'Usuario y contraseña (min. 4 caracteres) son requeridos' });
     const ok = await sbCreateAdmin(username, hashPassword(password), 'ceo', gender);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo crear (¿el usuario ya existe?)' });
+    await sbLogAudit(session, 'create_account', username, { role: 'ceo' });
     return sendJson(res, 200, { ok: true });
   }
 
   if (parsed.pathname === '/api/admins/delete' && req.method === 'POST') {
-    if (!(await requireAdmin(req, res))) return;
+    const session = await requireAdmin(req, res);
+    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     if (!username) return sendJson(res, 400, { error: 'username inválido' });
     await sbDeleteAdmin(username);
+    await sbLogAudit(session, 'delete_account', username);
     return sendJson(res, 200, { ok: true });
   }
 
   if (parsed.pathname === '/api/models/set-password' && req.method === 'POST') {
-    if (!(await requireAdmin(req, res))) return;
+    const session = await requireAdmin(req, res);
+    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -764,13 +797,15 @@ const server = http.createServer(async (req, res) => {
     if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
     await sbSetModelPassword(username, hashPassword(password));
     await sbBumpSessionVersion('model', username);
+    await sbLogAudit(session, 'reset_model_password', username);
     return sendJson(res, 200, { ok: true });
   }
 
   // ---- Tracking (solo administrador) ----
 
   if (parsed.pathname === '/api/start' && req.method === 'POST') {
-    if (!(await requireAdmin(req, res))) return;
+    const session = await requireAdmin(req, res);
+    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -779,6 +814,7 @@ const server = http.createServer(async (req, res) => {
 
     await sbUpsertModel(username, token);
     startTracker(username, token);
+    await sbLogAudit(session, 'add_model', username);
     return sendJson(res, 200, { ok: true });
   }
 
@@ -810,7 +846,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/delete' && req.method === 'POST') {
-    if (!(await requireAdmin(req, res))) return;
+    const session = await requireAdmin(req, res);
+    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -822,6 +859,7 @@ const server = http.createServer(async (req, res) => {
       trackers.delete(username);
     }
     await sbDeleteModel(username);
+    await sbLogAudit(session, 'delete_model', username);
     return sendJson(res, 200, { ok: true });
   }
 

@@ -486,6 +486,12 @@
         <div class="row"><button id="btnCreateAdmin" style="flex:1;">Crear cuenta CEO</button></div>
         <div id="adminError" class="errbox"></div>
       </div>
+      <div class="card" id="auditLogCard">
+        <details id="auditDetails">
+          <summary style="cursor:pointer; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Registro de actividad</summary>
+          <div id="auditList" class="meta-small" style="margin-top:12px;">Cargando…</div>
+        </details>
+      </div>
     </div>
   </div>
 </div>
@@ -530,6 +536,8 @@
     btnShowForm: document.getElementById('btnShowForm'),
     adminAccountsCard: document.getElementById('adminAccountsCard'),
     adminList: document.getElementById('adminList'),
+    auditDetails: document.getElementById('auditDetails'),
+    auditList: document.getElementById('auditList'),
     ceoUser: document.getElementById('ceoUser'),
     ceoPass: document.getElementById('ceoPass'),
     ceoGender: document.getElementById('ceoGender'),
@@ -948,6 +956,40 @@
     });
   }
 
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  const AUDIT_LABELS = {
+    add_model: 'agregó la modelo',
+    delete_model: 'eliminó la modelo',
+    reset_model_password: 'reseteó la contraseña de',
+    create_account: 'creó la cuenta',
+    delete_account: 'eliminó la cuenta',
+    logout_everywhere: 'cerró todas sus sesiones',
+  };
+
+  let auditLoaded = false;
+  async function loadAuditLog() {
+    if (auditLoaded) return;
+    auditLoaded = true;
+    const r = await fetch('/api/audit-log');
+    if (!r.ok) { el.auditList.textContent = 'No se pudo cargar.'; return; }
+    const data = await r.json();
+    const entries = data.entries || [];
+    if (!entries.length) { el.auditList.textContent = 'Sin actividad registrada todavía.'; return; }
+    el.auditList.innerHTML = entries.map(function (e) {
+      const label = AUDIT_LABELS[e.action] || e.action;
+      const when = new Date(e.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+      return '<div style="padding:6px 0; border-bottom:1px solid var(--border-soft);">' +
+        '<b>' + escapeHtml(e.actor_username) + '</b> ' + escapeHtml(label) +
+        (e.target ? ' <b>' + escapeHtml(e.target) + '</b>' : '') +
+        ' <span style="opacity:.6;">— ' + escapeHtml(when) + '</span></div>';
+    }).join('');
+  }
+
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   let shiftsViewDate = new Date();
 
@@ -1256,6 +1298,9 @@
     formOpenDecided = false;
     lastModelsHtml = null;
     lastShiftsHtml = null;
+    auditLoaded = false;
+    el.auditList.textContent = 'Cargando…';
+    if (el.auditDetails.open) el.auditDetails.open = false;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
@@ -1297,6 +1342,10 @@
     if (!ok) return;
     await fetch('/api/me/logout-everywhere', { method: 'POST' });
     showLogin();
+  });
+
+  el.auditDetails.addEventListener('toggle', function () {
+    if (el.auditDetails.open) loadAuditLog();
   });
 
   (async function init() {
