@@ -342,11 +342,13 @@ async function sbListPushSubscriptions(role) {
   return r.ok ? r.json() : [];
 }
 
-async function sendPushToRole(role, body) {
+async function sendPushToRole(role, body, options) {
   if (!PUSH_ENABLED) return;
-  const subs = await sbListPushSubscriptions(role);
+  const opts = options || {};
+  let subs = await sbListPushSubscriptions(role);
+  if (opts.excludeUsername) subs = subs.filter((row) => row.username !== opts.excludeUsername);
   if (!subs.length) return;
-  const payload = JSON.stringify({ title: 'Placer Studios', body });
+  const payload = JSON.stringify({ title: 'Placer Studios', body, tag: opts.tag });
   await Promise.all(subs.map(async (row) => {
     const sub = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
     try {
@@ -363,7 +365,7 @@ async function sendPushToRole(role, body) {
 // por el administrador — por eso va solo al rol ceo (2026-09-02, pedido
 // explicito del usuario: no quiere estas notificaciones a el mismo).
 async function sendOnlineNotifications(modelUsername) {
-  await sendPushToRole('ceo', modelUsername + ' está en línea ahora.');
+  await sendPushToRole('ceo', modelUsername + ' está en línea ahora.', { tag: 'placer-online' });
 }
 
 // Avisa cuando el tracker de una modelo se cae de verdad (token vencido/invalido,
@@ -371,7 +373,13 @@ async function sendOnlineNotifications(modelUsername) {
 // va a todos los suscritos (administrador puede actuar reconectando; CEO al
 // menos se entera de que algo esta mal).
 async function sendConnectionAlert(modelUsername, reason) {
-  await sendPushToRole(null, 'Se cayó la conexión de ' + modelUsername + ': ' + reason);
+  await sendPushToRole(null, 'Se cayó la conexión de ' + modelUsername + ': ' + reason, { tag: 'placer-conn-alert' });
+}
+
+// Avisa a los demas suscritos (admin/CEO) cuando se publica una noticia nueva,
+// menos al autor (no tiene sentido notificarlo de su propia publicacion).
+async function sendNewsNotification(authorUsername, title) {
+  await sendPushToRole(null, 'Nueva noticia: ' + title, { tag: 'placer-news', excludeUsername: authorUsername });
 }
 
 async function sbDeleteAdmin(username) {
@@ -965,7 +973,7 @@ function serveStatic(req, res, pathname) {
   fs.readFile(filePath, (err, content) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(content);
   });
 }
@@ -1477,6 +1485,7 @@ const server = http.createServer(async (req, res) => {
     const post = await sbCreateNewsPost(session.username, session.role, session.gender, authorAdmin && authorAdmin.hide_name, authorAdmin && authorAdmin.display_name, postType, title, text);
     if (!post) return sendJson(res, 500, { error: 'No se pudo publicar' });
     await sbLogAudit(session, 'news_post_create', null, { title, type: postType });
+    sendNewsNotification(session.username, title).catch(() => {});
     return sendJson(res, 200, { ok: true, post: { ...post, comments: [], viewers: [] } });
   }
 

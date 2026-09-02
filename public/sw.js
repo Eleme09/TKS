@@ -16,7 +16,10 @@ self.addEventListener('push', function (event) {
       body: data.body || '',
       icon: '/logo-placer-studios.svg',
       badge: '/logo-placer-studios.svg',
-      tag: 'placer-online',
+      // Cada notificacion es independiente (sin tag fijo compartido) para que
+      // una no reemplace en silencio a otra de un tipo distinto (ej: que una
+      // noticia nueva se trague sin avisar la de "modelo conectada").
+      tag: data.tag || ('placer-' + Date.now()),
     })
   );
 });
