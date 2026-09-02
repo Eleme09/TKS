@@ -27,7 +27,9 @@ actually does, the code wins; fix this file to match.
   never leaves server-side env vars).
 - **Secrets**: at minimum `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
   `SESSION_SECRET`; check server.js top-of-file for any others that may
-  have been added since (e.g. `VAPID_*` for push notifications). Never
+  have been added since (e.g. `VAPID_*` for push notifications,
+  `STRIPCHAT_API_KEY`/`STRIPCHAT_STUDIO_USERNAME` for the Stripchat
+  auto-sync — those two are optional, not required to start). Never
   hardcode secret values in source — the server intentionally refuses to
   start without them as env vars. Locally they live in `env.bat` (in
   .gitignore, not in the repo — if missing, regenerate values from the
@@ -135,34 +137,63 @@ actually does, the code wins; fix this file to match.
   model's `totalTokensPeriod` = Chaturbate tips + Stripchat tokens for
   that quincena, then the single 0.023 USD/token rate applies to the
   combined total — the user's explicit instruction ("misma operación...
-  se unen ambas estadísticas de página para pagar"). Stripchat has no
-  official earnings API and the studio's Stripchat master account is
-  deliberately locked to one specific browser (fraud-prevention measure
-  on their end) — **never** attempt scripted/automated login to
-  Stripchat from this server; that risks getting the master account
-  flagged, which would break access for every model, not just this
-  feature. Ingestion is manual-but-fast: admin pastes the "Ganancias por
-  modelo" table text (copied from Stripchat's own panel, in their
-  trusted browser) into a textarea, `parseStripchatPaste()` in
-  `server.js` matches each known model's username against a line of that
-  text and takes the largest number on that line as her token count
-  (Stripchat's report puts token totals as the biggest figure per row,
-  above ranks/percentages), admin reviews/edits the parsed preview, then
-  confirms to save. Data lives in `cb_stripchat_earnings` (columns:
-  `username, period_start date, period_end date, tokens, entered_by,
-  created_at, updated_at`, `unique(username, period_start, period_end)`
-  so re-saving a period corrects it via upsert instead of duplicating).
+  se unen ambas estadísticas de página para pagar").
+  **Primary source (added later same day): Stripchat's official Studio
+  API.** Turns out it exists and is documented at `docs.stripchat.com`
+  (a Swagger/OpenAPI page — blocked for me to browse directly, see
+  below, but the user copy-pasted the relevant parts). Endpoint: `GET
+  https://stripchat.com/api/stats/v2/studios/username/{studioUsername}/models/username/{modelUsername}`,
+  auth via header `API-Key: <key>`, query params `periodStart`/
+  `periodEnd` as `YYYY-MM-DD HH:MM:SS` (no timezone offset — the API
+  echoes back whatever literal wall-clock string you send, tagged `Z`;
+  formatted here with local `Date` getters via `fmtStripchatDateTime`,
+  same convention as `toDateStr`, so it lines up with `getQuincena`'s
+  own boundaries whatever timezone the server happens to run in).
+  Response field `totalEarnings` (integer) is the token total for that
+  window — verified it equals the sum of every individual category
+  field (tip, privateShow, spyOnPrivate, etc.) in the same response.
+  Credentials: `STRIPCHAT_API_KEY` and `STRIPCHAT_STUDIO_USERNAME`
+  (studio username confirmed as `Pleasure_09`) — both optional env vars;
+  the server runs fine without them, just skips the auto-sync.
+  `pollStripchatEarnings()` runs once at startup and then every
+  `STRIPCHAT_POLL_INTERVAL_MS` (10 min), fetching every `role: 'modelo'`
+  account's *current* quincena `totalEarnings` and upserting into
+  `cb_stripchat_earnings` with `entered_by: 'stripchat-api'` — same
+  table the manual form writes to, so nothing else downstream changed.
+  Verified for real against all 6 models before shipping (matched a
+  manual Swagger "Try it out" call exactly: amaranta_f00x = 1101 for the
+  same window).
+  **Manual entry is now the fallback**, not the primary path: admin
+  pastes the "Ganancias por modelo" table text into a textarea,
+  `parseStripchatPaste()` matches each known model's username against a
+  line of that text and takes the largest number on that line as her
+  token count, admin reviews/edits the parsed preview, then confirms to
+  save. Useful if the API key ever breaks/rotates, or to backfill a
+  quincena the poller didn't cover (it only ever writes the *current*
+  period — there's no automatic historical backfill). Data lives in
+  `cb_stripchat_earnings` (columns: `username, period_start date,
+  period_end date, tokens, entered_by, created_at, updated_at`,
+  `unique(username, period_start, period_end)` so re-saving a period —
+  by either path — corrects it via upsert instead of duplicating).
   Endpoints: `GET /api/stripchat/periods` (current + 2 prior quincenas),
   `POST /api/stripchat/parse` (text → matched/unmatched preview, no
   write), `POST /api/stripchat/save` (admin-only, upserts). Wired into
   `buildModelReports()` (current quincena, exposes
   `chaturbateTokensPeriod`/`stripchatTokensPeriod` alongside the combined
   `totalTokensPeriod`) and `/api/payslips` (same breakdown per historical
-  period). If a browser extension setup ever gives direct read access to
-  the Stripchat panel from the *user's own already-logged-in browser*
-  (not a new scripted login), that could replace the paste step with a
-  one-click read — but do not build unattended/scheduled scraping of
-  Stripchat under any circumstances.
+  period).
+  **Still true regardless of the API:** the studio's Stripchat *master
+  account login* (browsing stripchat.com as a logged-in user) stays
+  locked to one specific browser as the user's own fraud-prevention
+  measure — never attempt scripted/automated *login* to Stripchat from
+  this server; that's a different thing from the API key above and
+  remains off-limits. Also worth knowing: `stripchat.com` and every
+  subdomain (including `docs.stripchat.com`) are hard-blocked for me at
+  the tool level (WebFetch, my sandboxed browser, and Claude-in-Chrome
+  all refuse it, regardless of which connected browser/account) — it's
+  a content-category policy block, not an auth issue, and retrying
+  doesn't help. Get anything from that domain by asking the user to
+  screenshot/paste it directly.
 - Roles: `administrador` (full control), `ceo` (badge "CEO PLACER
   STUDIO", read-only on model earnings/status but can manage the shift
   calendar), `modelo` (sees/manages only her own data, logs in with her
