@@ -318,6 +318,17 @@
         <div class="banner-glow"></div>
         <div class="banner-title">Modelos</div>
       </div>
+
+      <div class="card" id="summaryCard" style="display:none;">
+        <h3 style="margin:0 0 12px; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Resumen del estudio — quincena actual</h3>
+        <div class="model-grid">
+          <div class="stat"><div class="k">En línea ahora</div><div class="v" id="sumOnline">0 / 0</div></div>
+          <div class="stat"><div class="k">Tokens (estudio)</div><div class="v" id="sumTokens">0</div></div>
+          <div class="stat"><div class="k">Va ganando más</div><div class="v small" id="sumTop">—</div></div>
+          <div class="stat hero"><div class="k">Desprendible total estimado</div><div class="v" id="sumPayout">$0.00 USD ≈ $0 COP</div></div>
+        </div>
+      </div>
+
       <button id="btnShowForm" style="display:none; background:var(--surface-2); color:var(--text); border:1px solid var(--border); margin-bottom:16px;">+ Agregar otra modelo</button>
 
       <div class="card" id="addModelCard" style="display:none;">
@@ -455,6 +466,11 @@
     tokenInfo: document.getElementById('tokenInfo'),
     errbox: document.getElementById('errbox'),
     models: document.getElementById('models'),
+    summaryCard: document.getElementById('summaryCard'),
+    sumOnline: document.getElementById('sumOnline'),
+    sumTokens: document.getElementById('sumTokens'),
+    sumTop: document.getElementById('sumTop'),
+    sumPayout: document.getElementById('sumPayout'),
     addModelCard: document.getElementById('addModelCard'),
     btnShowForm: document.getElementById('btnShowForm'),
     adminAccountsCard: document.getElementById('adminAccountsCard'),
@@ -630,6 +646,27 @@
   function fmtUSD(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD'; }
   function fmtCOP(v) { return '$' + Math.round(v).toLocaleString('es-CO') + ' COP'; }
 
+  function updateSummary(models, dollar) {
+    const online = models.filter(function (m) { return m.online && m.online.state === 'online'; }).length;
+    const totalTokens = models.reduce(function (s, m) { return s + (m.totalTokensPeriod || 0); }, 0);
+    const totalUSD = models.reduce(function (s, m) { return s + (m.payoutUSD || 0); }, 0);
+    const totalCOP = dollar && dollar.rate ? totalUSD * dollar.rate : null;
+
+    el.sumOnline.textContent = online + ' / ' + models.length;
+
+    animateNumber(el.sumTokens, 'sum-tokens', totalTokens, function (v) { return Math.round(v).toLocaleString('es-ES'); });
+    animateNumber(el.sumPayout, 'sum-payout', totalUSD, function (v) {
+      return fmtUSD(v) + (totalCOP != null ? ' ≈ ' + fmtCOP(totalCOP) : '');
+    });
+
+    if (totalTokens <= 0 || !models.length) {
+      el.sumTop.textContent = '—';
+    } else {
+      const top = models.reduce(function (best, m) { return (!best || m.totalTokensPeriod > best.totalTokensPeriod) ? m : best; }, null);
+      el.sumTop.textContent = top.account + ' (' + top.totalTokensPeriod.toLocaleString('es-ES') + ' tok.)';
+    }
+  }
+
   function fmtPayout(m) {
     const usd = fmtUSD(m.payoutUSD);
     if (m.payoutCOP == null) return usd;
@@ -655,6 +692,9 @@
       }
 
       const isAdmin = currentRole === 'administrador';
+      const showSummary = currentRole === 'administrador' || currentRole === 'ceo';
+      el.summaryCard.style.display = showSummary ? 'block' : 'none';
+      if (showSummary) updateSummary(data.models || [], data.dollar);
 
       if (isAdmin && !formOpenDecided) {
         setFormOpen(!data.models || data.models.length === 0);
