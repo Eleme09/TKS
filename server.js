@@ -33,6 +33,16 @@ if (PUSH_ENABLED) {
 } else {
   console.log('Notificaciones push desactivadas (faltan VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT).');
 }
+// Integracion con la Studio API oficial de Stripchat: opcional. Si faltan las
+// dos variables, el servidor sigue funcionando normal, solo que sin traer los
+// tokens de Stripchat solos (el formulario manual de pegar/procesar sigue
+// funcionando siempre, con o sin esto).
+const STRIPCHAT_API_KEY = process.env.STRIPCHAT_API_KEY;
+const STRIPCHAT_STUDIO_USERNAME = process.env.STRIPCHAT_STUDIO_USERNAME;
+const STRIPCHAT_ENABLED = !!(STRIPCHAT_API_KEY && STRIPCHAT_STUDIO_USERNAME);
+const STRIPCHAT_BASE = 'https://stripchat.com';
+const STRIPCHAT_POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
+
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const SB_HEADERS = {
   apikey: SUPABASE_ANON_KEY,
@@ -563,6 +573,60 @@ async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartSt
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
+}
+
+// "YYYY-MM-DD HH:MM:SS" en hora local, formato que pide la Studio API de
+// Stripchat para periodStart/periodEnd (misma convencion de hora local que ya
+// usa toDateStr, para que coincida exactamente con los limites de la quincena
+// tal como los construyo getQuincena).
+function fmtStripchatDateTime(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return toDateStr(ms) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+// Consulta la Studio API oficial de Stripchat (docs.stripchat.com) por los
+// tokens de una modelo en un periodo exacto. Devuelve null si algo falla (API
+// caida, modelo no existe en Stripchat, etc.) para que el resto del sondeo no
+// se caiga por una sola modelo.
+async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodEndMs) {
+  const qs = '?periodStart=' + encodeURIComponent(fmtStripchatDateTime(periodStartMs)) + '&periodEnd=' + encodeURIComponent(fmtStripchatDateTime(periodEndMs));
+  const url = STRIPCHAT_BASE + '/api/stats/v2/studios/username/' + encodeURIComponent(STRIPCHAT_STUDIO_USERNAME) + '/models/username/' + encodeURIComponent(modelUsername) + qs;
+  try {
+    const resp = await fetch(url, { headers: { 'API-Key': STRIPCHAT_API_KEY, accept: 'application/json' } });
+    if (!resp.ok) {
+      console.error('Stripchat API respondio ' + resp.status + ' para ' + modelUsername);
+      return null;
+    }
+    const data = await resp.json();
+    if (!data || typeof data.totalEarnings !== 'number') return null;
+    return Math.round(data.totalEarnings);
+  } catch (e) {
+    console.error('Error consultando Stripchat API para ' + modelUsername + ': ' + e.message);
+    return null;
+  }
+}
+
+// Trae y guarda los tokens de Stripchat de la quincena actual para todas las
+// modelos, de forma automatica. Se corre al iniciar el servidor y despues
+// cada STRIPCHAT_POLL_INTERVAL_MS. El formulario manual de pegar/procesar
+// sigue disponible como respaldo (por ejemplo si esta API llegara a fallar).
+async function pollStripchatEarnings() {
+  if (!STRIPCHAT_ENABLED) return;
+  try {
+    const models = await sbFetchAllModels();
+    const period = getQuincena(Date.now());
+    const periodStartStr = toDateStr(period.start);
+    const periodEndStr = toDateStr(period.end);
+    const rows = [];
+    for (const m of models.filter((x) => x.role === 'modelo')) {
+      const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
+      if (tokens != null) rows.push({ username: m.username, period_start: periodStartStr, period_end: periodEndStr, tokens });
+    }
+    if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
+  } catch (e) {
+    console.error('Error en el sondeo de Stripchat: ' + e.message);
+  }
 }
 
 async function buildModelReports() {
@@ -1342,4 +1406,11 @@ server.on('error', (err) => {
 server.listen(PORT, () => {
   console.log('Chaturbate token tracker corriendo en http://localhost:' + PORT);
   reconnectAllModels();
+  if (STRIPCHAT_ENABLED) {
+    console.log('Integración con Stripchat activada (estudio: ' + STRIPCHAT_STUDIO_USERNAME + ') — se sincroniza sola cada ' + (STRIPCHAT_POLL_INTERVAL_MS / 60000) + ' min.');
+    pollStripchatEarnings();
+    setInterval(pollStripchatEarnings, STRIPCHAT_POLL_INTERVAL_MS);
+  } else {
+    console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
+  }
 });
