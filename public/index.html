@@ -103,11 +103,18 @@
     0%, 100% { filter: drop-shadow(0 0 14px rgba(196,107,255,0.32)) drop-shadow(0 0 30px rgba(196,107,255,0.16)); }
     50% { filter: drop-shadow(0 0 24px rgba(196,107,255,0.5)) drop-shadow(0 0 46px rgba(196,107,255,0.26)); }
   }
+  @keyframes catTilt {
+    0%, 72% { transform: rotate(0deg); }
+    78% { transform: rotate(-5deg); }
+    85% { transform: rotate(4deg); }
+    91% { transform: rotate(-2deg); }
+    96%, 100% { transform: rotate(0deg); }
+  }
   .brand-logo {
     display: block; width: clamp(84px, 15vw, 170px); height: auto; margin: 0 0 18px;
-    animation: logoBreathe 4.5s ease-in-out infinite; transition: transform .3s ease;
+    transform-origin: 50% 90%;
+    animation: logoBreathe 4.5s ease-in-out infinite, catTilt 9s ease-in-out infinite;
   }
-  .brand-logo:hover { transform: scale(1.05); }
   .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-bottom: 28px; max-width: 42ch; }
   .card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 22px;
