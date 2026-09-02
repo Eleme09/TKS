@@ -37,6 +37,44 @@ actually does, the code wins; fix this file to match.
 - **Uptime**: a free UptimeRobot monitor pings the live site every 5 min
   so Render's free tier doesn't sleep. Drop it if/when the studio
   upgrades to a paid Render plan.
+- **Staging**: a second Render free web service, `tks-staging`
+  (`tks-staging.onrender.com`), same repo, branch `dev`, same three
+  secrets (but its own `SESSION_SECRET`, different from production's).
+  It is normally **suspended** — resume it manually in Render only when
+  you need to test something live, then re-suspend when done. Reason:
+  it shares the same Supabase tables as production, so if it's left
+  running it double-polls Chaturbate for the same models production
+  already tracks (tip dedup on `event_id` prevents double-counted money,
+  but it's still wasteful and not a real isolated environment — don't
+  treat it as one for anything that writes meaningfully different data
+  than production). Workflow: commit → push to `dev` → resume
+  `tks-staging` → verify → push/merge to `master` for the real deploy.
+- **Browser access**: Claude in Chrome (the user's real, logged-in
+  Chrome) has working sessions for GitHub, Render, and Supabase — confirmed
+  working for running SQL directly in the Supabase SQL Editor and for
+  managing Render services end to end. Also, `git push` from this
+  machine's shell works directly (credentials are already configured) —
+  no need to route pushes through GitHub Desktop.
+
+## Reliability notes (read before touching pollLoop / tracker logic)
+
+- Each model's Chaturbate Events API long-poll cursor (`nextUrl`) is
+  persisted to `cb_models.last_cursor` after every successful poll cycle,
+  and reconnect (`reconnectAllModels`, `/api/start`, `/api/reconnect`)
+  resumes from it instead of starting fresh. This closes a real
+  money-loss window: without it, any tip arriving during a server
+  restart (redeploy, crash, Render free-tier sleep) was silently lost
+  forever. If the saved cursor is stale/rejected, the code falls back to
+  a fresh connection automatically — don't treat that fallback path as a
+  bug.
+- Online/offline status is **in-memory only** (`tracker.online`), reset
+  to `false` on every restart, by deliberate design (see the comment
+  above `buildModelReports`): trusting the DB's last broadcast event
+  instead would make a model who was live during a missed `broadcastStop`
+  appear "online" forever. The tradeoff is that every model shows
+  offline for a few minutes after any restart until a fresh event
+  arrives — this is expected, not a bug to "fix" by reverting to
+  DB-based status.
 
 ## Business rules (stable — confirm before changing)
 
