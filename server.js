@@ -309,11 +309,11 @@ async function sbSetAdminHideName(username, hide) {
 
 // ---- Notificaciones push (cuando una modelo se conecta) ----
 
-async function sbSaveSubscription(username, sub) {
+async function sbSaveSubscription(username, sub, role) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?on_conflict=username,endpoint', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ username, endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth }),
+    body: JSON.stringify({ username, endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth, role }),
   });
   return resp.ok;
 }
@@ -325,15 +325,17 @@ async function sbDeleteSubscriptionByEndpoint(endpoint) {
   }).catch(() => {});
 }
 
-async function sbListPushSubscriptions() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?select=username,endpoint,p256dh,auth', { headers: SB_HEADERS });
+// Sin `role`, trae todas las suscripciones (admin + CEO); con `role`, solo las de ese rol.
+async function sbListPushSubscriptions(role) {
+  let url = SUPABASE_URL + '/rest/v1/cb_push_subscriptions?select=username,endpoint,p256dh,auth';
+  if (role) url += '&role=eq.' + encodeURIComponent(role);
+  const r = await fetch(url, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
 
-// Manda una notificacion push a todos los administradores y CEO que la hayan activado.
-async function sendPushToAdmins(body) {
+async function sendPushToRole(role, body) {
   if (!PUSH_ENABLED) return;
-  const subs = await sbListPushSubscriptions();
+  const subs = await sbListPushSubscriptions(role);
   if (!subs.length) return;
   const payload = JSON.stringify({ title: 'Placer Studios', body });
   await Promise.all(subs.map(async (row) => {
@@ -348,14 +350,19 @@ async function sendPushToAdmins(body) {
   }));
 }
 
+// "Modelo conectada" es un aviso de vitrina para el CEO, no algo accionable
+// por el administrador — por eso va solo al rol ceo (2026-09-02, pedido
+// explicito del usuario: no quiere estas notificaciones a el mismo).
 async function sendOnlineNotifications(modelUsername) {
-  await sendPushToAdmins(modelUsername + ' está en línea ahora.');
+  await sendPushToRole('ceo', modelUsername + ' está en línea ahora.');
 }
 
 // Avisa cuando el tracker de una modelo se cae de verdad (token vencido/invalido,
-// o lleva un rato sin poder conectar), para que no pase desapercibido.
+// o lleva un rato sin poder conectar), para que no pase desapercibido. Esta si
+// va a todos los suscritos (administrador puede actuar reconectando; CEO al
+// menos se entera de que algo esta mal).
 async function sendConnectionAlert(modelUsername, reason) {
-  await sendPushToAdmins('Se cayó la conexión de ' + modelUsername + ': ' + reason);
+  await sendPushToRole(null, 'Se cayó la conexión de ' + modelUsername + ': ' + reason);
 }
 
 async function sbDeleteAdmin(username) {
@@ -1042,7 +1049,7 @@ const server = http.createServer(async (req, res) => {
     if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
       return sendJson(res, 400, { error: 'Suscripcion invalida' });
     }
-    const ok = await sbSaveSubscription(session.username, sub);
+    const ok = await sbSaveSubscription(session.username, sub, session.role);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo guardar la suscripcion' });
     return sendJson(res, 200, { ok: true });
   }
@@ -1124,6 +1131,22 @@ const server = http.createServer(async (req, res) => {
     await sbSetModelPassword(username, hashPassword(password));
     await sbBumpSessionVersion('model', username);
     await sbLogAudit(session, 'reset_model_password', username);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Cierra las sesiones abiertas de CUALQUIER cuenta (admin, CEO o modelo),
+  // sin tener que resetear su contraseña de paso. Distinto de
+  // /api/me/logout-everywhere, que solo afecta a la propia cuenta.
+  if (parsed.pathname === '/api/accounts/logout-everywhere' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const type = body.type === 'model' ? 'model' : body.type === 'admin' ? 'admin' : null;
+    const username = type === 'model' ? sanitizeUsername(body.username) : (typeof body.username === 'string' ? body.username.trim() : '');
+    if (!type || !username) return sendJson(res, 400, { error: 'type/username inválido' });
+    await sbBumpSessionVersion(type, username);
+    await sbLogAudit(session, 'force_logout', username, { type });
     return sendJson(res, 200, { ok: true });
   }
 

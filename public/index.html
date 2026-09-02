@@ -501,6 +501,11 @@
         <div class="row"><button id="btnCreateAdmin" style="flex:1;">Crear cuenta CEO</button></div>
         <div id="adminError" class="errbox"></div>
       </div>
+      <div class="card" id="modelAccountsCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Contraseñas y sesiones — modelos</h3>
+        <div class="meta-small" style="margin-bottom:12px;">Cambia la contraseña de acceso de cualquier modelo o cierra sus sesiones abiertas en otros dispositivos.</div>
+        <div id="modelAccountsList"></div>
+      </div>
       <div class="card" id="auditLogCard">
         <details id="auditDetails">
           <summary style="cursor:pointer; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Registro de actividad</summary>
@@ -551,6 +556,7 @@
     btnShowForm: document.getElementById('btnShowForm'),
     adminAccountsCard: document.getElementById('adminAccountsCard'),
     adminList: document.getElementById('adminList'),
+    modelAccountsList: document.getElementById('modelAccountsList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
     ceoUser: document.getElementById('ceoUser'),
@@ -794,7 +800,6 @@
             '<div class="conn-actions">' +
               '<button class="btnStart" data-user="' + m.account + '"' + (m.connection.running ? ' disabled title="Ya está corriendo"' : '') + '>Iniciar</button>' +
               '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
-              '<button class="btnKey" data-user="' + m.account + '">Contraseña</button>' +
               '<button class="btnDelete" data-user="' + m.account + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Eliminar</button>' +
             '</div>' +
           '</div>'
@@ -827,9 +832,6 @@
           });
           el.models.querySelectorAll('.btnDelete').forEach(function (btn) {
             btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
-          });
-          el.models.querySelectorAll('.btnKey').forEach(function (btn) {
-            btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
           });
         }
       }
@@ -872,6 +874,7 @@
     el.tokenInfo.textContent = '';
     setFormOpen(false);
     refresh();
+    refreshModelAccounts();
   }
 
   async function startModel(username) {
@@ -902,6 +905,7 @@
       body: JSON.stringify({ username }),
     });
     refresh();
+    refreshModelAccounts();
   }
 
   async function setModelPassword(username) {
@@ -1108,13 +1112,17 @@
     el.adminList.innerHTML = data.admins.map(function (a) {
       const displayName = a.hide_name ? 'Anónimo' : escapeHtml(a.username);
       return '<div class="admin-list-row"><span>' + displayName + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
-        '<span style="display:flex; gap:6px;">' +
+        '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
         '<button class="btnKeyAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
+        '<button class="btnLogoutAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
         '<button class="btnDeleteAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
         '</span></div>';
     }).join('');
     el.adminList.querySelectorAll('.btnKeyAdmin').forEach(function (btn) {
       btn.addEventListener('click', function () { setAdminPassword(btn.getAttribute('data-user')); });
+    });
+    el.adminList.querySelectorAll('.btnLogoutAdmin').forEach(function (btn) {
+      btn.addEventListener('click', function () { forceLogoutAccount('admin', btn.getAttribute('data-user')); });
     });
     el.adminList.querySelectorAll('.btnDeleteAdmin').forEach(function (btn) {
       btn.addEventListener('click', async function () {
@@ -1127,6 +1135,44 @@
         refreshAdminAccounts();
       });
     });
+  }
+
+  async function refreshModelAccounts() {
+    const r = await fetch('/api/models');
+    if (!r.ok) return;
+    const data = await r.json();
+    const models = data.models || [];
+    if (!models.length) {
+      el.modelAccountsList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>';
+      return;
+    }
+    el.modelAccountsList.innerHTML = models.map(function (m) {
+      return '<div class="admin-list-row"><span>' + escapeHtml(m.account) + ' <span class="role-badge modelo">modelo</span></span>' +
+        '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
+        '<button class="btnKeyModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
+        '<button class="btnLogoutModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
+        '</span></div>';
+    }).join('');
+    el.modelAccountsList.querySelectorAll('.btnKeyModel').forEach(function (btn) {
+      btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
+    });
+    el.modelAccountsList.querySelectorAll('.btnLogoutModel').forEach(function (btn) {
+      btn.addEventListener('click', function () { forceLogoutAccount('model', btn.getAttribute('data-user')); });
+    });
+  }
+
+  async function forceLogoutAccount(type, username) {
+    if (!confirm('¿Cerrar todas las sesiones abiertas de "' + username + '"? Tendrá que volver a iniciar sesión en todos sus dispositivos.')) return;
+    const r = await fetch('/api/accounts/logout-everywhere', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, username }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      alert(err.error || 'No se pudo cerrar sus sesiones');
+      return;
+    }
+    alert('Listo — se cerraron todas las sesiones de ' + username + '.');
   }
 
   function escapeHtml(s) {
@@ -1143,6 +1189,8 @@
     create_account: 'creó la cuenta',
     delete_account: 'eliminó la cuenta',
     logout_everywhere: 'cerró todas sus sesiones',
+    force_logout: 'forzó el cierre de sesiones de',
+    stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
   };
 
   let auditLoaded = false;
@@ -1455,7 +1503,7 @@
     tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
-    if (isAdmin) refreshAdminAccounts();
+    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 
