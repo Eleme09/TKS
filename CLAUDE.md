@@ -199,6 +199,27 @@ actually does, the code wins; fix this file to match.
   calendar), `modelo` (sees/manages only her own data, logs in with her
   Chaturbate username + a password the admin assigns her, not an
   email).
+- **Account/security management is centralized in the "Cuentas" tab**
+  (added 2026-09-02, `tabBtnCuentas`/`isAdmin`-gated — already
+  administrador-only before this, just expanded). It's the *only* place
+  password-reset and force-logout controls live for every account type:
+  admin/CEO (existing "Cuentas administrativas" card) and models (new
+  "Contraseñas y sesiones — modelos" card, `refreshModelAccounts()`).
+  The per-model "Contraseña" button was deliberately removed from the
+  Modelos tab card — don't re-add it there, it belongs in Cuentas only.
+  `POST /api/accounts/logout-everywhere` (admin-only, `{type: 'admin'|
+  'model', username}`) force-logs-out *any* account, unlike
+  `/api/me/logout-everywhere` which is self-service-only. Both go
+  through `sbBumpSessionVersion`.
+- **Push notifications are now role-scoped** (added 2026-09-02): "modelo
+  X está en línea" goes to `ceo` subscribers only (`sendPushToRole('ceo',
+  ...)`) — explicit user request, administrador does not want these.
+  Connection-drop alerts still go to everyone subscribed
+  (`sendPushToRole(null, ...)`, unchanged). Subscriptions are tagged
+  with the subscriber's role in `cb_push_subscriptions.role` at
+  subscribe time (`/api/push/subscribe` passes `session.role`) — don't
+  add a new push notification type without deciding which role(s) it's
+  for.
 
 ## How this user likes to work
 
