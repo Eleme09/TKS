@@ -72,6 +72,7 @@
   body.theme-horas::after { animation: themeOrbit 18s linear infinite; }
   body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
   body.theme-cuentas::after { animation: themeSteady 8s ease-in-out infinite; }
+  body.theme-noticias::after { animation: themePulse 3.4s ease-in-out infinite; }
   html { scrollbar-color: #333 transparent; background: var(--bg); overscroll-behavior-y: none; }
   body {
     margin: 0; font-family: var(--font-body); color: var(--text);
@@ -98,7 +99,7 @@
   @media (prefers-reduced-motion: reduce) {
     .spark { display: none; }
     body::after,
-    body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after { animation: none !important; }
+    body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after, body.theme-noticias::after { animation: none !important; }
     .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .banner-icon *, .topbar, .tabnav, .badge.online, .brand-cat, .brand-word, .login-bg-cat { animation: none !important; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
@@ -244,7 +245,7 @@
     88% { opacity: 1; } 100% { transform: translateY(16px); opacity: 0; }
   }
   .icon-modelos .icon-main { transform-origin: 50% 55%; animation: heartbeat 2.6s ease-in-out infinite; }
-  .icon-modelos .icon-spark, .icon-desprendibles .icon-spark { fill: var(--pink); stroke: none; animation: twinkle 1.8s ease-in-out infinite; }
+  .icon-modelos .icon-spark, .icon-desprendibles .icon-spark, .icon-noticias .icon-spark { fill: var(--pink); stroke: none; animation: twinkle 1.8s ease-in-out infinite; }
   .icon-horas .icon-drip { fill: var(--pink); stroke: none; animation: sandDrip 2.1s linear infinite; }
   .icon-desprendibles .icon-coin { transform-origin: bottom center; }
   .icon-desprendibles .c1 { animation: coinRise 3s ease-in-out infinite; }
@@ -345,6 +346,7 @@
       <button class="tabbtn" data-tab="modelos" id="tabBtnModelos">Modelos</button>
       <button class="tabbtn" data-tab="horas">Horas extra</button>
       <button class="tabbtn" data-tab="desprendibles">Desprendibles</button>
+      <button class="tabbtn" data-tab="noticias">Noticias</button>
       <button class="tabbtn" data-tab="cuentas" id="tabBtnCuentas" style="display:none;">Cuentas</button>
     </div>
 
@@ -477,6 +479,25 @@
       </div>
     </div>
 
+    <div class="tabpanel" id="tab-noticias" style="display:none;">
+      <div class="section-banner banner-noticias" aria-hidden="true">
+        <svg class="banner-icon icon-noticias" viewBox="0 0 120 100">
+          <path class="icon-main" d="M14 16 H106 V64 H52 L28 84 V64 H14 Z"/>
+          <path class="icon-spark" d="M100 4 L102.5 10.5 L109 13 L102.5 15.5 L100 22 L97.5 15.5 L91 13 L97.5 10.5 Z"/>
+        </svg>
+      </div>
+      <div class="card" id="newsCreateCard" style="display:none;">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Publicar noticia</h3>
+        <label for="newsTitle">Título</label>
+        <input id="newsTitle" placeholder="ej: cambio en el horario de pagos" autocomplete="off">
+        <label for="newsBody">Mensaje</label>
+        <textarea id="newsBody" rows="4" placeholder="escribe aquí..." style="width:100%; font-family:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); resize:vertical;"></textarea>
+        <div class="row" style="margin-top:10px;"><button id="btnNewsCreate" style="flex:1;">Publicar</button></div>
+        <div id="newsError" class="errbox"></div>
+      </div>
+      <div id="newsList"></div>
+    </div>
+
     <div class="tabpanel" id="tab-cuentas" style="display:none;">
       <div class="section-banner banner-cuentas" aria-hidden="true">
         <svg class="banner-icon icon-cuentas" viewBox="0 0 120 100">
@@ -588,6 +609,12 @@
     btnStripchatParse: document.getElementById('btnStripchatParse'),
     stripchatError: document.getElementById('stripchatError'),
     stripchatPreview: document.getElementById('stripchatPreview'),
+    newsCreateCard: document.getElementById('newsCreateCard'),
+    newsTitle: document.getElementById('newsTitle'),
+    newsBody: document.getElementById('newsBody'),
+    btnNewsCreate: document.getElementById('btnNewsCreate'),
+    newsError: document.getElementById('newsError'),
+    newsList: document.getElementById('newsList'),
   };
 
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -650,7 +677,7 @@
   let lastShiftsHtml = null;
 
   const tabButtons = document.querySelectorAll('.tabbtn');
-  const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), cuentas: document.getElementById('tab-cuentas') };
+  const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), noticias: document.getElementById('tab-noticias'), cuentas: document.getElementById('tab-cuentas') };
   const tabBtnCuentas = document.getElementById('tabBtnCuentas');
   const tabBtnModelos = document.getElementById('tabBtnModelos');
 
@@ -669,12 +696,13 @@
       }
     });
     tabButtons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
-    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas');
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias');
     document.body.classList.add('theme-' + name);
     if (name === 'desprendibles') {
       refreshPayslips();
       if (currentRole === 'administrador') initStripchatForm();
     }
+    if (name === 'noticias') refreshNews();
   }
 
   tabButtons.forEach(function (b) {
@@ -1097,6 +1125,104 @@
 
   el.btnStripchatParse.addEventListener('click', parseStripchatText);
 
+  async function refreshNews() {
+    const r = await fetch('/api/news');
+    if (!r.ok) { el.newsList.innerHTML = '<div class="card"><div class="meta-small">No se pudo cargar.</div></div>'; return; }
+    const data = await r.json();
+    const posts = data.posts || [];
+    if (!posts.length) {
+      el.newsList.innerHTML = '<div class="card"><div class="meta-small">Todavía no hay noticias publicadas.</div></div>';
+      return;
+    }
+    const isAdmin = currentRole === 'administrador';
+    el.newsList.innerHTML = posts.map(function (p, idx) {
+      const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+      const commentsHtml = (p.comments || []).map(function (c) {
+        const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+        return '<div class="admin-list-row" style="align-items:flex-start; padding:8px 0;">' +
+          '<span><b>' + escapeHtml(c.author_username) + '</b> ' + roleBadgeHtml(c.author_role, c.author_gender) + '<br>' +
+          '<span style="white-space:pre-wrap;">' + escapeHtml(c.body) + '</span></span>' +
+          '<span class="meta-small" style="display:flex; align-items:center; gap:8px; white-space:nowrap;">' + cwhen +
+          (isAdmin ? ' <button class="btnDeleteComment" data-id="' + c.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:3px 8px; font-size:11px;">Eliminar</button>' : '') +
+          '</span></div>';
+      }).join('');
+      return '<div class="card" style="animation-delay:' + (idx * 40) + 'ms;">' +
+        '<div class="model-name-row" style="margin-bottom:4px;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + '</div>' +
+        '<div class="meta-small" style="margin-bottom:10px;">' + escapeHtml(p.author_username) + ' — ' + when + '</div>' +
+        '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
+        (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px; margin-bottom:12px;">Eliminar noticia</button>' : '') +
+        '<div style="border-top:1px solid var(--border-soft); padding-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
+        '<div class="row" style="margin-top:10px; gap:8px;">' +
+          '<input class="newsCommentInput" data-post-id="' + p.id + '" placeholder="responder..." style="flex:1;">' +
+          '<button class="btnNewsComment" data-post-id="' + p.id + '">Enviar</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    el.newsList.querySelectorAll('.btnNewsComment').forEach(function (btn) {
+      btn.addEventListener('click', function () { submitNewsComment(btn.getAttribute('data-post-id')); });
+    });
+    el.newsList.querySelectorAll('.newsCommentInput').forEach(function (input) {
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitNewsComment(input.getAttribute('data-post-id')); });
+    });
+    if (isAdmin) {
+      el.newsList.querySelectorAll('.btnDeletePost').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('¿Eliminar esta noticia y todas sus respuestas?')) return;
+          await fetch('/api/news/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: Number(btn.getAttribute('data-id')) }) });
+          refreshNews();
+        });
+      });
+      el.newsList.querySelectorAll('.btnDeleteComment').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('¿Eliminar esta respuesta?')) return;
+          await fetch('/api/news/comment/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: Number(btn.getAttribute('data-id')) }) });
+          refreshNews();
+        });
+      });
+    }
+  }
+
+  async function submitNewsComment(postId) {
+    const input = el.newsList.querySelector('.newsCommentInput[data-post-id="' + postId + '"]');
+    const text = input ? input.value.trim() : '';
+    if (!text) return;
+    const r = await fetch('/api/news/comment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ post_id: Number(postId), body: text }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      alert(err.error || 'No se pudo enviar');
+      return;
+    }
+    refreshNews();
+  }
+
+  async function createNewsPost() {
+    const title = el.newsTitle.value.trim();
+    const body = el.newsBody.value.trim();
+    if (!title || !body) { el.newsError.style.display = 'block'; el.newsError.textContent = 'Completa título y mensaje.'; return; }
+    el.newsError.style.display = 'none';
+    el.btnNewsCreate.disabled = true;
+    const r = await fetch('/api/news/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body }),
+    });
+    el.btnNewsCreate.disabled = false;
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      el.newsError.style.display = 'block';
+      el.newsError.textContent = err.error || 'No se pudo publicar';
+      return;
+    }
+    el.newsTitle.value = '';
+    el.newsBody.value = '';
+    refreshNews();
+  }
+
+  el.btnNewsCreate.addEventListener('click', createNewsPost);
+
   async function refreshAdminAccounts() {
     const r = await fetch('/api/admins');
     if (!r.ok) return;
@@ -1191,6 +1317,8 @@
     logout_everywhere: 'cerró todas sus sesiones',
     force_logout: 'forzó el cierre de sesiones de',
     stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
+    news_post_create: 'publicó una noticia',
+    news_post_delete: 'eliminó una noticia',
   };
 
   let auditLoaded = false;
@@ -1502,6 +1630,7 @@
     tabBtnCuentas.style.display = isAdmin ? 'inline-block' : 'none';
     tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
+    el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); }
     switchTab('modelos');
@@ -1531,7 +1660,7 @@
     el.subtext.style.display = 'block';
     el.loginCard.style.display = 'block';
     el.loginBgCat.style.removeProperty('display');
-    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas');
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias');
   }
 
   el.btnLogin.addEventListener('click', async function () {
