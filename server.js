@@ -93,6 +93,14 @@ function getQuincenaHistory(count, now) {
   return periods;
 }
 
+// Fecha YYYY-MM-DD en hora local (misma que usa getQuincena para construir
+// start/end), para guardar/consultar en columnas `date` de Postgres sin
+// desfases de zona horaria.
+function toDateStr(ms) {
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
 // El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
 const trackers = new Map();
@@ -481,19 +489,85 @@ async function sbFetchUserTipsSince(username, sinceIso) {
   return r.ok ? r.json() : [];
 }
 
+// ---- Stripchat (sin API oficial de ganancias: se ingresa a mano, pegando el
+// reporte "Ganancias por modelo" del panel de Stripchat, o corrigiendo a mano) ----
+
+// Interpreta el texto pegado desde "Ganancias por modelo": para cada modelo ya
+// dada de alta busca una linea que contenga su username y toma el numero mas
+// grande de esa linea como los tokens (en ese reporte el conteo de tokens es
+// la cifra mas alta de la fila, por encima de rankings u otros datos chicos).
+function parseStripchatPaste(text, usernames) {
+  const lines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const usedLines = new Set();
+  const matched = [];
+  const unmatched = [];
+  for (const uname of usernames) {
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (usedLines.has(i)) continue;
+      if (lines[i].toLowerCase().includes(uname.toLowerCase())) {
+        const nums = (lines[i].match(/\d[\d.,]*/g) || [])
+          .map((n) => parseInt(n.replace(/[.,]/g, ''), 10))
+          .filter((n) => Number.isFinite(n));
+        if (nums.length) {
+          matched.push({ username: uname, tokens: Math.max(...nums) });
+          usedLines.add(i);
+          found = true;
+        }
+        break;
+      }
+    }
+    if (!found) unmatched.push(uname);
+  }
+  return { matched, unmatched };
+}
+
+async function sbUpsertStripchatEarningsBatch(rows, enteredBy) {
+  if (!rows.length) return true;
+  const body = rows.map((r) => ({
+    username: r.username,
+    period_start: r.period_start,
+    period_end: r.period_end,
+    tokens: r.tokens,
+    entered_by: enteredBy,
+    updated_at: new Date().toISOString(),
+  }));
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings?on_conflict=username,period_start,period_end', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(body),
+  });
+  return resp.ok;
+}
+
+async function sbFetchStripchatEarningsForPeriod(periodStartStr, periodEndStr) {
+  const qs = '?select=username,tokens&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartStr) {
+  const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
 async function buildModelReports() {
   const now = Date.now();
   const period = getQuincena(now);
   const startIso = new Date(period.start).toISOString();
   const endIso = new Date(period.end).toISOString();
 
-  const [models, tips] = await Promise.all([
+  const [models, tips, stripchat] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
+    sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
   ]);
 
   const tipsByUser = {};
   for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+  const stripchatByUser = {};
+  for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
 
   return models.map((m) => {
     const tr = trackers.get(m.username);
@@ -512,11 +586,16 @@ async function buildModelReports() {
       ? { state: 'online', since: tr.onlineSince || now }
       : { state: 'offline', since: null };
 
+    const chaturbateTokensPeriod = tipsByUser[m.username] || 0;
+    const stripchatTokensPeriod = stripchatByUser[m.username] || 0;
+
     return {
       account: m.username,
       role: m.role || 'modelo',
       period: { label: period.label, payoutLabel: period.payoutLabel },
-      totalTokensPeriod: tipsByUser[m.username] || 0,
+      totalTokensPeriod: chaturbateTokensPeriod + stripchatTokensPeriod,
+      chaturbateTokensPeriod,
+      stripchatTokensPeriod,
       reportGeneratedAt: now,
       trackingSince,
       periodCoveragePct,
@@ -1045,21 +1124,30 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
       const oldestStart = periods[periods.length - 1].start;
-      const [tips, dollar] = await Promise.all([
+      const [tips, stripchatRows, dollar] = await Promise.all([
         sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
+        sbFetchStripchatEarningsForUserSince(username, toDateStr(oldestStart)),
         getDollarRate(),
       ]);
 
       const rows = periods.map((p, idx) => {
-        const total = tips
+        const chaturbateTokens = tips
           .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; })
           .reduce((sum, t) => sum + t.tokens, 0);
+        const periodStartStr = toDateStr(p.start);
+        const periodEndStr = toDateStr(p.end);
+        const stripchatTokens = stripchatRows
+          .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
+          .reduce((sum, r) => sum + r.tokens, 0);
+        const total = chaturbateTokens + stripchatTokens;
         const payoutUSD = total * PAYOUT_RATE_USD_PER_TOKEN;
         const payoutCOP = dollar.rate ? payoutUSD * dollar.rate : null;
         return {
           label: p.label,
           payoutLabel: p.payoutLabel,
           totalTokens: total,
+          chaturbateTokens,
+          stripchatTokens,
           payoutUSD,
           payoutCOP,
           copIsApproximate: idx !== 0,
@@ -1071,6 +1159,66 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
     }
+  }
+
+  // ---- Stripchat (ingreso manual — no hay API oficial de ganancias) ----
+
+  if (parsed.pathname === '/api/stripchat/periods' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    const periods = getQuincenaHistory(3, Date.now()).map((p, idx) => ({ index: idx, label: p.label, payoutLabel: p.payoutLabel }));
+    return sendJson(res, 200, { periods });
+  }
+
+  if (parsed.pathname === '/api/stripchat/current' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    const idx = Math.min(2, Math.max(0, parseInt(parsed.query.periodIndex, 10) || 0));
+    const period = getQuincenaHistory(3, Date.now())[idx];
+    const [models, rows] = await Promise.all([
+      sbFetchAllModels(),
+      sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    ]);
+    const byUser = {};
+    for (const r of rows) byUser[r.username] = r.tokens;
+    const entries = models.filter((m) => m.role === 'modelo').map((m) => ({ username: m.username, tokens: byUser[m.username] || 0 }));
+    return sendJson(res, 200, { period: { label: period.label }, entries });
+  }
+
+  if (parsed.pathname === '/api/stripchat/parse' && req.method === 'POST') {
+    if (!(await requireAdmin(req, res))) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (!text.trim()) return sendJson(res, 400, { error: 'Pega el texto de la tabla primero' });
+    const models = await sbFetchAllModels();
+    const usernames = models.filter((m) => m.role === 'modelo').map((m) => m.username);
+    const result = parseStripchatPaste(text, usernames);
+    return sendJson(res, 200, result);
+  }
+
+  if (parsed.pathname === '/api/stripchat/save' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    const idx = Math.min(2, Math.max(0, parseInt(body.periodIndex, 10) || 0));
+    const period = getQuincenaHistory(3, Date.now())[idx];
+    const models = await sbFetchAllModels();
+    const validUsernames = new Set(models.map((m) => m.username));
+    const periodStartStr = toDateStr(period.start);
+    const periodEndStr = toDateStr(period.end);
+    const rows = [];
+    for (const e of entries) {
+      const username = sanitizeUsername(e.username);
+      const tokens = Math.max(0, Math.floor(Number(e.tokens)));
+      if (!username || !validUsernames.has(username) || !Number.isFinite(tokens)) continue;
+      rows.push({ username, period_start: periodStartStr, period_end: periodEndStr, tokens });
+    }
+    if (!rows.length) return sendJson(res, 400, { error: 'No hay entradas válidas para guardar' });
+    const ok = await sbUpsertStripchatEarningsBatch(rows, session.username);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    await sbLogAudit(session, 'stripchat_earnings_save', null, { period: period.label, count: rows.length });
+    return sendJson(res, 200, { ok: true, period: period.label, count: rows.length });
   }
 
   // ---- Turnos / horas extra ----

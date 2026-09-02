@@ -108,6 +108,38 @@ actually does, the code wins; fix this file to match.
   Historical (past-quincena) COP figures are approximate (today's rate,
   not the historical one) since exchange rates aren't archived per day;
   label them as such rather than presenting them as exact.
+- **Stripchat is combined into the same payout** (added 2026-09-02): a
+  model's `totalTokensPeriod` = Chaturbate tips + Stripchat tokens for
+  that quincena, then the single 0.023 USD/token rate applies to the
+  combined total — the user's explicit instruction ("misma operación...
+  se unen ambas estadísticas de página para pagar"). Stripchat has no
+  official earnings API and the studio's Stripchat master account is
+  deliberately locked to one specific browser (fraud-prevention measure
+  on their end) — **never** attempt scripted/automated login to
+  Stripchat from this server; that risks getting the master account
+  flagged, which would break access for every model, not just this
+  feature. Ingestion is manual-but-fast: admin pastes the "Ganancias por
+  modelo" table text (copied from Stripchat's own panel, in their
+  trusted browser) into a textarea, `parseStripchatPaste()` in
+  `server.js` matches each known model's username against a line of that
+  text and takes the largest number on that line as her token count
+  (Stripchat's report puts token totals as the biggest figure per row,
+  above ranks/percentages), admin reviews/edits the parsed preview, then
+  confirms to save. Data lives in `cb_stripchat_earnings` (columns:
+  `username, period_start date, period_end date, tokens, entered_by,
+  created_at, updated_at`, `unique(username, period_start, period_end)`
+  so re-saving a period corrects it via upsert instead of duplicating).
+  Endpoints: `GET /api/stripchat/periods` (current + 2 prior quincenas),
+  `POST /api/stripchat/parse` (text → matched/unmatched preview, no
+  write), `POST /api/stripchat/save` (admin-only, upserts). Wired into
+  `buildModelReports()` (current quincena, exposes
+  `chaturbateTokensPeriod`/`stripchatTokensPeriod` alongside the combined
+  `totalTokensPeriod`) and `/api/payslips` (same breakdown per historical
+  period). If a browser extension setup ever gives direct read access to
+  the Stripchat panel from the *user's own already-logged-in browser*
+  (not a new scripted login), that could replace the paste step with a
+  one-click read — but do not build unattended/scheduled scraping of
+  Stripchat under any circumstances.
 - Roles: `administrador` (full control), `ceo` (badge "CEO PLACER
   STUDIO", read-only on model earnings/status but can manage the shift
   calendar), `modelo` (sees/manages only her own data, logs in with her
