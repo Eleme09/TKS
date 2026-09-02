@@ -347,7 +347,7 @@
       </div>
 
       <div class="models" id="models">
-        <div class="empty">Todavía no hay modelos agregadas.</div>
+        <div class="empty">Todavía no hay modelos agregadas — usa el botón de arriba para sumar la primera.</div>
       </div>
 
       <details class="card" style="margin-top:16px; max-width:760px;">
@@ -702,7 +702,7 @@
       }
 
       if (!data.models || data.models.length === 0) {
-        if (lastModelsHtml !== '') { lastModelsHtml = ''; el.models.innerHTML = '<div class="empty">Todavía no hay modelos agregadas.</div>'; }
+        if (lastModelsHtml !== '') { lastModelsHtml = ''; el.models.innerHTML = '<div class="empty">Todavía no hay modelos agregadas — usa el botón de arriba para sumar la primera.</div>'; }
         return;
       }
 
@@ -834,7 +834,7 @@
       const err = await r.json().catch(() => ({}));
       alert(err.error || 'No se pudo cambiar la contraseña');
     } else {
-      alert('Contraseña actualizada para ' + username + '.');
+      alert('Listo — la contraseña de ' + username + ' ya quedó actualizada.');
     }
   }
 
@@ -881,7 +881,7 @@
     if (me) applyAnonButtonState(!!me.hide_name);
 
     if (!data.admins || data.admins.length === 0) {
-      el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO creadas.</div>';
+      el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO — créala aquí abajo cuando la necesites.</div>';
       return;
     }
     el.adminList.innerHTML = data.admins.map(function (a) {
@@ -975,7 +975,7 @@
 
     el.shiftsHint.textContent = canManage
       ? 'Publica horarios disponibles para que las modelos se apunten. Clic en "+" en un día para agregar ahí.'
-      : (isModel ? 'Elige un horario disponible para hora extra.' : 'Horarios de hora extra publicados.');
+      : (isModel ? 'Elige el horario que más te acomode.' : 'Horarios de hora extra publicados.');
 
     el.shiftsPeriodLabel.textContent = quincenaLabel(shiftsViewDate) + (isCurrentQuincena(shiftsViewDate) ? ' (actual)' : '');
     el.btnTodayQuincena.style.display = isCurrentQuincena(shiftsViewDate) ? 'none' : 'inline-block';
