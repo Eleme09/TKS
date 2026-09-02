@@ -1062,9 +1062,21 @@
     el.payslipsList.innerHTML = (data.periods || []).map(function (p, idx) {
       const usd = fmtUSD(p.payoutUSD);
       const cop = p.payoutCOP != null ? fmtCOP(p.payoutCOP) + (p.copIsApproximate ? ' (aprox.)' : '') : '—';
-      const stateTag = p.closed ? ' <span class="badge offline">Quincena cerrada</span>' : ' <span class="badge online">Quincena actual</span>';
-      const breakdown = p.stripchatTokens > 0 ? ' (CB ' + p.chaturbateTokens.toLocaleString('es-ES') + ' + SC ' + p.stripchatTokens.toLocaleString('es-ES') + ')' : '';
-      return '<div class="admin-list-row" style="animation-delay:' + (idx * 40) + 'ms;"><span><b>' + p.label + '</b>' + stateTag + ' · ' + p.totalTokens.toLocaleString('es-ES') + ' tokens' + breakdown + ' · ' + usd + ' · ' + cop + '</span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
+      const stateBadge = p.closed ? '<span class="badge offline">Cerrada</span>' : '<span class="badge online">Actual</span>';
+      const breakdown = p.stripchatTokens > 0
+        ? '<div class="meta-small">' + platformIconHtml('https://chaturbate.com/favicon.ico', 'CB', '#f47321') + ' ' + p.chaturbateTokens.toLocaleString('es-ES') + ' + ' + platformIconHtml('https://stripchat.com/favicon.ico', 'SC', '#c62143') + ' ' + p.stripchatTokens.toLocaleString('es-ES') + '</div>'
+        : '';
+      return '<div class="model" style="animation-delay:' + (idx * 40) + 'ms;">' +
+        '<div class="model-head">' +
+          '<div class="model-name-row"><div class="model-name">' + p.label + '</div></div>' +
+          stateBadge +
+        '</div>' +
+        '<div class="model-grid">' +
+          '<div class="stat"><div class="k">Tokens</div><div class="v">' + p.totalTokens.toLocaleString('es-ES') + '</div>' + breakdown + '</div>' +
+          '<div class="stat hero"><div class="k">Desprendible</div><div class="v">' + usd + '</div><div class="meta-small">' + cop + '</div></div>' +
+        '</div>' +
+        '<div class="meta-small" style="margin-top:10px;">Pago: ' + p.payoutLabel + '</div>' +
+      '</div>';
     }).join('');
 
     lastPayslipExport = { username: data.username || targetUser, periods: data.periods || [] };
@@ -1681,13 +1693,13 @@
   }
 
   el.btnEnablePush.addEventListener('click', async function () {
+    if (isIos() && !isStandalone()) {
+      alert('En iPhone, Apple solo permite las notificaciones si esta página está agregada a tu pantalla de inicio: toca el botón compartir (el cuadrito con la flecha hacia arriba) y elige "Agregar a pantalla de inicio". Después ábrela desde ese ícono, no desde Safari, para activarlas.');
+      return;
+    }
     const unsupportedReason = pushUnsupportedReason();
     if (unsupportedReason) {
       alert('No se pudieron activar las notificaciones: ' + unsupportedReason + '.');
-      return;
-    }
-    if (isIos() && !isStandalone()) {
-      alert('En iPhone primero debes agregar esta pagina a tu pantalla de inicio (boton compartir > agregar a pantalla de inicio) y abrirla desde ahi para poder activar las notificaciones.');
       return;
     }
     el.btnEnablePush.disabled = true;
