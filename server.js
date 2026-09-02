@@ -646,6 +646,50 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// ---- Limite de intentos de login (por IP) ----
+
+const loginAttempts = new Map(); // ip -> { count, firstAttemptAt, lockedUntil }
+const LOGIN_MAX_ATTEMPTS = 6;
+const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
+
+function getClientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd) return fwd.split(',')[0].trim();
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
+function isLoginLocked(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  const now = Date.now();
+  if (entry.lockedUntil) {
+    if (entry.lockedUntil > now) return true;
+    loginAttempts.delete(ip);
+    return false;
+  }
+  if (now - entry.firstAttemptAt > LOGIN_ATTEMPT_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return false;
+}
+
+function registerLoginFailure(ip) {
+  const now = Date.now();
+  let entry = loginAttempts.get(ip);
+  if (!entry || now - entry.firstAttemptAt > LOGIN_ATTEMPT_WINDOW_MS) {
+    entry = { count: 0, firstAttemptAt: now, lockedUntil: null };
+  }
+  entry.count++;
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) entry.lockedUntil = now + LOGIN_LOCKOUT_MS;
+  loginAttempts.set(ip, entry);
+}
+
+function clearLoginFailures(ip) {
+  loginAttempts.delete(ip);
+}
+
 async function requireSession(req, res) {
   const session = await getSession(req);
   if (!session) {
@@ -681,6 +725,10 @@ const server = http.createServer(async (req, res) => {
   // ---- Auth ----
 
   if (parsed.pathname === '/api/login' && req.method === 'POST') {
+    const clientIp = getClientIp(req);
+    if (isLoginLocked(clientIp)) {
+      return sendJson(res, 429, { error: 'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.' });
+    }
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const usernameRaw = typeof body.username === 'string' ? body.username.trim() : '';
@@ -689,6 +737,7 @@ const server = http.createServer(async (req, res) => {
 
     const admin = await sbFindAdmin(usernameRaw);
     if (admin && verifyPassword(password, admin.password_hash)) {
+      clearLoginFailures(clientIp);
       const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null, v: admin.session_version || 1 });
       setSessionCookie(res, token);
       return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username, gender: admin.gender || null });
@@ -698,12 +747,14 @@ const server = http.createServer(async (req, res) => {
     if (modelUsername) {
       const modelAuth = await sbFindModelAuth(modelUsername);
       if (modelAuth && verifyPassword(password, modelAuth.password_hash)) {
+        clearLoginFailures(clientIp);
         const token = signSession({ type: 'model', username: modelUsername, role: 'modelo', v: modelAuth.session_version || 1 });
         setSessionCookie(res, token);
         return sendJson(res, 200, { ok: true, role: 'modelo', username: modelUsername });
       }
     }
 
+    registerLoginFailure(clientIp);
     return sendJson(res, 401, { error: 'Usuario o contraseña incorrectos' });
   }
 
