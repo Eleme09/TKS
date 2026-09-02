@@ -67,14 +67,27 @@ actually does, the code wins; fix this file to match.
   forever. If the saved cursor is stale/rejected, the code falls back to
   a fresh connection automatically — don't treat that fallback path as a
   bug.
-- Online/offline status is **in-memory only** (`tracker.online`), reset
-  to `false` on every restart, by deliberate design (see the comment
-  above `buildModelReports`): trusting the DB's last broadcast event
-  instead would make a model who was live during a missed `broadcastStop`
-  appear "online" forever. The tradeoff is that every model shows
-  offline for a few minutes after any restart until a fresh event
-  arrives — this is expected, not a bug to "fix" by reverting to
-  DB-based status.
+- Online/offline status is **in-memory only** (`tracker.online`). On a
+  fresh add (no saved cursor) it starts `false` until a real event
+  arrives — trusting DB history there would be unsafe since there's no
+  guarantee no `broadcastStop` was missed. But on a **resume from a
+  saved cursor** (the normal case on every restart/redeploy), `pollLoop`
+  seeds `tracker.online` from `cb_broadcast_events`' last recorded event
+  for that model (fixed 2026-09-02, see `sbFetchLastBroadcastEvent`) —
+  a valid cursor resume has no event gap (Chaturbate still delivers
+  everything that happened during the downtime), so the DB's last event
+  is trustworthy at that point. If the saved cursor turns out rejected
+  further down (falls back to `freshUrl`), the seed is explicitly
+  reverted to `false`/unknown, since only then is there a real gap. Why
+  this mattered: without it, a model already live *before* a restart
+  would show "desconectada" for potentially hours (until she happens to
+  stop/restart streaming) instead of a few minutes, since the resumed
+  cursor starts past her original `broadcastStart` and no new event
+  fires while she keeps streaming continuously. Don't revert to
+  unconditional `false`-on-restart — that reintroduces the bug the user
+  reported on 2026-09-02. This is purely a monitoring/UI concern, not
+  money — `totalTokensPeriod` only ever comes from `cb_tips`, never from
+  online status.
 - `startTracker(username, token, savedCursor)` **must** set
   `existing.running = false` on the tracker it's replacing before
   aborting its fetch — aborting alone does not stop that old poll loop

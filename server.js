@@ -472,6 +472,13 @@ async function sbInsertBroadcastEvent(username, eventType, eventId) {
   await sbWriteCritical('broadcast_event', SUPABASE_URL + '/rest/v1/cb_broadcast_events', { username, event_type: eventType, event_id: eventId });
 }
 
+async function sbFetchLastBroadcastEvent(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events?username=eq.' + encodeURIComponent(username) + '&select=event_type,created_at&order=created_at.desc&limit=1', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
 async function sbFetchAllModels() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,role,created_at&order=username.asc', { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
@@ -642,6 +649,21 @@ async function pollLoop(tracker) {
   let nextUrl = tracker.savedCursor || freshUrl;
   let triedSavedCursor = !!tracker.savedCursor;
 
+  // Si retomamos desde un cursor guardado no hay hueco de eventos perdidos
+  // (Chaturbate los sigue entregando al reconectar con ese cursor), asi que
+  // podemos adelantar el estado "en linea" con el ultimo evento conocido en
+  // vez de esperar a ciegas un evento nuevo que podria tardar horas si la
+  // modelo ya estaba transmitiendo desde antes del reinicio. Si el cursor
+  // guardado resulta rechazado mas abajo, esto se revierte: ahi si hay un
+  // hueco real y toca volver a "desconocida" como antes.
+  if (triedSavedCursor) {
+    const lastEvent = await sbFetchLastBroadcastEvent(username).catch(() => null);
+    if (lastEvent && lastEvent.event_type === 'start' && tracker.running) {
+      tracker.online = true;
+      tracker.onlineSince = new Date(lastEvent.created_at).getTime();
+    }
+  }
+
   while (tracker.running) {
     tracker.abortCtl = new AbortController();
     let resp;
@@ -665,6 +687,10 @@ async function pollLoop(tracker) {
       if (triedSavedCursor && nextUrl === tracker.savedCursor) {
         triedSavedCursor = false;
         nextUrl = freshUrl;
+        // el cursor guardado fallo: ya no hay garantia de no haber perdido
+        // un evento en el hueco, asi que el adelanto de arriba ya no aplica.
+        tracker.online = false;
+        tracker.onlineSince = null;
         continue;
       }
       const body = await resp.text().catch(() => '');
