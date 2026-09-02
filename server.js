@@ -334,10 +334,15 @@ async function sbDeleteSubscriptionByEndpoint(endpoint) {
   }).catch(() => {});
 }
 
-// Sin `role`, trae todas las suscripciones (admin + CEO); con `role`, solo las de ese rol.
+// Sin `role`, trae todas las suscripciones de cualquier rol; con `role` (string
+// o arreglo de strings), solo las de ese rol o esos roles.
 async function sbListPushSubscriptions(role) {
   let url = SUPABASE_URL + '/rest/v1/cb_push_subscriptions?select=username,endpoint,p256dh,auth';
-  if (role) url += '&role=eq.' + encodeURIComponent(role);
+  if (Array.isArray(role)) {
+    url += '&role=in.(' + role.map(encodeURIComponent).join(',') + ')';
+  } else if (role) {
+    url += '&role=eq.' + encodeURIComponent(role);
+  }
   const r = await fetch(url, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
@@ -369,11 +374,13 @@ async function sendOnlineNotifications(modelUsername) {
 }
 
 // Avisa cuando el tracker de una modelo se cae de verdad (token vencido/invalido,
-// o lleva un rato sin poder conectar), para que no pase desapercibido. Esta si
-// va a todos los suscritos (administrador puede actuar reconectando; CEO al
-// menos se entera de que algo esta mal).
+// o lleva un rato sin poder conectar), para que no pase desapercibido.
+// Administrador puede actuar reconectando; CEO al menos se entera de que algo
+// esta mal. No incluye a modelo -- es un problema tecnico que ella no puede
+// resolver, y ahora que las modelos tambien pueden suscribirse (para
+// Noticias) hay que ser explicito aqui en vez de mandarla a todos.
 async function sendConnectionAlert(modelUsername, reason) {
-  await sendPushToRole(null, 'Se cayó la conexión de ' + modelUsername + ': ' + reason, { tag: 'placer-conn-alert' });
+  await sendPushToRole(['administrador', 'ceo'], 'Se cayó la conexión de ' + modelUsername + ': ' + reason, { tag: 'placer-conn-alert' });
 }
 
 // Avisa a los demas suscritos (admin/CEO) cuando se publica una noticia nueva,
@@ -1141,12 +1148,12 @@ const server = http.createServer(async (req, res) => {
   // ---- Notificaciones push (administrador y CEO) ----
 
   if (parsed.pathname === '/api/push/public-key' && req.method === 'GET') {
-    if (!(await requireAdminOrCeo(req, res))) return;
+    if (!(await requireSession(req, res))) return;
     return sendJson(res, 200, { enabled: PUSH_ENABLED, publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : null });
   }
 
   if (parsed.pathname === '/api/push/subscribe' && req.method === 'POST') {
-    const session = await requireAdminOrCeo(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     if (!PUSH_ENABLED) return sendJson(res, 400, { error: 'Las notificaciones no estan configuradas en el servidor' });
     let body;
@@ -1161,7 +1168,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/push/unsubscribe' && req.method === 'POST') {
-    const session = await requireAdminOrCeo(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }

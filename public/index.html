@@ -1641,8 +1641,8 @@
     const isAdmin = session.role === 'administrador';
     const canManageShifts = session.role === 'administrador' || session.role === 'ceo';
     el.btnToggleAnon.style.display = isAdmin ? 'inline-block' : 'none';
-    el.btnEnablePush.style.display = canManageShifts ? 'inline-flex' : 'none';
-    if (canManageShifts && pushSupported()) updatePushButtonState();
+    el.btnEnablePush.style.display = 'inline-flex';
+    if (pushSupported()) updatePushButtonState();
     el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
     tabBtnCuentas.style.display = isAdmin ? 'inline-block' : 'none';
     tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';
