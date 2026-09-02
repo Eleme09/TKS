@@ -281,23 +281,39 @@ they still want that as a separate phase.
   that apply to *my own* browsing tools (see the Stripchat section
   above).
 
-## Known open issue: push notifications reported broken on a real phone (2026-09-02, unresolved)
+## Push notification bug on iPhone — resolved (2026-09-02)
 
-The user clicked the bell button on an actual mobile device (states
-they were in real Chrome) and got the "not supported" message. I
-improved the diagnostic (`pushUnsupportedReason()` now distinguishes
-missing HTTPS vs missing Service Worker vs missing PushManager, shown
-in the alert instead of one generic message) but could not reproduce
-or root-cause this myself — my own testing (emulated mobile viewport in
-a Chromium-based browser) shows push working fine, which doesn't rule
-out a real-device-specific issue. Leading hypothesis, unconfirmed: the
-link may have been opened in an in-app/WebView browser (e.g. from
-inside another app) that reports as Chrome-ish but lacks full Push API
-support — real Chrome for Android has supported this for years, so a
-genuine failure there would be surprising. If this comes up again, ask
-what the *new, more specific* alert text says (that alone narrows it a
-lot), and whether the link was opened directly in the Chrome app vs.
-from inside another app's browser.
+Turned out to be two things, both fixed:
+1. The user was actually on **Safari** on iPhone, not Chrome as they
+   believed (confirmed from a screenshot of the alert — Safari's iOS
+   chrome, sparkle/AI icon in the address bar, that toolbar layout).
+   This isn't really a bug: **Apple only exposes the Push API on iOS
+   when the page is installed to the home screen** — a plain Safari (or
+   any iOS browser, all of which are WebKit under the hood) tab never
+   has `PushManager`, by platform design.
+2. The real bug: `el.btnEnablePush`'s click handler checked the
+   generic `pushUnsupportedReason()` *before* the iOS-specific
+   `isIos() && !isStandalone()` check, so iOS users got the unhelpful
+   generic "not supported" message instead of the actionable "add to
+   home screen first" instructions. Fixed by reordering — iOS-specific
+   check now runs first.
+
+Takeaway for next time a user reports a browser-capability message
+that seems wrong: ask for a screenshot before assuming the code is
+buggy — "I'm using Chrome" is not reliable self-report on iOS, where
+every browser is forced to use WebKit and users often don't distinguish.
+
+## Desprendibles payslip history — redesigned (2026-09-02)
+
+The per-quincena history rows in `refreshPayslips()` used to be one
+dense line of text (period + status + tokens + CB/SC breakdown + USD +
+COP all concatenated with " · "), hard to parse especially on mobile.
+Rewritten to reuse the same `.model`/`.model-head`/`.model-grid`/
+`.stat`/`.stat.hero` classes the Modelos tab cards already use —
+labeled Tokens/Desprendible blocks instead of a run-on sentence, same
+platform-icon treatment as the model cards. If you touch model card
+markup again, consider whether payslip rows need the matching change
+too (and vice versa) — they're now visually paired by design.
 
 ## How this user likes to work
 
