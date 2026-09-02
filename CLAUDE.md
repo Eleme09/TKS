@@ -368,6 +368,31 @@ too (and vice versa) — they're now visually paired by design.
   device since I can't fully replicate mobile Safari's native `<select>`
   rendering myself.
 
+## Push notifications now open to `modelo` too (2026-09-02, later still)
+
+Originally push (`/api/push/*`, the bell button) was gated to
+administrador/CEO only — built before Noticias existed. Once Noticias
+became something models read and comment on, that gate stopped making
+sense, so it's now open to any authenticated role. **Important:**
+`sendPushToRole` accepts a role, an *array* of roles, or `null`
+(everyone) — don't casually pass `null` for a new notification type
+without thinking about whether `modelo` should actually receive it now
+that she can subscribe. Current scoping, keep it this way unless the
+user asks otherwise: `sendOnlineNotifications` → `'ceo'` only;
+`sendConnectionAlert` → `['administrador', 'ceo']` (a model can't act
+on a broken tracker); `sendNewsNotification` → everyone except the
+post's author (`null` + `excludeUsername`, deliberately unrestricted
+since Noticias is meant to reach models).
+
+Push subscriptions are **per-device**, not per-account — a user
+subscribing on their PC does not enable notifications on their phone,
+and vice versa; each browser/device needs its own click on the bell.
+Confirmed via the real `cb_push_subscriptions` table more than once
+this day that this — not a code bug — was behind more than one "notifications
+aren't arriving" report. Before assuming a push bug, check that table
+first (`select username, role, endpoint from cb_push_subscriptions`)
+to see who's actually subscribed from where.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
