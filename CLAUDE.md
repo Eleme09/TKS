@@ -88,6 +88,16 @@ actually does, the code wins; fix this file to match.
   reported on 2026-09-02. This is purely a monitoring/UI concern, not
   money — `totalTokensPeriod` only ever comes from `cb_tips`, never from
   online status.
+  **Caveat found the same day:** a `start` event can itself be stale if
+  its matching `stop` was lost historically (e.g. from the
+  zombie-poller/stuck-retry bugs, now fixed) — happened to conni_f00x
+  (a single `start` from Aug 31 with no `stop` ever, so she showed
+  "online" for a day+ until corrected by hand). Fixed with
+  `ONLINE_SEED_MAX_AGE_MS` (12h): a `start` older than that is not
+  trusted for seeding. If this recurs for a model, fix it directly —
+  insert a real `stop` row into `cb_broadcast_events` for her, then
+  `/api/stop` + `/api/reconnect` to force her tracker to re-seed
+  immediately rather than waiting for the next full redeploy.
 - `startTracker(username, token, savedCursor)` **must** set
   `existing.running = false` on the tracker it's replacing before
   aborting its fetch — aborting alone does not stop that old poll loop
