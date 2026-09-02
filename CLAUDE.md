@@ -393,6 +393,23 @@ aren't arriving" report. Before assuming a push bug, check that table
 first (`select username, role, endpoint from cb_push_subscriptions`)
 to see who's actually subscribed from where.
 
+**Real bug found the same day, DB-side, not code:** opening
+`/api/push/subscribe` to `modelo` wasn't enough — `cb_push_subscriptions`
+still had a leftover foreign key,
+`cb_push_subscriptions_username_fkey`, tying `username` to
+`cb_admins(username)` only (from when this table was admin/CEO-only).
+Any model trying to subscribe got a silent `23503` FK violation → my
+own generic "no se pudo guardar" error, no useful detail. **Dropped the
+constraint** (`alter table cb_push_subscriptions drop constraint
+cb_push_subscriptions_username_fkey`) — same pattern as
+`cb_news_posts.author_username`, which never had this problem because
+it was never FK-constrained in the first place. If a *new* table ever
+needs a `username` column that can be either an admin/CEO or a model,
+don't add a single-table FK to `cb_admins` — there's no clean two-table
+FK in Postgres, so these columns are deliberately left unconstrained at
+the DB level and trusted at the application level instead, matching
+existing pattern for author_username across cb_news_*.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
