@@ -43,10 +43,14 @@ const SB_HEADERS = {
 // Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
 const CURRENCY = 'COP';
 const RATE_CACHE_MS = 5 * 60 * 1000;
-let rateCache = { rate: null, updatedAt: 0, error: null };
+let rateCache = { rate: null, marketRate: null, updatedAt: 0, error: null };
 
 // Tarifa de pago a la modelo: USD por token.
 const PAYOUT_RATE_USD_PER_TOKEN = 0.023;
+
+// Paxum (con lo que realmente se paga) cambia el dolar mas barato que la tasa
+// general del mercado. La diferencia ronda los 200-210 COP; usamos el punto medio.
+const PAXUM_SPREAD_COP = 205;
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
@@ -515,14 +519,14 @@ async function getDollarRate() {
   try {
     const resp = await fetch('https://open.er-api.com/v6/latest/USD');
     const data = await resp.json();
-    const rate = data && data.rates ? data.rates[CURRENCY] : null;
-    if (rate) {
-      rateCache = { rate, updatedAt: now, error: null };
+    const marketRate = data && data.rates ? data.rates[CURRENCY] : null;
+    if (marketRate) {
+      rateCache = { rate: marketRate - PAXUM_SPREAD_COP, marketRate, updatedAt: now, error: null };
     } else {
-      rateCache = { rate: rateCache.rate, updatedAt: rateCache.updatedAt, error: 'Moneda ' + CURRENCY + ' no encontrada' };
+      rateCache = { rate: rateCache.rate, marketRate: rateCache.marketRate, updatedAt: rateCache.updatedAt, error: 'Moneda ' + CURRENCY + ' no encontrada' };
     }
   } catch (e) {
-    rateCache = { rate: rateCache.rate, updatedAt: rateCache.updatedAt, error: e.message };
+    rateCache = { rate: rateCache.rate, marketRate: rateCache.marketRate, updatedAt: rateCache.updatedAt, error: e.message };
   }
   return rateCache;
 }
