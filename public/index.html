@@ -892,6 +892,21 @@
     }
   }
 
+  async function setAdminPassword(username) {
+    const password = prompt('Nueva contraseña para la cuenta "' + username + '" (mínimo 4 caracteres). Úsalo si esa persona olvidó su contraseña:');
+    if (!password) return;
+    const r = await fetch('/api/admins/set-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert(err.error || 'No se pudo cambiar la contraseña');
+    } else {
+      alert('Listo — la contraseña de ' + username + ' ya quedó actualizada.');
+    }
+  }
+
   async function refreshPayslips() {
     const gen = sessionGen;
     const canManage = currentRole === 'administrador' || currentRole === 'ceo';
@@ -939,10 +954,16 @@
       return;
     }
     el.adminList.innerHTML = data.admins.map(function (a) {
-      const displayName = a.hide_name ? 'Anónimo' : a.username;
+      const displayName = a.hide_name ? 'Anónimo' : escapeHtml(a.username);
       return '<div class="admin-list-row"><span>' + displayName + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
-        '<button class="btnDeleteAdmin" data-user="' + a.username + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button></div>';
+        '<span style="display:flex; gap:6px;">' +
+        '<button class="btnKeyAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
+        '<button class="btnDeleteAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
+        '</span></div>';
     }).join('');
+    el.adminList.querySelectorAll('.btnKeyAdmin').forEach(function (btn) {
+      btn.addEventListener('click', function () { setAdminPassword(btn.getAttribute('data-user')); });
+    });
     el.adminList.querySelectorAll('.btnDeleteAdmin').forEach(function (btn) {
       btn.addEventListener('click', async function () {
         const username = btn.getAttribute('data-user');
@@ -966,6 +987,7 @@
     add_model: 'agregó la modelo',
     delete_model: 'eliminó la modelo',
     reset_model_password: 'reseteó la contraseña de',
+    reset_admin_password: 'reseteó la contraseña de la cuenta',
     create_account: 'creó la cuenta',
     delete_account: 'eliminó la cuenta',
     logout_everywhere: 'cerró todas sus sesiones',

@@ -254,6 +254,15 @@ async function sbListAdmins() {
   return r.ok ? r.json() : [];
 }
 
+async function sbSetAdminPassword(username, passwordHash) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ password_hash: passwordHash }),
+  });
+  return resp.ok;
+}
+
 async function sbSetAdminHideName(username, hide) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
     method: 'PATCH',
@@ -860,6 +869,22 @@ const server = http.createServer(async (req, res) => {
     if (!username) return sendJson(res, 400, { error: 'username inválido' });
     await sbDeleteAdmin(username);
     await sbLogAudit(session, 'delete_account', username);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Permite recuperar el acceso de otra cuenta admin/CEO sin tocar la base de datos a mano.
+  if (parsed.pathname === '/api/admins/set-password' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
+    const ok = await sbSetAdminPassword(username, hashPassword(password));
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo cambiar la contraseña' });
+    await sbBumpSessionVersion('admin', username);
+    await sbLogAudit(session, 'reset_admin_password', username);
     return sendJson(res, 200, { ok: true });
   }
 
