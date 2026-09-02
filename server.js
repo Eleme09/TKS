@@ -52,6 +52,10 @@ const PAYOUT_RATE_USD_PER_TOKEN = 0.023;
 // general del mercado. La diferencia ronda los 200-210 COP; usamos el punto medio.
 const PAXUM_SPREAD_COP = 205;
 
+// Cuantos intentos seguidos fallidos (a 5s cada uno) antes de avisar que una
+// modelo lleva un rato sin poder conectar, para no avisar por un tropiezo suelto.
+const ERROR_ALERT_THRESHOLD = 6;
+
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
 // Quincena del estudio: día 1-15 se paga el 20 del mismo mes;
@@ -282,15 +286,12 @@ async function sbListPushSubscriptions() {
   return r.ok ? r.json() : [];
 }
 
-// Manda "<modelo> esta en linea" a todos los administradores y CEO que hayan activado notificaciones.
-async function sendOnlineNotifications(modelUsername) {
+// Manda una notificacion push a todos los administradores y CEO que la hayan activado.
+async function sendPushToAdmins(body) {
   if (!PUSH_ENABLED) return;
   const subs = await sbListPushSubscriptions();
   if (!subs.length) return;
-  const payload = JSON.stringify({
-    title: 'Placer Studios',
-    body: modelUsername + ' está en línea ahora.',
-  });
+  const payload = JSON.stringify({ title: 'Placer Studios', body });
   await Promise.all(subs.map(async (row) => {
     const sub = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
     try {
@@ -301,6 +302,16 @@ async function sendOnlineNotifications(modelUsername) {
       }
     }
   }));
+}
+
+async function sendOnlineNotifications(modelUsername) {
+  await sendPushToAdmins(modelUsername + ' está en línea ahora.');
+}
+
+// Avisa cuando el tracker de una modelo se cae de verdad (token vencido/invalido,
+// o lleva un rato sin poder conectar), para que no pase desapercibido.
+async function sendConnectionAlert(modelUsername, reason) {
+  await sendPushToAdmins('Se cayó la conexión de ' + modelUsername + ': ' + reason);
 }
 
 async function sbDeleteAdmin(username) {
@@ -489,7 +500,7 @@ async function buildModelReports() {
 function startTracker(username, token) {
   const existing = trackers.get(username);
   if (existing && existing.abortCtl) existing.abortCtl.abort();
-  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null };
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false };
   trackers.set(username, tracker);
   pollLoop(tracker);
 }
@@ -500,6 +511,14 @@ async function reconnectAllModels() {
     startTracker(m.username, m.token);
   }
   if (models.length) console.log('Reconectadas ' + models.length + ' modelo(s) automáticamente.');
+}
+
+function noteTrackerError(tracker) {
+  tracker.consecutiveErrors++;
+  if (tracker.consecutiveErrors === ERROR_ALERT_THRESHOLD && !tracker.errorNotified) {
+    tracker.errorNotified = true;
+    sendConnectionAlert(tracker.username, 'lleva varios intentos seguidos sin poder conectar (' + tracker.lastError + ').').catch(() => {});
+  }
 }
 
 async function pollLoop(tracker) {
@@ -515,6 +534,7 @@ async function pollLoop(tracker) {
       if (!tracker.running) break;
       tracker.status = 'error';
       tracker.lastError = 'Error de red: ' + e.message;
+      noteTrackerError(tracker);
       await sleep(5000);
       continue;
     }
@@ -525,9 +545,11 @@ async function pollLoop(tracker) {
       if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
         tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
         tracker.running = false;
+        sendConnectionAlert(username, 'el token quedó inválido, hay que agregarla de nuevo.').catch(() => {});
         break;
       }
       tracker.lastError = 'HTTP ' + resp.status + ' — ' + body.slice(0, 200);
+      noteTrackerError(tracker);
       await sleep(5000);
       continue;
     }
@@ -538,12 +560,15 @@ async function pollLoop(tracker) {
     } catch (e) {
       tracker.status = 'error';
       tracker.lastError = 'Respuesta no-JSON de la API';
+      noteTrackerError(tracker);
       await sleep(5000);
       continue;
     }
 
     tracker.status = 'connected';
     tracker.lastError = null;
+    tracker.consecutiveErrors = 0;
+    tracker.errorNotified = false;
 
     const events = data.events || [];
     for (const ev of events) {
