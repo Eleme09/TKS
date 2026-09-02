@@ -336,6 +336,7 @@
       <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span>
         <button id="btnToggleAnon" type="button" class="btnAnon">ocultar mi nombre</button>
         <button id="btnEnablePush" type="button" class="btnAnon" style="display:none;">activar notificaciones</button>
+        <button id="btnLogoutEverywhere" type="button" class="btnAnon">cerrar mis sesiones en todos lados</button>
       </div>
       <button id="btnLogout" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Salir</button>
     </div>
@@ -510,6 +511,7 @@
     whoRoleBadge: document.getElementById('whoRoleBadge'),
     btnToggleAnon: document.getElementById('btnToggleAnon'),
     btnEnablePush: document.getElementById('btnEnablePush'),
+    btnLogoutEverywhere: document.getElementById('btnLogoutEverywhere'),
     btnLogout: document.getElementById('btnLogout'),
     username: document.getElementById('username'),
     token: document.getElementById('token'),
@@ -1287,6 +1289,13 @@
 
   el.btnLogout.addEventListener('click', async function () {
     await fetch('/api/logout', { method: 'POST' });
+    showLogin();
+  });
+
+  el.btnLogoutEverywhere.addEventListener('click', async function () {
+    const ok = confirm('Esto va a cerrar tu sesión en este y en cualquier otro dispositivo donde hayas iniciado sesión. ¿Continuar?');
+    if (!ok) return;
+    await fetch('/api/me/logout-everywhere', { method: 'POST' });
     showLogin();
   });
 

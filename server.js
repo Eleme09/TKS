@@ -156,9 +156,32 @@ function parseCookies(req) {
   return out;
 }
 
-function getSession(req) {
+// Cache corta del session_version actual de cada cuenta, para no consultar
+// Supabase en cada request autenticado. Al "cerrar sesiones" el cambio tarda
+// hasta SESSION_VERSION_CACHE_MS en notarse en sesiones ya abiertas en otros
+// dispositivos, lo cual es aceptable para esta herramienta interna.
+const sessionVersionCache = new Map(); // key: type+':'+username -> { version, updatedAt }
+const SESSION_VERSION_CACHE_MS = 15 * 1000;
+
+async function getCurrentSessionVersion(type, username) {
+  const key = type + ':' + username;
+  const cached = sessionVersionCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < SESSION_VERSION_CACHE_MS) return cached.version;
+  const row = type === 'model' ? await sbFindModelAuth(username) : await sbFindAdmin(username);
+  const version = row ? (row.session_version || 1) : null;
+  if (version != null) sessionVersionCache.set(key, { version, updatedAt: now });
+  return version;
+}
+
+async function getSession(req) {
   const cookies = parseCookies(req);
-  return verifySession(cookies.session);
+  const payload = verifySession(cookies.session);
+  if (!payload) return null;
+  const currentVersion = await getCurrentSessionVersion(payload.type, payload.username);
+  if (currentVersion == null) return null; // la cuenta ya no existe
+  if ((payload.v || 1) < currentVersion) return null; // sesion cerrada remotamente
+  return payload;
 }
 
 function setSessionCookie(res, token) {
@@ -200,17 +223,17 @@ async function sbFetchSavedToken(username) {
 }
 
 async function sbFindAdmin(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender,session_version', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
 }
 
-async function sbFindModelPasswordHash(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash', { headers: SB_HEADERS });
+async function sbFindModelAuth(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash,session_version', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
-  return rows.length ? rows[0].password_hash : null;
+  return rows.length ? rows[0] : null;
 }
 
 async function sbCreateAdmin(username, passwordHash, role, gender) {
@@ -293,6 +316,21 @@ async function sbSetModelPassword(username, passwordHash) {
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ password_hash: passwordHash }),
   }).catch(() => {});
+}
+
+// Invalida todas las sesiones existentes de una cuenta (admin o modelo).
+// Se usa al resetear una contraseña y en el boton "cerrar mis sesiones".
+async function sbBumpSessionVersion(type, username) {
+  const table = type === 'model' ? 'cb_models' : 'cb_admins';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?username=eq.' + encodeURIComponent(username) + '&select=session_version', { headers: SB_HEADERS });
+  const rows = await r.json().catch(() => []);
+  const current = rows && rows[0] ? (rows[0].session_version || 1) : 1;
+  await fetch(SUPABASE_URL + '/rest/v1/' + table + '?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ session_version: current + 1 }),
+  }).catch(() => {});
+  sessionVersionCache.delete(type + ':' + username);
 }
 
 // ---- Turnos / horas extra ----
@@ -562,8 +600,8 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-function requireSession(req, res) {
-  const session = getSession(req);
+async function requireSession(req, res) {
+  const session = await getSession(req);
   if (!session) {
     sendJson(res, 401, { error: 'No autenticado' });
     return null;
@@ -571,8 +609,8 @@ function requireSession(req, res) {
   return session;
 }
 
-function requireAdmin(req, res) {
-  const session = requireSession(req, res);
+async function requireAdmin(req, res) {
+  const session = await requireSession(req, res);
   if (!session) return null;
   if (session.role !== 'administrador') {
     sendJson(res, 403, { error: 'No autorizado' });
@@ -581,8 +619,8 @@ function requireAdmin(req, res) {
   return session;
 }
 
-function requireAdminOrCeo(req, res) {
-  const session = requireSession(req, res);
+async function requireAdminOrCeo(req, res) {
+  const session = await requireSession(req, res);
   if (!session) return null;
   if (session.role !== 'administrador' && session.role !== 'ceo') {
     sendJson(res, 403, { error: 'No autorizado' });
@@ -605,16 +643,16 @@ const server = http.createServer(async (req, res) => {
 
     const admin = await sbFindAdmin(usernameRaw);
     if (admin && verifyPassword(password, admin.password_hash)) {
-      const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null });
+      const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null, v: admin.session_version || 1 });
       setSessionCookie(res, token);
       return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username, gender: admin.gender || null });
     }
 
     const modelUsername = sanitizeUsername(usernameRaw);
     if (modelUsername) {
-      const hash = await sbFindModelPasswordHash(modelUsername);
-      if (hash && verifyPassword(password, hash)) {
-        const token = signSession({ type: 'model', username: modelUsername, role: 'modelo' });
+      const modelAuth = await sbFindModelAuth(modelUsername);
+      if (modelAuth && verifyPassword(password, modelAuth.password_hash)) {
+        const token = signSession({ type: 'model', username: modelUsername, role: 'modelo', v: modelAuth.session_version || 1 });
         setSessionCookie(res, token);
         return sendJson(res, 200, { ok: true, role: 'modelo', username: modelUsername });
       }
@@ -629,14 +667,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/me' && req.method === 'GET') {
-    const session = getSession(req);
+    const session = await getSession(req);
     if (!session) return sendJson(res, 401, { error: 'No autenticado' });
     return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null });
   }
 
+  // Invalida todas las sesiones abiertas de esta cuenta (este dispositivo incluido).
+  if (parsed.pathname === '/api/me/logout-everywhere' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await sbBumpSessionVersion(session.type, session.username);
+    clearSessionCookie(res);
+    return sendJson(res, 200, { ok: true });
+  }
+
   // Oculta/muestra el nombre del administrador ante otros administradores (funcion exclusiva de rol administrador).
   if (parsed.pathname === '/api/me/toggle-name' && req.method === 'POST') {
-    const session = requireAdmin(req, res);
+    const session = await requireAdmin(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -649,12 +696,12 @@ const server = http.createServer(async (req, res) => {
   // ---- Notificaciones push (administrador y CEO) ----
 
   if (parsed.pathname === '/api/push/public-key' && req.method === 'GET') {
-    if (!requireAdminOrCeo(req, res)) return;
+    if (!(await requireAdminOrCeo(req, res))) return;
     return sendJson(res, 200, { enabled: PUSH_ENABLED, publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : null });
   }
 
   if (parsed.pathname === '/api/push/subscribe' && req.method === 'POST') {
-    const session = requireAdminOrCeo(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     if (!PUSH_ENABLED) return sendJson(res, 400, { error: 'Las notificaciones no estan configuradas en el servidor' });
     let body;
@@ -669,7 +716,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/push/unsubscribe' && req.method === 'POST') {
-    const session = requireAdminOrCeo(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -680,13 +727,13 @@ const server = http.createServer(async (req, res) => {
   // ---- Gestion de cuentas (solo administrador) ----
 
   if (parsed.pathname === '/api/admins' && req.method === 'GET') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     const admins = await sbListAdmins();
     return sendJson(res, 200, { admins });
   }
 
   if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
@@ -699,7 +746,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/admins/delete' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
@@ -709,20 +756,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/models/set-password' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
     const password = typeof body.password === 'string' ? body.password : '';
     if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
     await sbSetModelPassword(username, hashPassword(password));
+    await sbBumpSessionVersion('model', username);
     return sendJson(res, 200, { ok: true });
   }
 
   // ---- Tracking (solo administrador) ----
 
   if (parsed.pathname === '/api/start' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -735,7 +783,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/reconnect' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -747,7 +795,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/stop' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -762,7 +810,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/delete' && req.method === 'POST') {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
@@ -778,7 +826,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/models' && req.method === 'GET') {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     try {
       const [rawModels, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
@@ -802,7 +850,7 @@ const server = http.createServer(async (req, res) => {
   // ---- Desprendibles (historial por quincena) ----
 
   if (parsed.pathname === '/api/payslips' && req.method === 'GET') {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     let username = sanitizeUsername(parsed.query.username);
     if (session.role === 'modelo') username = session.username;
@@ -843,14 +891,14 @@ const server = http.createServer(async (req, res) => {
   // ---- Turnos / horas extra ----
 
   if (parsed.pathname === '/api/shifts' && req.method === 'GET') {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     const shifts = await sbListShifts();
     return sendJson(res, 200, { shifts });
   }
 
   if (parsed.pathname === '/api/shifts/create' && req.method === 'POST') {
-    if (!requireAdminOrCeo(req, res)) return;
+    if (!(await requireAdminOrCeo(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const shiftDate = typeof body.shift_date === 'string' ? body.shift_date.trim() : '';
@@ -864,7 +912,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/shifts/delete' && req.method === 'POST') {
-    if (!requireAdminOrCeo(req, res)) return;
+    if (!(await requireAdminOrCeo(req, res))) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const id = Number(body.id);
@@ -874,7 +922,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/shifts/claim' && req.method === 'POST') {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos pueden apuntarse a un horario' });
     let body;
@@ -887,7 +935,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/shifts/unclaim' && req.method === 'POST') {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
