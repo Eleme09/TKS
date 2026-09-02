@@ -315,6 +315,59 @@ platform-icon treatment as the model cards. If you touch model card
 markup again, consider whether payslip rows need the matching change
 too (and vice versa) — they're now visually paired by design.
 
+## More fixes (2026-09-02, later same day)
+
+- **The Stripchat paste-and-parse form is gone from the UI** — removed
+  entirely once the Studio API auto-sync made it redundant (explicit
+  user call: "bórralo"). The backend endpoints
+  (`/api/stripchat/parse`, `/api/stripchat/save`) are still there,
+  untouched, as a dormant manual fallback if the API key ever breaks —
+  just nothing in the frontend calls them anymore. If you ever need to
+  bring manual entry back, the server side already works; you'd only
+  need to re-add UI.
+- **Static files now send `Cache-Control: no-cache`** (`serveStatic` in
+  server.js). Without it, a browser could silently keep serving a
+  stale `index.html` after a deploy — suspected cause of a user report
+  that a just-shipped feature "wasn't there" on their PC.
+- **Push notification `tag` bug, fixed**: `sw.js`'s `showNotification`
+  used one hardcoded tag (`'placer-online'`) for *every* push type —
+  browsers silently replace a shown notification with a new one that
+  shares its tag, so a news notification could clobber an online-status
+  one (or vice versa) without re-alerting the user. Now each call site
+  passes its own `tag` through the push payload
+  (`sendPushToRole(role, body, { tag, excludeUsername })` — see
+  `sendOnlineNotifications`/`sendConnectionAlert`/
+  `sendNewsNotification`), and `sw.js` falls back to a unique
+  `'placer-' + Date.now()` if none is given. Keep giving every new push
+  type its own tag.
+- **News posts now push a notification** (`sendNewsNotification`) to
+  all subscribers except the post's own author. **Diagnosed why "online"
+  notifications seemed to never arrive**: as of 2026-09-02, the *only*
+  push subscriptions in `cb_push_subscriptions` belong to `Elemee`
+  (administrador, 3 devices) — no `ceo` account has ever clicked the
+  bell. Since "modelo conectada" is deliberately CEO-only
+  (`sendPushToRole('ceo', ...)`), there was never a valid recipient —
+  correct behavior, not a bug. It'll start working the moment a CEO
+  account subscribes.
+- **`logo-icon.svg`** (new file) is `logo-placer-studios.svg` plus one
+  opaque `<rect>` background, used *only* for
+  favicon/apple-touch-icon/manifest icon. Deliberately kept separate
+  from the original file — `logo-placer-studios.svg` is also the CSS
+  `background-image` for the on-page `.brand-cat`/`.login-bg-cat` logo,
+  which needs to stay transparent (already sits on the page's own dark
+  background). Got this wrong once already this same day (edited the
+  shared file directly, darkened the on-page logo by accident, user
+  caught it immediately) — if the logo ever needs a visual tweak,
+  think about which of the two files (or both) it should apply to
+  before editing.
+- `.time12 select` (the hour/minute/AM-PM pickers in Extras) now use a
+  custom compact arrow (`appearance: none` + inline SVG chevron)
+  instead of each browser's native dropdown arrow, which was cramped
+  in such narrow selects — best-effort fix for a user report of
+  "overlapping icons" in that picker on mobile; unconfirmed on a real
+  device since I can't fully replicate mobile Safari's native `<select>`
+  rendering myself.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
