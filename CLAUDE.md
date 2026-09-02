@@ -221,6 +221,25 @@ actually does, the code wins; fix this file to match.
   add a new push notification type without deciding which role(s) it's
   for.
 
+## Noticias (added 2026-09-02)
+
+A fourth tab, visible to all three roles (unlike Cuentas). `administrador`
+and `ceo` publish posts (title + body) via `POST /api/news/create`; **any**
+logged-in role (including `modelo`) can reply in that post's thread via
+`POST /api/news/comment` — this was a deliberate choice, not an oversight:
+the feature is meant to be a two-way board, not a pure broadcast. Only
+`administrador` can delete a post or a single comment (moderation).
+`GET /api/news` returns posts with their comments already nested
+(`sbListNewsCommentsForPosts` groups by `post_id` server-side) — no
+separate per-post fetch needed. Tables: `cb_news_posts` /
+`cb_news_comments`, both carry `author_username`, `author_role`, and
+`author_gender` (the last one purely so `roleBadgeHtml` can render a
+correctly-colored CEO badge without a join — pulled straight from
+`session.gender` at write time). **This was explicitly scoped as v1**:
+messages/threads only, no polls/surveys yet — the user chose that scope
+deliberately when asked, so don't add polls without checking first if
+they still want that as a separate phase.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
