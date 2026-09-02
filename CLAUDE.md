@@ -240,6 +240,65 @@ messages/threads only, no polls/surveys yet — the user chose that scope
 deliberately when asked, so don't add polls without checking first if
 they still want that as a separate phase.
 
+## Noticias — later additions (2026-09-02, same day as the feature itself)
+
+- **Post type**: `post_type` on `cb_news_posts` is `'hilo'` (comments
+  allowed, the default) or `'aviso'` (no comments — the comment box is
+  hidden client-side, and `/api/news/comment` also rejects server-side
+  by checking `sbFetchNewsPostType`, so it's not just a UI-level
+  restriction). Chosen by admin/CEO at creation time via a `<select>`
+  in the create form; can't be changed after a post is published.
+- **Read tracking**: `cb_news_reads` (`post_id, username, role,
+  read_at`, unique on `(post_id, username)`) — any `GET /api/news` call
+  marks every returned post as read for that session (fire via
+  `sbMarkNewsRead`, upsert so re-reading doesn't duplicate). The
+  response only includes a `viewers` array (model usernames who've
+  read it) when the requesting session is `administrador` or `ceo` —
+  filtered server-side to `role = 'modelo'` rows only
+  (`sbListNewsModeloReadsForPosts`); a `modelo` session never sees who
+  else viewed anything. Rendered as a small eye-icon line, admin/CEO
+  only.
+- **Custom display name**: `cb_admins.display_name` — self-service,
+  `administrador` role only, via `POST /api/me/set-display-name`
+  (separate from the login `username`, which never changes). Like
+  `author_anonymous`, it's snapshotted into `author_display_name` on
+  `cb_news_posts`/`cb_news_comments` at write time — pulled from
+  `sbFindAdmin(session.username).display_name` right when the post/
+  comment is created, not looked up at render time. **Anonymous still
+  wins**: if `hide_name` is on, render "Anónimo" regardless of
+  `display_name`. **Gotcha already hit once**: `sbFindAdmin`'s SELECT
+  must include `display_name` (and `hide_name`) or every post silently
+  gets `author_display_name: null` — both `sbFindAdmin` and
+  `sbListAdmins` need to stay in sync on which columns they select;
+  they drifted once already (fixed same day).
+- Platform icons on the model card (replacing plain "CB"/"SC" text):
+  hotlinked favicons (`https://chaturbate.com/favicon.ico`,
+  `https://stripchat.com/favicon.ico` — confirmed loading fine as of
+  2026-09-02) via `platformIconHtml()`, with an `onerror` fallback to a
+  small colored initials badge if a favicon ever stops loading. This is
+  the *website's own visitor* loading those images directly in their
+  browser — unrelated to, and not blocked by, the domain restrictions
+  that apply to *my own* browsing tools (see the Stripchat section
+  above).
+
+## Known open issue: push notifications reported broken on a real phone (2026-09-02, unresolved)
+
+The user clicked the bell button on an actual mobile device (states
+they were in real Chrome) and got the "not supported" message. I
+improved the diagnostic (`pushUnsupportedReason()` now distinguishes
+missing HTTPS vs missing Service Worker vs missing PushManager, shown
+in the alert instead of one generic message) but could not reproduce
+or root-cause this myself — my own testing (emulated mobile viewport in
+a Chromium-based browser) shows push working fine, which doesn't rule
+out a real-device-specific issue. Leading hypothesis, unconfirmed: the
+link may have been opened in an in-app/WebView browser (e.g. from
+inside another app) that reports as Chrome-ish but lacks full Push API
+support — real Chrome for Android has supported this for years, so a
+genuine failure there would be surprising. If this comes up again, ask
+what the *new, more specific* alert text says (that alone narrows it a
+lot), and whether the link was opened directly in the Chrome app vs.
+from inside another app's browser.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
