@@ -56,6 +56,12 @@ const PAXUM_SPREAD_COP = 205;
 // modelo lleva un rato sin poder conectar, para no avisar por un tropiezo suelto.
 const ERROR_ALERT_THRESHOLD = 6;
 
+// Al retomar desde un cursor guardado, cuanto tan viejo puede ser el ultimo
+// "start" registrado para todavia confiar en el y marcar a la modelo como en
+// linea de una vez (en vez de esperar un evento nuevo). Mas viejo que esto,
+// se asume que el "stop" real se perdio en el pasado y no se confia.
+const ONLINE_SEED_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 horas
+
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
 // Quincena del estudio: día 1-15 se paga el 20 del mismo mes;
@@ -659,8 +665,14 @@ async function pollLoop(tracker) {
   if (triedSavedCursor) {
     const lastEvent = await sbFetchLastBroadcastEvent(username).catch(() => null);
     if (lastEvent && lastEvent.event_type === 'start' && tracker.running) {
-      tracker.online = true;
-      tracker.onlineSince = new Date(lastEvent.created_at).getTime();
+      const eventAgeMs = Date.now() - new Date(lastEvent.created_at).getTime();
+      // Un "start" viejo casi seguro es un "stop" que se perdio en el pasado
+      // (antes de los arreglos del cursor/zombie-poller), no una transmision
+      // real de tantas horas seguidas. Solo lo confiamos si es reciente.
+      if (eventAgeMs <= ONLINE_SEED_MAX_AGE_MS) {
+        tracker.online = true;
+        tracker.onlineSince = new Date(lastEvent.created_at).getTime();
+      }
     }
   }
 
