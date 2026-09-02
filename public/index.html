@@ -459,6 +459,7 @@
           <select id="payslipUser"></select>
         </div>
         <div id="payslipsList"></div>
+        <button id="btnExportCsv" type="button" style="display:none; margin-top:14px; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Descargar CSV</button>
       </div>
     </div>
 
@@ -560,6 +561,7 @@
     payslipModelPicker: document.getElementById('payslipModelPicker'),
     payslipUser: document.getElementById('payslipUser'),
     payslipsList: document.getElementById('payslipsList'),
+    btnExportCsv: document.getElementById('btnExportCsv'),
   };
 
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -939,6 +941,41 @@
       const stateTag = p.closed ? ' <span class="badge offline">Quincena cerrada</span>' : ' <span class="badge online">Quincena actual</span>';
       return '<div class="admin-list-row" style="animation-delay:' + (idx * 40) + 'ms;"><span><b>' + p.label + '</b>' + stateTag + ' · ' + p.totalTokens.toLocaleString('es-ES') + ' tokens · ' + usd + ' · ' + cop + '</span><span class="meta-small">Pago: ' + p.payoutLabel + '</span></div>';
     }).join('');
+
+    lastPayslipExport = { username: data.username || targetUser, periods: data.periods || [] };
+    el.btnExportCsv.style.display = lastPayslipExport.periods.length ? 'inline-block' : 'none';
+  }
+
+  let lastPayslipExport = null;
+
+  function downloadPayslipsCsv() {
+    if (!lastPayslipExport || !lastPayslipExport.periods.length) return;
+    const rows = [['Quincena', 'Estado', 'Tokens', 'USD', 'COP (aprox.)', 'Fecha de pago']];
+    lastPayslipExport.periods.forEach(function (p) {
+      rows.push([
+        p.label,
+        p.closed ? 'Cerrada' : 'Actual',
+        p.totalTokens,
+        p.payoutUSD.toFixed(2),
+        p.payoutCOP != null ? Math.round(p.payoutCOP) : '',
+        p.payoutLabel,
+      ]);
+    });
+    const csv = rows.map(function (row) {
+      return row.map(function (cell) {
+        const s = String(cell);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',');
+    }).join('\r\n');
+    const blob = new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'desprendibles_' + lastPayslipExport.username + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   async function refreshAdminAccounts() {
@@ -1323,6 +1360,8 @@
     auditLoaded = false;
     el.auditList.textContent = 'Cargando…';
     if (el.auditDetails.open) el.auditDetails.open = false;
+    lastPayslipExport = null;
+    el.btnExportCsv.style.display = 'none';
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
@@ -1369,6 +1408,8 @@
   el.auditDetails.addEventListener('toggle', function () {
     if (el.auditDetails.open) loadAuditLog();
   });
+
+  el.btnExportCsv.addEventListener('click', downloadPayslipsCsv);
 
   (async function init() {
     try {
