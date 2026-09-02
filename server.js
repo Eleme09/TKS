@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
+const webpush = require('web-push');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -19,6 +20,18 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SESSION_SECRET) {
   console.error('Faltan variables de entorno (SUPABASE_URL, SUPABASE_ANON_KEY, SESSION_SECRET). Revisa env.bat (local) o las Environment Variables en Render.');
   process.exit(1);
+}
+
+// Notificaciones push: opcionales. Si faltan las llaves VAPID, el servidor sigue
+// funcionando normal, solo que sin poder mandar notificaciones al celular.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT;
+const PUSH_ENABLED = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY && VAPID_SUBJECT);
+if (PUSH_ENABLED) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.log('Notificaciones push desactivadas (faltan VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT).');
 }
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const SB_HEADERS = {
@@ -217,6 +230,50 @@ async function sbSetAdminHideName(username, hide) {
     body: JSON.stringify({ hide_name: !!hide }),
   });
   return resp.ok;
+}
+
+// ---- Notificaciones push (cuando una modelo se conecta) ----
+
+async function sbSaveSubscription(username, sub) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?on_conflict=username,endpoint', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ username, endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth }),
+  });
+  return resp.ok;
+}
+
+async function sbDeleteSubscriptionByEndpoint(endpoint) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint), {
+    method: 'DELETE',
+    headers: SB_HEADERS,
+  }).catch(() => {});
+}
+
+async function sbListPushSubscriptions() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?select=username,endpoint,p256dh,auth', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+// Manda "<modelo> esta en linea" a todos los administradores y CEO que hayan activado notificaciones.
+async function sendOnlineNotifications(modelUsername) {
+  if (!PUSH_ENABLED) return;
+  const subs = await sbListPushSubscriptions();
+  if (!subs.length) return;
+  const payload = JSON.stringify({
+    title: 'Placer Studios',
+    body: modelUsername + ' está en línea ahora.',
+  });
+  await Promise.all(subs.map(async (row) => {
+    const sub = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+    try {
+      await webpush.sendNotification(sub, payload);
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await sbDeleteSubscriptionByEndpoint(row.endpoint);
+      }
+    }
+  }));
 }
 
 async function sbDeleteAdmin(username) {
@@ -430,9 +487,11 @@ async function pollLoop(tracker) {
       if (ev.method === 'tip' && ev.object && ev.object.tip) {
         await sbInsertTip(username, ev.object.tip.tokens || 0, ev.id);
       } else if (ev.method === 'broadcastStart') {
+        const wasOffline = !tracker.online;
         tracker.online = true;
         tracker.onlineSince = Date.now();
         await sbInsertBroadcastEvent(username, 'start', ev.id);
+        if (wasOffline) sendOnlineNotifications(username).catch(() => {});
       } else if (ev.method === 'broadcastStop') {
         tracker.online = false;
         tracker.onlineSince = null;
@@ -485,7 +544,7 @@ function readBody(req) {
   });
 }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.json': 'application/json' };
 
 function serveStatic(req, res, pathname) {
   const rel = pathname === '/' ? '/index.html' : pathname;
@@ -581,6 +640,37 @@ const server = http.createServer(async (req, res) => {
     const ok = await sbSetAdminHideName(session.username, hide);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo actualizar' });
     return sendJson(res, 200, { ok: true, hide });
+  }
+
+  // ---- Notificaciones push (administrador y CEO) ----
+
+  if (parsed.pathname === '/api/push/public-key' && req.method === 'GET') {
+    if (!requireAdminOrCeo(req, res)) return;
+    return sendJson(res, 200, { enabled: PUSH_ENABLED, publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : null });
+  }
+
+  if (parsed.pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const session = requireAdminOrCeo(req, res);
+    if (!session) return;
+    if (!PUSH_ENABLED) return sendJson(res, 400, { error: 'Las notificaciones no estan configuradas en el servidor' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const sub = body.subscription;
+    if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+      return sendJson(res, 400, { error: 'Suscripcion invalida' });
+    }
+    const ok = await sbSaveSubscription(session.username, sub);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo guardar la suscripcion' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/push/unsubscribe' && req.method === 'POST') {
+    const session = requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    if (body.endpoint) await sbDeleteSubscriptionByEndpoint(body.endpoint);
+    return sendJson(res, 200, { ok: true });
   }
 
   // ---- Gestion de cuentas (solo administrador) ----

@@ -8,6 +8,11 @@ if exist env.bat (
   pause
   exit /b 1
 )
+if not exist node_modules (
+  echo Instalando dependencias por primera vez...
+  call npm install
+  echo.
+)
 echo Iniciando el rastreador de tokens de Chaturbate...
 echo No cierres esta ventana mientras lo uses.
 echo.

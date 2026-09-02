@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/logo-placer-studios.svg">
 <title>PLACER SERVICES</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -302,6 +304,7 @@
     <div class="topbar">
       <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span>
         <button id="btnToggleAnon" type="button" class="btnAnon">ocultar mi nombre</button>
+        <button id="btnEnablePush" type="button" class="btnAnon" style="display:none;">activar notificaciones</button>
       </div>
       <button id="btnLogout" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Salir</button>
     </div>
@@ -458,6 +461,7 @@
     whoUser: document.getElementById('whoUser'),
     whoRoleBadge: document.getElementById('whoRoleBadge'),
     btnToggleAnon: document.getElementById('btnToggleAnon'),
+    btnEnablePush: document.getElementById('btnEnablePush'),
     btnLogout: document.getElementById('btnLogout'),
     username: document.getElementById('username'),
     token: document.getElementById('token'),
@@ -1100,6 +1104,78 @@
     refreshAdminAccounts();
   });
 
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+
+  function isIos() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  }
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window;
+  }
+
+  async function updatePushButtonState() {
+    if (!pushSupported()) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      el.btnEnablePush.textContent = sub ? 'desactivar notificaciones' : 'activar notificaciones';
+    } catch (e) {
+      el.btnEnablePush.textContent = 'activar notificaciones';
+    }
+  }
+
+  el.btnEnablePush.addEventListener('click', async function () {
+    if (isIos() && !isStandalone()) {
+      alert('En iPhone primero debes agregar esta pagina a tu pantalla de inicio (boton compartir > agregar a pantalla de inicio) y abrirla desde ahi para poder activar las notificaciones.');
+      return;
+    }
+    el.btnEnablePush.disabled = true;
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        await existing.unsubscribe();
+        await fetch('/api/push/unsubscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: existing.endpoint }),
+        });
+        await updatePushButtonState();
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { alert('Debes permitir las notificaciones para activarlas.'); return; }
+      const keyResp = await fetch('/api/push/public-key');
+      const keyData = await keyResp.json();
+      if (!keyData.enabled) { alert('Las notificaciones no estan configuradas en el servidor todavia.'); return; }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+      });
+      const r = await fetch('/api/push/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      if (!r.ok) alert('No se pudo activar la notificacion, intenta de nuevo.');
+      await updatePushButtonState();
+    } catch (e) {
+      alert('No se pudieron activar las notificaciones en este dispositivo o navegador.');
+    } finally {
+      el.btnEnablePush.disabled = false;
+    }
+  });
+
   function showApp(session) {
     sessionGen++;
     currentRole = session.role;
@@ -1114,6 +1190,8 @@
     const isAdmin = session.role === 'administrador';
     const canManageShifts = session.role === 'administrador' || session.role === 'ceo';
     el.btnToggleAnon.style.display = isAdmin ? 'inline-block' : 'none';
+    el.btnEnablePush.style.display = (canManageShifts && pushSupported()) ? 'inline-block' : 'none';
+    if (canManageShifts && pushSupported()) updatePushButtonState();
     el.btnShowForm.style.display = isAdmin ? (formOpenDecided ? 'block' : 'none') : 'none';
     tabBtnCuentas.style.display = isAdmin ? 'inline-block' : 'none';
     tabBtnModelos.textContent = session.role === 'modelo' ? 'Modelo' : 'Modelos';

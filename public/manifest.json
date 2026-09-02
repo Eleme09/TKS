@@ -1,0 +1,11 @@
+{
+  "name": "Placer Studios",
+  "short_name": "Placer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#0a0a0b",
+  "icons": [
+    { "src": "/logo-placer-studios.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
