@@ -215,15 +215,26 @@ async function sbDeleteModel(username) {
 }
 
 async function sbFetchModelsWithTokens() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,token&token=not.is.null', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,token,last_cursor&token=not.is.null', { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
 
 async function sbFetchSavedToken(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=token', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=token,last_cursor', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
-  return rows.length ? rows[0].token : null;
+  return rows.length ? rows[0] : null;
+}
+
+// Guarda el punto exacto donde se quedo escuchando cada modelo, para que un
+// reinicio (por deploy o caida) reconecte desde ahi y no pierda tips que
+// hayan llegado justo durante el reinicio.
+async function sbSaveCursor(username, nextUrl) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ last_cursor: nextUrl }),
+  }).catch(() => {});
 }
 
 async function sbFindAdmin(username) {
@@ -506,10 +517,10 @@ async function buildModelReports() {
   });
 }
 
-function startTracker(username, token) {
+function startTracker(username, token, savedCursor) {
   const existing = trackers.get(username);
   if (existing && existing.abortCtl) existing.abortCtl.abort();
-  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false };
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false, savedCursor: savedCursor || null };
   trackers.set(username, tracker);
   pollLoop(tracker);
 }
@@ -517,7 +528,7 @@ function startTracker(username, token) {
 async function reconnectAllModels() {
   const models = await sbFetchModelsWithTokens();
   for (const m of models) {
-    startTracker(m.username, m.token);
+    startTracker(m.username, m.token, m.last_cursor);
   }
   if (models.length) console.log('Reconectadas ' + models.length + ' modelo(s) automáticamente.');
 }
@@ -532,7 +543,9 @@ function noteTrackerError(tracker) {
 
 async function pollLoop(tracker) {
   const username = tracker.username;
-  let nextUrl = EVENTS_BASE + encodeURIComponent(username) + '/' + encodeURIComponent(tracker.token) + '/?timeout=10';
+  const freshUrl = EVENTS_BASE + encodeURIComponent(username) + '/' + encodeURIComponent(tracker.token) + '/?timeout=10';
+  let nextUrl = tracker.savedCursor || freshUrl;
+  let triedSavedCursor = !!tracker.savedCursor;
 
   while (tracker.running) {
     tracker.abortCtl = new AbortController();
@@ -549,6 +562,13 @@ async function pollLoop(tracker) {
     }
 
     if (!resp.ok) {
+      // Si el cursor guardado ya no sirve (expiro, o Chaturbate lo rechaza),
+      // no lo tratamos como token invalido: reintentamos desde cero una vez.
+      if (triedSavedCursor && nextUrl === tracker.savedCursor) {
+        triedSavedCursor = false;
+        nextUrl = freshUrl;
+        continue;
+      }
       const body = await resp.text().catch(() => '');
       tracker.status = 'error';
       if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
@@ -596,7 +616,10 @@ async function pollLoop(tracker) {
       }
     }
 
-    if (data.nextUrl) nextUrl = data.nextUrl;
+    if (data.nextUrl) {
+      nextUrl = data.nextUrl;
+      await sbSaveCursor(username, nextUrl);
+    }
   }
 
   if (tracker.status !== 'error') tracker.status = 'idle';
@@ -913,8 +936,10 @@ const server = http.createServer(async (req, res) => {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
     if (!username || !token) return sendJson(res, 400, { error: 'username o token inválido' });
 
+    const existing = await sbFetchSavedToken(username);
+    const resumeCursor = existing && existing.token === token ? existing.last_cursor : null;
     await sbUpsertModel(username, token);
-    startTracker(username, token);
+    startTracker(username, token, resumeCursor);
     await sbLogAudit(session, 'add_model', username);
     return sendJson(res, 200, { ok: true });
   }
@@ -925,9 +950,9 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
     if (!username) return sendJson(res, 400, { error: 'username inválido' });
-    const token = await sbFetchSavedToken(username);
-    if (!token) return sendJson(res, 400, { error: 'Esta modelo no tiene un token guardado. Agrégala de nuevo con su token.' });
-    startTracker(username, token);
+    const saved = await sbFetchSavedToken(username);
+    if (!saved || !saved.token) return sendJson(res, 400, { error: 'Esta modelo no tiene un token guardado. Agrégala de nuevo con su token.' });
+    startTracker(username, saved.token, saved.last_cursor);
     return sendJson(res, 200, { ok: true });
   }
 
