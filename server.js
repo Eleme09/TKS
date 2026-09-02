@@ -262,7 +262,7 @@ async function sbSaveCursor(username, nextUrl) {
 }
 
 async function sbFindAdmin(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender,hide_name,session_version', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender,hide_name,display_name,session_version', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
@@ -285,7 +285,7 @@ async function sbCreateAdmin(username, passwordHash, role, gender) {
 }
 
 async function sbListAdmins() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?select=username,role,gender,hide_name,created_at&order=created_at.asc', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?select=username,role,gender,hide_name,display_name,created_at&order=created_at.asc', { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
 
@@ -303,6 +303,15 @@ async function sbSetAdminHideName(username, hide) {
     method: 'PATCH',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ hide_name: !!hide }),
+  });
+  return resp.ok;
+}
+
+async function sbSetAdminDisplayName(username, displayName) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ display_name: displayName }),
   });
   return resp.ok;
 }
@@ -423,11 +432,11 @@ async function sbListNewsPosts(limit) {
   return r.ok ? r.json() : [];
 }
 
-async function sbCreateNewsPost(authorUsername, authorRole, authorGender, authorAnonymous, title, body) {
+async function sbCreateNewsPost(authorUsername, authorRole, authorGender, authorAnonymous, authorDisplayName, postType, title, body) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=representation' },
-    body: JSON.stringify({ author_username: authorUsername, author_role: authorRole, author_gender: authorGender || null, author_anonymous: !!authorAnonymous, title, body }),
+    body: JSON.stringify({ author_username: authorUsername, author_role: authorRole, author_gender: authorGender || null, author_anonymous: !!authorAnonymous, author_display_name: authorDisplayName || null, post_type: postType, title, body }),
   });
   if (!resp.ok) return null;
   const rows = await resp.json();
@@ -441,6 +450,13 @@ async function sbDeleteNewsPost(id) {
   }).catch(() => {});
 }
 
+async function sbFetchNewsPostType(postId) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?id=eq.' + encodeURIComponent(postId) + '&select=post_type', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0].post_type : null;
+}
+
 async function sbListNewsCommentsForPosts(postIds) {
   if (!postIds.length) return [];
   const qs = '?select=*&post_id=in.(' + postIds.join(',') + ')&order=created_at.asc';
@@ -448,11 +464,11 @@ async function sbListNewsCommentsForPosts(postIds) {
   return r.ok ? r.json() : [];
 }
 
-async function sbCreateNewsComment(postId, authorUsername, authorRole, authorGender, authorAnonymous, body) {
+async function sbCreateNewsComment(postId, authorUsername, authorRole, authorGender, authorAnonymous, authorDisplayName, body) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_news_comments', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ post_id: postId, author_username: authorUsername, author_role: authorRole, author_gender: authorGender || null, author_anonymous: !!authorAnonymous, body }),
+    body: JSON.stringify({ post_id: postId, author_username: authorUsername, author_role: authorRole, author_gender: authorGender || null, author_anonymous: !!authorAnonymous, author_display_name: authorDisplayName || null, body }),
   });
   return resp.ok;
 }
@@ -462,6 +478,25 @@ async function sbDeleteNewsComment(id) {
     method: 'DELETE',
     headers: SB_HEADERS,
   }).catch(() => {});
+}
+
+// ---- Noticias: quien vio cada publicacion (solo se muestra a admin/CEO, y solo lectores rol modelo) ----
+
+async function sbMarkNewsRead(postIds, username, role) {
+  if (!postIds.length) return;
+  const body = postIds.map((id) => ({ post_id: id, username, role }));
+  await fetch(SUPABASE_URL + '/rest/v1/cb_news_reads?on_conflict=post_id,username', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+async function sbListNewsModeloReadsForPosts(postIds) {
+  if (!postIds.length) return [];
+  const qs = '?select=post_id,username,read_at&post_id=in.(' + postIds.join(',') + ')&role=eq.modelo&order=read_at.asc';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_news_reads' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
 }
 
 // ---- Turnos / horas extra ----
@@ -1080,6 +1115,21 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, hide });
   }
 
+  // Nombre para mostrar en Noticias (solo administrador) — distinto del username
+  // de login, se puede cambiar cuando quiera. Se aplica el que este activo en el
+  // momento exacto de publicar, no retroactivamente.
+  if (parsed.pathname === '/api/me/set-display-name' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const displayName = typeof body.display_name === 'string' ? body.display_name.trim().slice(0, 60) : '';
+    const ok = await sbSetAdminDisplayName(session.username, displayName || null);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo actualizar' });
+    await sbLogAudit(session, 'set_display_name', null, { display_name: displayName || null });
+    return sendJson(res, 200, { ok: true, display_name: displayName || null });
+  }
+
   // ---- Notificaciones push (administrador y CEO) ----
 
   if (parsed.pathname === '/api/push/public-key' && req.method === 'GET') {
@@ -1400,10 +1450,17 @@ const server = http.createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     const posts = await sbListNewsPosts(50);
-    const comments = await sbListNewsCommentsForPosts(posts.map((p) => p.id));
+    const postIds = posts.map((p) => p.id);
+    const comments = await sbListNewsCommentsForPosts(postIds);
     const commentsByPost = {};
     for (const c of comments) (commentsByPost[c.post_id] = commentsByPost[c.post_id] || []).push(c);
-    const withComments = posts.map((p) => ({ ...p, comments: commentsByPost[p.id] || [] }));
+    await sbMarkNewsRead(postIds, session.username, session.role);
+    let viewersByPost = {};
+    if (session.role === 'administrador' || session.role === 'ceo') {
+      const reads = await sbListNewsModeloReadsForPosts(postIds);
+      for (const r of reads) (viewersByPost[r.post_id] = viewersByPost[r.post_id] || []).push(r.username);
+    }
+    const withComments = posts.map((p) => ({ ...p, comments: commentsByPost[p.id] || [], viewers: viewersByPost[p.id] || [] }));
     return sendJson(res, 200, { posts: withComments });
   }
 
@@ -1414,12 +1471,13 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : '';
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 5000) : '';
+    const postType = body.type === 'aviso' ? 'aviso' : 'hilo';
     if (!title || !text) return sendJson(res, 400, { error: 'Completa título y contenido' });
     const authorAdmin = session.role === 'administrador' ? await sbFindAdmin(session.username) : null;
-    const post = await sbCreateNewsPost(session.username, session.role, session.gender, authorAdmin && authorAdmin.hide_name, title, text);
+    const post = await sbCreateNewsPost(session.username, session.role, session.gender, authorAdmin && authorAdmin.hide_name, authorAdmin && authorAdmin.display_name, postType, title, text);
     if (!post) return sendJson(res, 500, { error: 'No se pudo publicar' });
-    await sbLogAudit(session, 'news_post_create', null, { title });
-    return sendJson(res, 200, { ok: true, post: { ...post, comments: [] } });
+    await sbLogAudit(session, 'news_post_create', null, { title, type: postType });
+    return sendJson(res, 200, { ok: true, post: { ...post, comments: [], viewers: [] } });
   }
 
   if (parsed.pathname === '/api/news/delete' && req.method === 'POST') {
@@ -1442,8 +1500,10 @@ const server = http.createServer(async (req, res) => {
     const postId = Number(body.post_id);
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 2000) : '';
     if (!postId || !text) return sendJson(res, 400, { error: 'Escribe un mensaje' });
+    const postType = await sbFetchNewsPostType(postId);
+    if (postType === 'aviso') return sendJson(res, 400, { error: 'Este aviso no admite comentarios' });
     const commentAdmin = session.role === 'administrador' ? await sbFindAdmin(session.username) : null;
-    const ok = await sbCreateNewsComment(postId, session.username, session.role, session.gender, commentAdmin && commentAdmin.hide_name, text);
+    const ok = await sbCreateNewsComment(postId, session.username, session.role, session.gender, commentAdmin && commentAdmin.hide_name, commentAdmin && commentAdmin.display_name, text);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo comentar' });
     return sendJson(res, 200, { ok: true });
   }

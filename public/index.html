@@ -472,6 +472,7 @@
         <div class="meta-small" style="margin-bottom:12px;">Chaturbate se cuenta solo. Stripchat no tiene esa conexión automática, así que aquí pegas la tabla de "Ganancias por modelo" de su panel y se suma al mismo pago.</div>
         <label for="stripchatPeriod">Quincena</label>
         <select id="stripchatPeriod"></select>
+        <div id="stripchatPeriodHint" class="meta-small" style="margin-top:4px;"></div>
         <label for="stripchatPaste">Pega aquí la tabla completa (selecciónala en Stripchat con Ctrl+A y cópiala con Ctrl+C)</label>
         <textarea id="stripchatPaste" rows="6" placeholder="pega aquí..." style="width:100%; font-family:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); resize:vertical;"></textarea>
         <div class="row" style="margin-top:10px;">
@@ -506,6 +507,11 @@
         <input id="newsTitle" placeholder="ej: cambio en el horario de pagos" autocomplete="off">
         <label for="newsBody">Mensaje</label>
         <textarea id="newsBody" rows="4" placeholder="escribe aquí..." style="width:100%; font-family:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); resize:vertical;"></textarea>
+        <label for="newsType">Tipo</label>
+        <select id="newsType">
+          <option value="hilo">Hilo (permite respuestas)</option>
+          <option value="aviso">Aviso (sin respuestas)</option>
+        </select>
         <div class="row" style="margin-top:10px;"><button id="btnNewsCreate" style="flex:1;">Publicar</button></div>
         <div id="newsError" class="errbox"></div>
       </div>
@@ -519,6 +525,14 @@
           <rect class="icon-body" x="24" y="46" width="72" height="46" rx="12"/>
           <path class="icon-heart-cut" d="M60 60 C 55 54, 46 55, 46 63 C 46 70, 60 80, 60 80 C 60 80, 74 70, 74 63 C 74 55, 65 54, 60 60 Z"/>
         </svg>
+      </div>
+      <div class="card" id="displayNameCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Mi nombre en Noticias</h3>
+        <div class="meta-small" style="margin-bottom:12px;">Cámbialo cuando quieras — se usa el que esté activo justo al momento de publicar. Si "mostrar mi nombre / anónimo" está en anónimo, esto no aplica.</div>
+        <label for="displayNameInput">Nombre a mostrar</label>
+        <input id="displayNameInput" placeholder="ej: Elemee" autocomplete="off" maxlength="60">
+        <div class="row" style="margin-top:10px;"><button id="btnSaveDisplayName" style="flex:1;">Guardar</button></div>
+        <div id="displayNameError" class="errbox"></div>
       </div>
       <div class="card" id="adminAccountsCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Cuentas administrativas</h3>
@@ -591,6 +605,9 @@
     btnShowForm: document.getElementById('btnShowForm'),
     adminAccountsCard: document.getElementById('adminAccountsCard'),
     adminList: document.getElementById('adminList'),
+    displayNameInput: document.getElementById('displayNameInput'),
+    btnSaveDisplayName: document.getElementById('btnSaveDisplayName'),
+    displayNameError: document.getElementById('displayNameError'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
@@ -619,6 +636,7 @@
     btnExportCsv: document.getElementById('btnExportCsv'),
     stripchatCard: document.getElementById('stripchatCard'),
     stripchatPeriod: document.getElementById('stripchatPeriod'),
+    stripchatPeriodHint: document.getElementById('stripchatPeriodHint'),
     stripchatPaste: document.getElementById('stripchatPaste'),
     btnStripchatParse: document.getElementById('btnStripchatParse'),
     stripchatError: document.getElementById('stripchatError'),
@@ -626,6 +644,7 @@
     newsCreateCard: document.getElementById('newsCreateCard'),
     newsTitle: document.getElementById('newsTitle'),
     newsBody: document.getElementById('newsBody'),
+    newsType: document.getElementById('newsType'),
     btnNewsCreate: document.getElementById('btnNewsCreate'),
     newsError: document.getElementById('newsError'),
     newsList: document.getElementById('newsList'),
@@ -777,6 +796,15 @@
     return '<span class="dot"></span>Desconectado';
   }
 
+  // Icono de la plataforma (favicon real del sitio); si no carga, cae en un
+  // badge simple con las iniciales en el color aproximado de esa marca.
+  function platformIconHtml(url, label, color) {
+    return '<span style="display:inline-flex; align-items:center; vertical-align:-2px; gap:2px;">' +
+      '<img src="' + url + '" width="12" height="12" alt="' + label + '" style="border-radius:2px; display:inline-block;" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'inline-block\';">' +
+      '<span style="display:none; font-size:9px; font-weight:700; padding:1px 4px; border-radius:4px; background:' + color + '; color:#fff; line-height:1.4;">' + label + '</span>' +
+    '</span>';
+  }
+
   function fmtUSD(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD'; }
   function fmtCOP(v) { return '$' + Math.round(v).toLocaleString('es-CO') + ' COP'; }
 
@@ -835,7 +863,13 @@
         return;
       }
 
-      const modelsHtml = data.models.map(function (m, idx) {
+      const sortedModels = data.models.slice().sort(function (a, b) {
+        const aOnline = a.online && a.online.state === 'online' ? 1 : 0;
+        const bOnline = b.online && b.online.state === 'online' ? 1 : 0;
+        if (aOnline !== bOnline) return bOnline - aOnline;
+        return a.account.localeCompare(b.account);
+      });
+      const modelsHtml = sortedModels.map(function (m, idx) {
         const controls = isAdmin ? (
           '<div class="conn">' +
             '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
@@ -854,7 +888,7 @@
             '</div>' +
             '<div class="model-grid">' +
               '<div class="stat"><div class="k">Tokens (quincena)</div><div class="v" data-anim="tok-' + m.account + '"></div>' +
-                (m.stripchatTokensPeriod > 0 ? '<div class="meta-small">CB ' + (m.chaturbateTokensPeriod || 0).toLocaleString('es-ES') + ' + SC ' + m.stripchatTokensPeriod.toLocaleString('es-ES') + '</div>' : '') +
+                (m.stripchatTokensPeriod > 0 ? '<div class="meta-small">' + platformIconHtml('https://chaturbate.com/favicon.ico', 'CB', '#f47321') + ' ' + (m.chaturbateTokensPeriod || 0).toLocaleString('es-ES') + ' + ' + platformIconHtml('https://stripchat.com/favicon.ico', 'SC', '#c62143') + ' ' + m.stripchatTokensPeriod.toLocaleString('es-ES') + '</div>' : '') +
               '</div>' +
               '<div class="stat hero"><div class="k">Desprendible estimado</div><div class="v" data-anim-usd="pay-' + m.account + '" data-cop="' + (m.payoutCOP != null ? fmtCOP(m.payoutCOP) : '') + '"></div></div>' +
             '</div>' +
@@ -981,6 +1015,24 @@
     }
   }
 
+  el.btnSaveDisplayName.addEventListener('click', async function () {
+    el.displayNameError.style.display = 'none';
+    el.btnSaveDisplayName.disabled = true;
+    const r = await fetch('/api/me/set-display-name', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: el.displayNameInput.value.trim() }),
+    });
+    el.btnSaveDisplayName.disabled = false;
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      el.displayNameError.style.display = 'block';
+      el.displayNameError.textContent = err.error || 'No se pudo guardar';
+      return;
+    }
+    el.btnSaveDisplayName.textContent = 'Guardado';
+    setTimeout(function () { el.btnSaveDisplayName.textContent = 'Guardar'; }, 1500);
+  });
+
   async function refreshPayslips() {
     const gen = sessionGen;
     const canManage = currentRole === 'administrador' || currentRole === 'ceo';
@@ -1060,9 +1112,15 @@
     if (!r.ok) return;
     const data = await r.json();
     el.stripchatPeriod.innerHTML = (data.periods || []).map(function (p) {
-      return '<option value="' + p.index + '">' + p.label + ' (se paga ' + p.payoutLabel + ')</option>';
+      return '<option value="' + p.index + '" data-payout="' + escapeHtml(p.payoutLabel) + '">' + p.label + '</option>';
     }).join('');
     stripchatPeriodsLoaded = true;
+    updateStripchatPeriodHint();
+  }
+
+  function updateStripchatPeriodHint() {
+    const opt = el.stripchatPeriod.options[el.stripchatPeriod.selectedIndex];
+    el.stripchatPeriodHint.textContent = opt ? 'Se paga ' + opt.getAttribute('data-payout') : '';
   }
 
   function showStripchatError(msg) { el.stripchatError.style.display = 'block'; el.stripchatError.textContent = msg; }
@@ -1139,6 +1197,7 @@
   }
 
   el.btnStripchatParse.addEventListener('click', parseStripchatText);
+  el.stripchatPeriod.addEventListener('change', updateStripchatPeriodHint);
 
   async function refreshNews() {
     const r = await fetch('/api/news');
@@ -1150,11 +1209,17 @@
       return;
     }
     const isAdmin = currentRole === 'administrador';
+    const canSeeViewers = currentRole === 'administrador' || currentRole === 'ceo';
+    const eyeIcon = '<svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align:-2px; display:inline-block;"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
     el.newsList.innerHTML = posts.map(function (p, idx) {
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+      const isAviso = p.post_type === 'aviso';
+      const typeBadge = isAviso
+        ? '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--pink); border:1px solid rgba(255,64,129,0.3);">AVISO</span>'
+        : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>';
       const commentsHtml = (p.comments || []).map(function (c) {
         const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
-        const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_username);
+        const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_display_name || c.author_username);
         return '<div class="admin-list-row" style="align-items:flex-start; padding:8px 0;">' +
           '<span><b>' + cname + '</b> ' + roleBadgeHtml(c.author_role, c.author_gender) + '<br>' +
           '<span style="white-space:pre-wrap;">' + escapeHtml(c.body) + '</span></span>' +
@@ -1162,17 +1227,23 @@
           (isAdmin ? ' <button class="btnDeleteComment" data-id="' + c.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:3px 8px; font-size:11px;">Eliminar</button>' : '') +
           '</span></div>';
       }).join('');
-      const pname = p.author_anonymous ? 'Anónimo' : escapeHtml(p.author_username);
+      const pname = p.author_anonymous ? 'Anónimo' : escapeHtml(p.author_display_name || p.author_username);
+      const viewers = p.viewers || [];
+      const viewersHtml = canSeeViewers
+        ? '<div class="meta-small" style="margin-top:8px; color:var(--muted-dim);" title="' + (viewers.length ? escapeHtml(viewers.join(', ')) : 'todavía nadie') + '">' + eyeIcon + ' ' + (viewers.length ? viewers.length + ' modelo(s) la vieron' : 'todavía ninguna modelo la ha visto') + '</div>'
+        : '';
       return '<div class="card" style="animation-delay:' + (idx * 40) + 'ms;">' +
-        '<div class="model-name-row" style="margin-bottom:4px;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + '</div>' +
+        '<div class="model-name-row" style="margin-bottom:4px;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + typeBadge + '</div>' +
         '<div class="meta-small" style="margin-bottom:10px;">' + pname + ' — ' + when + '</div>' +
         '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
-        (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px; margin-bottom:12px;">Eliminar noticia</button>' : '') +
-        '<div style="border-top:1px solid var(--border-soft); padding-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
-        '<div class="row" style="margin-top:10px; gap:8px;">' +
-          '<input class="newsCommentInput" data-post-id="' + p.id + '" placeholder="responder..." style="flex:1;">' +
-          '<button class="btnNewsComment" data-post-id="' + p.id + '">Enviar</button>' +
-        '</div>' +
+        viewersHtml +
+        (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px; margin:12px 0;">Eliminar noticia</button>' : '') +
+        (isAviso ? '' :
+          '<div style="border-top:1px solid var(--border-soft); padding-top:10px; margin-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
+          '<div class="row" style="margin-top:10px; gap:8px;">' +
+            '<input class="newsCommentInput" data-post-id="' + p.id + '" placeholder="responder..." style="flex:1;">' +
+            '<button class="btnNewsComment" data-post-id="' + p.id + '">Enviar</button>' +
+          '</div>') +
       '</div>';
     }).join('');
 
@@ -1224,7 +1295,7 @@
     el.btnNewsCreate.disabled = true;
     const r = await fetch('/api/news/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body }),
+      body: JSON.stringify({ title, body, type: el.newsType.value }),
     });
     el.btnNewsCreate.disabled = false;
     if (!r.ok) {
@@ -1235,6 +1306,7 @@
     }
     el.newsTitle.value = '';
     el.newsBody.value = '';
+    el.newsType.value = 'hilo';
     refreshNews();
   }
 
@@ -1246,7 +1318,10 @@
     const data = await r.json();
 
     const me = (data.admins || []).find(function (a) { return a.username === currentUsername; });
-    if (me) applyAnonButtonState(!!me.hide_name);
+    if (me) {
+      applyAnonButtonState(!!me.hide_name);
+      if (document.activeElement !== el.displayNameInput) el.displayNameInput.value = me.display_name || '';
+    }
 
     if (!data.admins || data.admins.length === 0) {
       el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO — créala aquí abajo cuando la necesites.</div>';
@@ -1336,6 +1411,7 @@
     stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
     news_post_create: 'publicó una noticia',
     news_post_delete: 'eliminó una noticia',
+    set_display_name: 'cambió su nombre para mostrar',
   };
 
   let auditLoaded = false;
@@ -1576,6 +1652,16 @@
     return 'serviceWorker' in navigator && 'PushManager' in window;
   }
 
+  // Explica CUAL requisito falta, en vez de un generico "no soporta" que no
+  // ayuda a diagnosticar (ej: si dice esto estando en Chrome real, revisar si
+  // es un navegador embebido dentro de otra app, o modo incognito).
+  function pushUnsupportedReason() {
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') return 'esta página no está cargada por HTTPS';
+    if (!('serviceWorker' in navigator)) return 'este navegador no tiene Service Workers disponibles';
+    if (!('PushManager' in window)) return 'este navegador no tiene Push API disponible (si estás en Chrome, revisa que no sea un navegador embebido dentro de otra app, ni modo incógnito)';
+    return null;
+  }
+
   function setBellState(active) {
     el.btnEnablePush.classList.toggle('active', active);
     const label = active ? 'Dejar de recordar novedades' : 'Recordar novedades';
@@ -1595,8 +1681,9 @@
   }
 
   el.btnEnablePush.addEventListener('click', async function () {
-    if (!pushSupported()) {
-      alert('Este navegador todavía no soporta notificaciones. Pruébalo desde Chrome en Android, o en iPhone agrega esta página a tu pantalla de inicio primero.');
+    const unsupportedReason = pushUnsupportedReason();
+    if (unsupportedReason) {
+      alert('No se pudieron activar las notificaciones: ' + unsupportedReason + '.');
       return;
     }
     if (isIos() && !isStandalone()) {
