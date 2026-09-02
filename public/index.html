@@ -7,7 +7,7 @@
 <title>PLACER SERVICES</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&family=Alex+Brush&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d;
@@ -95,17 +95,19 @@
   @media (prefers-reduced-motion: reduce) {
     body::before, body::after,
     body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after { animation: none !important; }
-    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav, .badge.online, h1 .placer { animation: none !important; }
+    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .topbar, .tabnav, .badge.online, .brand-logo { animation: none !important; }
     .section-banner animate, .section-banner animateTransform { display: none; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
-  h1 {
-    font-family: var(--font-display); font-weight: 600; font-size: 19px; letter-spacing: 0.02em;
-    text-transform: uppercase; margin: 0 0 4px; color: var(--text);
-    text-shadow: 0 0 14px rgba(245,245,247,0.22);
+  @keyframes logoBreathe {
+    0%, 100% { filter: drop-shadow(0 0 14px rgba(196,107,255,0.32)) drop-shadow(0 0 30px rgba(196,107,255,0.16)); }
+    50% { filter: drop-shadow(0 0 24px rgba(196,107,255,0.5)) drop-shadow(0 0 46px rgba(196,107,255,0.26)); }
   }
-  h1 .placer { color: var(--placer-color); animation: neonFlicker 6s ease-in-out infinite; transition: color .5s ease; }
-  .hrule { height: 1px; width: 46px; background: linear-gradient(90deg, var(--pink), transparent); margin: 14px 0 16px; }
+  .brand-logo {
+    display: block; width: clamp(84px, 15vw, 170px); height: auto; margin: 0 0 18px;
+    animation: logoBreathe 4.5s ease-in-out infinite; transition: transform .3s ease;
+  }
+  .brand-logo:hover { transform: scale(1.05); }
   .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-bottom: 28px; max-width: 42ch; }
   .card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 22px;
@@ -266,8 +268,7 @@
 <body>
 <div class="wrap">
   <div id="masthead">
-    <h1><span class="placer">Placer</span> Services</h1>
-    <div class="hrule"></div>
+    <img src="/logo-placer-studios.svg" alt="Placer Studios" class="brand-logo">
     <div class="sub" id="subtext">Tus estadísticas en un solo lugar: tokens, horas extra y tu aproximado en COP — todo aquí.</div>
   </div>
 
