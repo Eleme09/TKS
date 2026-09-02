@@ -16,7 +16,7 @@
     --border: #242427; --border-soft: #1c1c1f;
     --text: #f5f5f7; --muted: #8c8c93; --muted-dim: #55555b;
     --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4); --pink-glow: rgba(255,143,190,0.17);
-    --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow); --placer-color: var(--pink);
+    --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow);
     --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
     --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
     --ceo-f: #ff8fbe; --ceo-f-soft: rgba(255,143,190,0.14);
@@ -43,13 +43,6 @@
     50%  { transform: translate(12%, 8%) scale(0.88) rotate(-9deg); }
     75%  { transform: translate(-7%, 11%) scale(1.2) rotate(6deg); }
     100% { transform: translate(-9%, -7%) scale(1) rotate(0deg); }
-  }
-  @keyframes neonFlicker {
-    0%, 18%, 22%, 25%, 53%, 57%, 100% {
-      text-shadow: 0 0 4px var(--placer-color), 0 0 11px var(--placer-color), 0 0 19px var(--placer-color), 0 0 40px var(--placer-color);
-      opacity: 1;
-    }
-    20%, 24%, 55% { text-shadow: 0 0 2px var(--placer-color); opacity: 0.72; }
   }
   @keyframes neonGlowGood {
     0%, 100% { box-shadow: 0 0 4px 0 rgba(111,231,184,0.45), inset 0 0 6px rgba(111,231,184,0.12); text-shadow: 0 0 4px rgba(111,231,184,0.55); }
@@ -159,7 +152,7 @@
   label:first-child { margin-top: 0; }
   input, select {
     width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--text); font-size: 14px; font-family: var(--font-body);
+    background: var(--surface-2); color: var(--text); font-size: 16px; font-family: var(--font-body);
     transition: border-color .15s ease, box-shadow .15s ease;
   }
   input[type="date"] { color-scheme: dark; }
@@ -193,7 +186,12 @@
   .role-badge.ceo-m { background: var(--ceo-m-soft); color: var(--ceo-m); border: 1px solid rgba(127,212,232,0.25); }
   .role-badge.ceo-f { background: var(--ceo-f-soft); color: var(--ceo-f); border: 1px solid rgba(255,143,190,0.25); }
   .badge { font-size: 10.5px; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .badge.online { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.35); animation: neonGlowGood 2.1s ease-in-out infinite; }
+  .badge.online {
+    background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.35);
+    box-shadow: 0 0 4px 0 rgba(111,231,184,0.45), inset 0 0 6px rgba(111,231,184,0.12);
+    text-shadow: 0 0 4px rgba(111,231,184,0.55);
+    animation: neonGlowGood 2.1s ease-in-out infinite;
+  }
   .badge.offline { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.2); opacity: 0.6; }
   .badge.online::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px 2px var(--good); animation: pulse 1.8s ease-in-out infinite; }
   .badge.offline::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--bad); display: inline-block; }
@@ -358,7 +356,8 @@
       </div>
 
       <div class="card" id="summaryCard" style="display:none;">
-        <h3 style="margin:0 0 12px; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Resumen del estudio — quincena actual</h3>
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Resumen del estudio — quincena actual</h3>
+        <div class="meta-small" id="sumMeta" style="margin-bottom:12px;"></div>
         <div class="model-grid">
           <div class="stat"><div class="k">En línea ahora</div><div class="v" id="sumOnline">0 / 0</div></div>
           <div class="stat"><div class="k">Tokens (estudio)</div><div class="v" id="sumTokens">0</div></div>
@@ -492,6 +491,11 @@
 
 <script>
 (function () {
+  // Evita que el navegador lance su propio banner de "instalar app" apenas se
+  // entra a la web; la activacion de notificaciones queda solo en manos del
+  // boton "activar notificaciones".
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); });
+
   const el = {
     masthead: document.getElementById('masthead'),
     subtext: document.getElementById('subtext'),
@@ -515,6 +519,7 @@
     errbox: document.getElementById('errbox'),
     models: document.getElementById('models'),
     summaryCard: document.getElementById('summaryCard'),
+    sumMeta: document.getElementById('sumMeta'),
     sumOnline: document.getElementById('sumOnline'),
     sumTokens: document.getElementById('sumTokens'),
     sumTop: document.getElementById('sumTop'),
@@ -667,8 +672,6 @@
 
   function showError(msg) { el.errbox.style.display = 'block'; el.errbox.textContent = msg; }
   function clearError() { el.errbox.style.display = 'none'; el.errbox.textContent = ''; }
-  function fmtDate(ms) { return new Date(ms).toLocaleString(); }
-
   function fmtDuration(ms) {
     const mins = Math.floor(ms / 60000);
     const h = Math.floor(mins / 60);
@@ -700,6 +703,10 @@
     const totalUSD = models.reduce(function (s, m) { return s + (m.payoutUSD || 0); }, 0);
     const totalCOP = dollar && dollar.rate ? totalUSD * dollar.rate : null;
 
+    const payoutLabel = models.length && models[0].period ? models[0].period.payoutLabel : '';
+    const dollarBit = dollar && dollar.rate ? 'dólar Paxum: $' + Math.round(dollar.rate).toLocaleString('es-CO') + ' COP' : '';
+    el.sumMeta.textContent = [payoutLabel ? 'Se paga ' + payoutLabel : '', dollarBit].filter(Boolean).join(' · ');
+
     el.sumOnline.textContent = online + ' / ' + models.length;
 
     animateNumber(el.sumTokens, 'sum-tokens', totalTokens, function (v) { return Math.round(v).toLocaleString('es-ES'); });
@@ -729,16 +736,6 @@
       if (r.status === 401) { showLogin(); return; }
       const data = await r.json();
       if (gen !== sessionGen) return;
-
-      let dollarValue = '—';
-      let dollarMeta = 'No disponible';
-      if (data.dollar && data.dollar.rate) {
-        dollarValue = '$' + Math.round(data.dollar.rate).toLocaleString('es-CO') + ' COP';
-        dollarMeta = 'actualizado ' + fmtDate(data.dollar.updatedAt) +
-          (data.dollar.marketRate ? ' · dólar mercado: $' + Math.round(data.dollar.marketRate).toLocaleString('es-CO') : '');
-      } else if (data.dollar && data.dollar.error) {
-        dollarMeta = 'No se pudo obtener: ' + data.dollar.error;
-      }
 
       const isAdmin = currentRole === 'administrador';
       const showSummary = currentRole === 'administrador' || currentRole === 'ceo';
@@ -775,8 +772,6 @@
             '</div>' +
             '<div class="model-grid">' +
               '<div class="stat"><div class="k">Tokens (quincena)</div><div class="v" data-anim="tok-' + m.account + '"></div></div>' +
-              '<div class="stat"><div class="k">Fecha de pago</div><div class="v small">' + m.period.payoutLabel + '</div></div>' +
-              '<div class="stat"><div class="k">Dólar Paxum (USD → COP)</div><div class="v small">' + dollarValue + '</div><div class="meta-small">' + dollarMeta + '</div></div>' +
               '<div class="stat hero"><div class="k">Desprendible estimado</div><div class="v" data-anim-usd="pay-' + m.account + '" data-cop="' + (m.payoutCOP != null ? fmtCOP(m.payoutCOP) : '') + '"></div></div>' +
             '</div>' +
             controls +
