@@ -453,9 +453,23 @@ catch-all logger for every non-tip/broadcastStart/broadcastStop event —
 see `cb_unhandled_events` below — has run for hours across all 6 models
 and only ever seen `userEnter`/`userLeave`/`follow`, never anything
 token-bearing). For pinky_f00x this was a **63% undercount**: 71 tokens
-counted vs 192+ real for the same days. One already-paid quincena
-(pinky, ago 16-31) was short **11,898 tokens** that got recovered before
-being noticed by anyone but this fix.
+counted vs 192+ real for the same days, and the tracker's own number for
+her ago 16-31 quincena was **11,898 tokens** short of her real Chaturbate
+total before this fix.
+
+**Correction (2026-09-03, later the same day):** an earlier version of
+this file described that 11,898-token gap as money the model had
+already been underpaid and only recovered thanks to this fix. The user
+corrected that: it's wrong. Pinky was paid correctly for that quincena
+regardless — the gap was only in this system's own dashboard/number, a
+consequence of being poorly set up against Chaturbate's API (public-tips
+-only), not an actual shortfall in what she received. Don't cite this
+episode as "a model was underpaid and we caught it" — the accurate
+claim is narrower: the tracker's own total was wrong by that much before
+the fix, which is still the real reason the balance-polling fix
+(`resolveChaturbateTokens`, live tracking) matters — a wrong dashboard
+number is a real problem on its own even when it didn't end up causing
+an actual underpayment this time.
 
 **What was ruled out, and why (don't re-litigate these without new
 evidence):**
