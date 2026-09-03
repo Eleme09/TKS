@@ -452,7 +452,22 @@ user asks otherwise: `sendOnlineNotifications` → `'ceo'` only;
 `sendConnectionAlert` → `['administrador', 'ceo']` (a model can't act
 on a broken tracker); `sendNewsNotification` → everyone except the
 post's author (`null` + `excludeUsername`, deliberately unrestricted
-since Noticias is meant to reach models).
+since Noticias is meant to reach models); **`sbLogApiError` → `'administrador'`
+only (added 2026-09-03)** — every Chaturbate Stats/Stripchat API failure
+or shape-change now also pushes an immediate notification (tag
+`placer-api-error`) instead of only waiting for the next daily vigía run
+or a manual `cb_api_errors` query. Scoped to `administrador` only (not
+`ceo`, per explicit user request) since this is the same kind of
+technical/actionable alert as a connection drop — a role that can't
+act on it doesn't need to be woken up by it. Verified: server boots and
+serves fine with this change (scratch instance against the real
+Supabase project, immediately killed after to avoid double-polling
+live models), `npm test` still 32/32. Actual push *delivery* through
+this new path was not separately re-verified beyond that — it reuses
+`sendPushToRole` byte-for-byte the same way `sendConnectionAlert` does,
+and that path is confirmed working in production (the user has
+screenshotted a real "Se cayó la conexión de conni_f00x" push arriving
+on his device).
 
 Push subscriptions are **per-device**, not per-account — a user
 subscribing on their PC does not enable notifications on their phone,

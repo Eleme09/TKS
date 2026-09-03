@@ -605,13 +605,17 @@ async function sbInsertUnhandledEvent(username, method, payload) {
 // Registro liviano de fallos de APIs externas (Chaturbate Stats, Stripchat)
 // para poder detectar un cambio de API sin acceso a los logs de Render — un
 // chequeo automatico programado revisa esta tabla y avisa si hay un salto de
-// errores. Puro diagnostico, sin reintentos.
+// errores. Puro diagnostico, sin reintentos. Ademas empuja un push inmediato
+// solo al rol administrador (mismo criterio que sendConnectionAlert: es un
+// aviso tecnico que solo quien opera el sistema puede accionar), en vez de
+// esperar al chequeo diario para enterarse de un error real.
 async function sbLogApiError(source, message) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_api_errors', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ source, message }),
   }).catch(() => {});
+  sendPushToRole('administrador', 'Error en ' + source + ': ' + message, { tag: 'placer-api-error' }).catch(() => {});
 }
 
 async function sbFetchLastBroadcastEvent(username) {
