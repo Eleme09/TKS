@@ -1451,6 +1451,15 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { entries });
   }
 
+  // TEMPORAL (2026-09-03): endpoint de prueba para confirmar en vivo que el
+  // push de sbLogApiError (agregado hoy) llega de verdad al rol administrador.
+  // Borrar este bloque despues de confirmarlo — no es una funcion del producto.
+  if (parsed.pathname === '/api/test-error-notification' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    await sbLogApiError('prueba', 'Notificación de prueba — si te llegó esto, el aviso de errores por push funciona.');
+    return sendJson(res, 200, { ok: true, mensaje: 'Notificación de prueba disparada' });
+  }
+
   if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
     const session = await requireAdmin(req, res);
     if (!session) return;
