@@ -14,6 +14,27 @@ session's description of "current state" (including sections below) —
 trust the repo. If something below conflicts with what the code
 actually does, the code wins; fix this file to match.
 
+## Multi-terminal work — always persist, never leave it only in chat
+
+The user works from several terminals/devices on this same project and does
+not have time to re-explain context to a fresh session every time. Any
+output that took real work to produce — a document, a checklist, a
+generated file, a reusable procedure — must end up somewhere durable
+(this repo, or a Supabase table) before the turn is considered done, not
+just shown in chat. Chat history does not carry over between terminals;
+the repo and the DB do.
+
+Concretely: `public.cb_kit_docs` (id text primary key, content text,
+updated_at) holds reference documents that aren't code but that the user
+needs from any device — right now: `skill-studio-tracker-setup.md` (mirror
+of `.claude/skills/studio-tracker-setup/SKILL.md`), `ficha-alta.html` and
+`ficha-cliente.html` (the two onboarding checklists for replicating this
+project to a new studio — see that skill). Query it from any terminal with
+`select id, content from cb_kit_docs where id = '...'` instead of asking
+the user to re-upload or re-describe something already produced once. If
+the skill or the fichas change, re-upsert the matching row here too — the
+repo file and the DB row are meant to stay in sync, not one abandoned.
+
 ## Where things live
 
 - **Code**: this repo (`Eleme09/TKS`, private GitHub repo). Deploy flow:
