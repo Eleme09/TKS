@@ -422,6 +422,192 @@ FK in Postgres, so these columns are deliberately left unconstrained at
 the DB level and trusted at the application level instead, matching
 existing pattern for author_username across cb_news_*.
 
+## Chaturbate income beyond public tips — resolved (2026-09-03)
+
+**The problem, found by the user comparing real numbers:** the Events API
+only ever fires `tip` for public in-room tips. Chaturbate also pays for
+private shows, spy shows, fan club joins, and content purchases — none of
+that comes through as any Events API event (confirmed empirically: a
+catch-all logger for every non-tip/broadcastStart/broadcastStop event —
+see `cb_unhandled_events` below — has run for hours across all 6 models
+and only ever seen `userEnter`/`userLeave`/`follow`, never anything
+token-bearing). For pinky_f00x this was a **63% undercount**: 71 tokens
+counted vs 192+ real for the same days. One already-paid quincena
+(pinky, ago 16-31) was short **11,898 tokens** that got recovered before
+being noticed by anyone but this fix.
+
+**What was ruled out, and why (don't re-litigate these without new
+evidence):**
+- **Scripted/automated login** (Playwright/Puppeteer logging into
+  chaturbate.com to scrape the Earnings/Token Stats page) — this is a
+  distinct, *harder* stance than the Stripchat login rule below: it's not
+  just "don't do this," it's independently verified technically blocked.
+  A plain unauthenticated `curl`/`fetch` to
+  `https://es.chaturbate.com/tipping/csv/history/` (the CSV-history
+  endpoint) gets redirected to `/auth/login/` and **that login redirect
+  itself returns a Cloudflare "Just a moment…" bot challenge** on the
+  very first request — confirmed live, not theoretical. Any scripted
+  login attempt hits this before even trying credentials. Don't waste
+  time re-investigating this path; the block is Chaturbate's, not a
+  missing header or user-agent tweak.
+- **`tips_in_last_hour` field on the Stats API** (see below) — confirmed
+  via Chaturbate's *own* published docs
+  (`chaturbate.com/statsapi/authtoken/`, screenshotted by the user) that
+  this is scoped to tips only, same category the Events API already
+  gives us live and more precisely. Not useful for the privates/spy gap.
+- **"Affiliate statistics" API** (same docs page, different endpoint,
+  `/affiliates/apistats/`) — referral/affiliate program stats (who a
+  model refers to Chaturbate), unrelated to her own room earnings.
+- **CB Cam Insights** (third-party tool built specifically for this
+  niche, has a Chrome extension + studio accounts) — investigated in
+  depth; it only reads the live tip feed visible during a broadcast,
+  same scope as our Events API. Not a lead.
+
+**What actually works — the real fix, in order of how it was found:**
+
+1. **`cb_unhandled_events`** (username, method, payload jsonb,
+   created_at): the `pollLoop` event switch now has a catch-all `else`
+   that logs any event method it doesn't already handle, instead of
+   discarding it. Fire-and-forget (no `await`, no retries — this is
+   diagnostic, not money, so it must never block real tip/broadcast
+   processing; using `sbWriteCritical` here was an early mistake, fixed
+   2026-09-03 in the code-review pass). Check periodically
+   (`select method, count(*) from cb_unhandled_events group by method`)
+   in case Chaturbate ever starts sending a token-bearing event type
+   (`fanclubJoin`, `mediaPurchase` are documented Chaturbate methods
+   that would show up here) — if one ever appears, that category can be
+   wired into automatic tracking with zero login risk.
+
+2. **CSV historical backfill** (`cb_chaturbate_period_base` table:
+   username, period_start, period_end, base_tokens, covers_until,
+   source, entered_by). Chaturbate lets a broadcaster download her own
+   *full transaction ledger* from her own logged-in session
+   ("Estadísticas de las fichas" → "Descargar el historial de
+   transacciones") — a real button in a real browser, not scraping.
+   That CSV has every category broken out by name (`Tip received`,
+   `Private show`, `Spy on private show`, `Photos/videos sold`,
+   `Fan club membership`, `Tokens cashed out` as the one withdrawal/
+   negative type). Summing every **positive** `Token change` row in a
+   date range reproduces Chaturbate's own "Ganancias del período"
+   number exactly — verified token-for-token against the real UI
+   (289 and 11,906 for two different periods, both exact). Used once to
+   backfill all 6 models' current + prior quincena so nothing already
+   paid stays wrong.
+   - **Retention gotcha, verified with real data:** the export only
+     covers roughly the last ~30 days of line-item detail, even though
+     the aggregate "Ganancias del período" table remembers further back.
+     A quincena starting before the file's oldest row is **silently
+     incomplete** in the file (caught one case: file said 4549, real
+     total was 6829, missing the first few days) — worse to save a
+     partial number than to leave it alone, since it would look
+     "already fixed" while still being wrong. `oldestDateStr` is checked
+     per period before saving; an uncovered period is skipped and
+     reported as `saved: false`, never written half-right.
+   - `covers_until` is stamped as the **upload moment**, not the CSV's
+     last row timestamp — deliberately conservative, so nothing after
+     that instant can possibly double-count against the file (the file
+     physically can't contain data from after it was generated). Costs
+     a small, accepted gap between "file's last real row" and "admin got
+     around to uploading it," same "better short than wrong" tradeoff
+     as everywhere else in this feature.
+   - **UI for this was removed 2026-09-03**, same day it was added, once
+     live tracking (below) covered all 6 models and made ongoing manual
+     uploads pointless. The endpoint (`/api/chaturbate-csv/upload`)
+     is untouched and still callable directly (curl / one-off script) as
+     a dormant fallback for a future backfill — same "removed from UI,
+     backend stays dormant" pattern already established for Stripchat's
+     paste-and-parse form. Don't re-add UI for it without checking if
+     it's still needed; if you do, know that `/api/chaturbate-csv/upload`
+     accepts a `modelo` session too, forcing her own username server-side
+     regardless of what `username` is in the request body.
+
+3. **Live automatic tracking — the actual long-term fix**
+   (`cb_models.stats_api_token` / `last_balance` / `last_balance_at`,
+   `cb_balance_ticks`, `cb_balance_resets`). Chaturbate has a second
+   official, token-authenticated (not login) API:
+   `https://chaturbate.com/statsapi/?username=X&token=Y`, token
+   generated once per broadcaster at
+   `chaturbate.com/statsapi/authtoken/` while logged into *her own*
+   account (same trust model as the Events API token already in use —
+   documented at that same URL, screenshotted by the user). Its
+   `token_balance` field is literally the wallet-balance number shown at
+   the top of the Chaturbate UI, and it goes up for **every** revenue
+   category (tip, private, spy, fan club, content) — because it's just
+   her balance, not a tips-only metric like `tips_in_last_hour`.
+   Chaturbate runs an **automatic daily cashout per broadcaster that
+   drains the balance to exactly $0** (verified: every "Tokens cashed
+   out" row in the real CSV data goes to a balance of precisely 0, no
+   exceptions). Summing each day's pre-cashout balance reproduces the
+   official "Ganancias del período" total exactly, same verification as
+   the CSV method above.
+   - `pollChaturbateBalances()` (started via
+     `startChaturbateBalancePolling()` at server boot) polls every model
+     with a `stats_api_token` set, compares the new balance to
+     `last_balance`: an **increase** is real new earnings → inserted as
+     a row in `cb_balance_ticks` (this is the thing summed for payroll,
+     same role `cb_tips` plays for the old tip-only tracking); a
+     **decrease** is the daily cashout, not a loss → logged to
+     `cb_balance_resets` for audit/verification, never subtracted from
+     anything earned. First-ever poll for a newly-activated model just
+     seeds `last_balance` with no tick (no way to know how much of a
+     pre-existing balance was already counted elsewhere).
+   - **Dense polling before the daily cashout**: `isNearChaturbateCashout`
+     triggers ~20s polling in the 12 minutes before the reset instead of
+     the normal ~2min cadence, to catch the highest possible balance
+     right before it's zeroed. **The cashout hour is 04:30 UTC, not
+     21:30 or 23:30** — worked out from real data: the CSV logs the
+     cashout at `21:30` (Chaturbate's own US-Pacific server clock) and
+     the web UI shows the *same instant* to the Colombian user as
+     `11:30 p.m.` (UTC-5) — both point to `04:30 UTC`. If this ever
+     looks wrong, `cb_balance_resets.detected_at` has the real
+     observed timestamps to re-derive it from, don't just guess a new
+     hour.
+   - `pollChaturbateBalances` has a `balancePollRunning` reentrancy
+     guard (added in the 2026-09-03 code-review pass) — without it, a
+     slow poll cycle during the dense 20s window could overlap the next
+     one and double-insert the same tick.
+   - Activated per model via `POST /api/chaturbate-stats-token/set`
+     (admin-only; UI: Cuentas → "Automatizar Chaturbate por completo"),
+     which live-validates the token against the real API before saving
+     and seeds `last_balance` immediately so activation itself never
+     creates a false tick. All 6 models were activated 2026-09-03.
+
+**How the three sources reconcile — `resolveChaturbateTokens`**
+(the single function all Chaturbate-total logic goes through, in both
+`buildModelReports` and `/api/payslips`): with a `cb_chaturbate_period_base`
+row for that period, the total is `base_tokens + max(balance-ticks after
+covers_until, tips after covers_until)` — **the max, not ticks alone**.
+Real bug caught in the 2026-09-03 review: taking ticks alone silently
+freezes a model's total at the CSV base forever if she never got a
+`stats_api_token` activated (the live Events API tip listener runs for
+*every* model regardless of whether her balance is being polled, so her
+`cb_tips` keeps growing while `cb_balance_ticks` stays empty — max()
+against tips is what keeps her total moving instead of stuck). Without a
+base row, it's `max(ticks total, tips + manual correction)` — same
+"never regress below what's already known" principle, so activating
+balance-tracking mid-quincena can only raise a model's shown total, never
+drop it out from under an already-correct number.
+
+**Known accepted limitation, not fixed:** the CSV's date bucketing
+(`parseChaturbateTransactionsCsv` / `sumChaturbateCsvEarningsForPeriod`)
+takes the first 10 characters of the CSV's Timestamp column as the day,
+with no timezone conversion from Chaturbate's Pacific-time clock to
+whatever timezone quincena boundaries are computed in. This can shift a
+handful of tokens right at midnight between two adjacent quincenas.
+Verified against real data that the effect is negligible (both tested
+periods matched Chaturbate's own totals exactly); a robust fix needs
+real DST-aware timezone math, which risks introducing a new bug for a
+problem this small. Leave it unless it's actually observed to matter.
+
+**Manual fallback still exists, now explicitly secondary:** the "Otros
+ingresos de Chaturbate" card in Cuentas (admin enters one number — the
+account's *real total* from her own Token Stats page, no category
+breakdown needed) still works, backed by `cb_chaturbate_extra_earnings`.
+It only matters for a model with no `stats_api_token` and no
+`cb_chaturbate_period_base` row for that period; once either of the
+other two mechanisms has data for a period, this one is ignored by
+`resolveChaturbateTokens`'s max()/base logic.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
