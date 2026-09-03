@@ -67,17 +67,11 @@ shipping without git history (or a squashed single-commit history with
 no Claude co-author trailer) — normal delivery hygiene, not deception,
 and never fabricate a false human author name for it. Query it from any
 terminal with
-Also: `intro-neon.html` (a polished neon sign-on splash for the OPENING
-MOMENT of a sales demo — never wire this into the actual daily
-login flow, it's real friction for a tool people open several times a
-day; it belongs only in the one-time "wow" of a prospect demo) and
-`intro-neon-original-backup.html` (the user's original upload before
-the 2026-09-03 design pass — font swap Yesteryear→Neonderthaw for a
-cleaner neon-tube glow, keyboard accessibility on the overlay, a
-sessionStorage skip so it doesn't replay every load, real hero content
-behind the overlay instead of two empty lines, a second cyan neon
-accent — keep this backup around in case the user prefers the
-original). Query it from any terminal with
+(A neon sign-on splash intro for the opening of a sales demo was tried
+and discarded 2026-09-03 — the user didn't like it after seeing the
+polished version. Don't re-suggest a splash/intro animation for either
+the daily tool or the demo flow unless the user brings it up again.)
+Query it from any terminal with
 `select id, content from cb_kit_docs where id = '...'` instead of asking
 the user to re-upload or re-describe something already produced once. If
 the skill or the fichas change, re-upsert the matching row here too — the
