@@ -35,17 +35,26 @@ solution pitch, ends by offering a demo with invented numbers, never
 mentions a price) and `post-demo-proposal.md` (sent only after the
 prospect approves the demo — the $250.000 deposit ask, the real data
 ficha, and the actual pricing menu). **Current pricing (2026-09-03,
-confirm with the user before reusing — these numbers change):**
-$750.000 one-time build (6 days, Jeiner hosts on his own Render/
-Supabase, client gets a normal `administrador` account for their own
-day-to-day — this does NOT include the "rol avanzado" of technical
-superuser actions like password resets/force-logout/reconnect, which
-stays with Jeiner unless sold separately); $580.000 every quincena if
-the client wants Jeiner to keep hosting/maintaining it instead of just
-the one-time build; $4.500.000 one-time full buyout — client gets their
-own Render/Supabase accounts plus the editable source code, delivered
-clean (see below); $40.000/$100.000 per incident for fixing bugs a
-THIRD-PARTY programmer introduced (not Jeiner's own bugs). The real
+confirm with the user before reusing — these numbers change, and
+already changed once this same day, see below):** there is NO one-time
+build fee anymore — $500.000 every quincena is the base recurring
+charge just for having the site up and running (6-day build, Jeiner
+hosts on his own Render/Supabase, client gets a normal `administrador`
+account for their own day-to-day — this does NOT include the "rol
+avanzado" of technical superuser actions like password resets/force-
+logout/reconnect, which stays with Jeiner unless sold separately); an
+optional **+$80.000/quincena** on top of that (total $580.000) if the
+client also wants Jeiner actively monitoring/maintaining the page
+instead of just leaving it running; $4.500.000 one-time full buyout —
+client gets their own Render/Supabase accounts plus the editable source
+code, delivered clean (see below), and pays no more recurring fee after
+that; $40.000/$100.000 per incident for fixing bugs a THIRD-PARTY
+programmer introduced (not Jeiner's own bugs). No verified market data
+exists on whether real prospects will accept the $500-580k/quincena
+recurring price — it's a reasoned comparison only (roughly what a
+part-time bookkeeper doing this by hand would cost, in a niche with no
+direct competitor), not a confirmed fact; test it on the first 2-3 real
+prospects rather than assuming it's right or wrong. The real
 pitch, always: "we consolidate your platforms' numbers into one clean
 place," never "the platforms hide income from you" — see the correction
 in the Chaturbate-income section below for exactly why that second
