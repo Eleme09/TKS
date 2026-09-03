@@ -593,6 +593,14 @@ async function sbInsertBroadcastEvent(username, eventType, eventId) {
   await sbWriteCritical('broadcast_event', SUPABASE_URL + '/rest/v1/cb_broadcast_events', { username, event_type: eventType, event_id: eventId });
 }
 
+// Cualquier evento de la Events API que no sea tip/broadcastStart/broadcastStop
+// (privados, spy shows, fan club, compras de contenido, etc.) se guarda crudo
+// aqui en vez de descartarse en silencio, para poder revisar despues si trae
+// tokens que hoy no estamos contando en el pago.
+async function sbInsertUnhandledEvent(username, method, payload) {
+  await sbWriteCritical('unhandled_event', SUPABASE_URL + '/rest/v1/cb_unhandled_events', { username, method, payload });
+}
+
 async function sbFetchLastBroadcastEvent(username) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events?username=eq.' + encodeURIComponent(username) + '&select=event_type,created_at&order=created_at.desc&limit=1', { headers: SB_HEADERS });
   if (!r.ok) return null;
@@ -680,6 +688,42 @@ async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartSt
   return r.ok ? r.json() : [];
 }
 
+// ---- Chaturbate: ingresos que la Events API no reporta como "tip" (privados,
+// spy shows, fan club, contenido pagado) — se ingresan a mano por quincena,
+// igual que el respaldo manual de Stripchat, porque Chaturbate no tiene una
+// API de estadisticas por estudio como si tiene Stripchat. ----
+
+async function sbUpsertChaturbateExtraEarningsBatch(rows, enteredBy) {
+  if (!rows.length) return true;
+  const body = rows.map((r) => ({
+    username: r.username,
+    period_start: r.period_start,
+    period_end: r.period_end,
+    tokens: r.tokens,
+    note: r.note || null,
+    entered_by: enteredBy,
+    updated_at: new Date().toISOString(),
+  }));
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings?on_conflict=username,period_start,period_end', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(body),
+  });
+  return resp.ok;
+}
+
+async function sbFetchChaturbateExtraEarningsForPeriod(periodStartStr, periodEndStr) {
+  const qs = '?select=username,tokens,note&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchChaturbateExtraEarningsForUserSince(username, sincePeriodStartStr) {
+  const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
 // "YYYY-MM-DD HH:MM:SS" en hora local, formato que pide la Studio API de
 // Stripchat para periodStart/periodEnd (misma convencion de hora local que ya
 // usa toDateStr, para que coincida exactamente con los limites de la quincena
@@ -740,16 +784,19 @@ async function buildModelReports() {
   const startIso = new Date(period.start).toISOString();
   const endIso = new Date(period.end).toISOString();
 
-  const [models, tips, stripchat] = await Promise.all([
+  const [models, tips, stripchat, chaturbateExtra] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
     sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
   ]);
 
   const tipsByUser = {};
   for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
   const stripchatByUser = {};
   for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
+  const chaturbateExtraByUser = {};
+  for (const c of chaturbateExtra) chaturbateExtraByUser[c.username] = (chaturbateExtraByUser[c.username] || 0) + c.tokens;
 
   return models.map((m) => {
     const tr = trackers.get(m.username);
@@ -768,7 +815,9 @@ async function buildModelReports() {
       ? { state: 'online', since: tr.onlineSince || now }
       : { state: 'offline', since: null };
 
-    const chaturbateTokensPeriod = tipsByUser[m.username] || 0;
+    const chaturbateTipsTokensPeriod = tipsByUser[m.username] || 0;
+    const chaturbateExtraTokensPeriod = chaturbateExtraByUser[m.username] || 0;
+    const chaturbateTokensPeriod = chaturbateTipsTokensPeriod + chaturbateExtraTokensPeriod;
     const stripchatTokensPeriod = stripchatByUser[m.username] || 0;
 
     return {
@@ -777,6 +826,8 @@ async function buildModelReports() {
       period: { label: period.label, payoutLabel: period.payoutLabel },
       totalTokensPeriod: chaturbateTokensPeriod + stripchatTokensPeriod,
       chaturbateTokensPeriod,
+      chaturbateTipsTokensPeriod,
+      chaturbateExtraTokensPeriod,
       stripchatTokensPeriod,
       reportGeneratedAt: now,
       trackingSince,
@@ -920,6 +971,8 @@ async function pollLoop(tracker) {
         tracker.online = false;
         tracker.onlineSince = null;
         await sbInsertBroadcastEvent(username, 'stop', ev.id);
+      } else if (ev.method) {
+        await sbInsertUnhandledEvent(username, ev.method, ev);
       }
     }
 
@@ -1362,18 +1415,23 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
       const oldestStart = periods[periods.length - 1].start;
-      const [tips, stripchatRows, dollar] = await Promise.all([
+      const [tips, stripchatRows, chaturbateExtraRows, dollar] = await Promise.all([
         sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
         sbFetchStripchatEarningsForUserSince(username, toDateStr(oldestStart)),
+        sbFetchChaturbateExtraEarningsForUserSince(username, toDateStr(oldestStart)),
         getDollarRate(),
       ]);
 
       const rows = periods.map((p, idx) => {
-        const chaturbateTokens = tips
+        const chaturbateTipsTokens = tips
           .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; })
           .reduce((sum, t) => sum + t.tokens, 0);
         const periodStartStr = toDateStr(p.start);
         const periodEndStr = toDateStr(p.end);
+        const chaturbateExtraTokens = chaturbateExtraRows
+          .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
+          .reduce((sum, r) => sum + r.tokens, 0);
+        const chaturbateTokens = chaturbateTipsTokens + chaturbateExtraTokens;
         const stripchatTokens = stripchatRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
@@ -1456,6 +1514,60 @@ const server = http.createServer(async (req, res) => {
     const ok = await sbUpsertStripchatEarningsBatch(rows, session.username);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
     await sbLogAudit(session, 'stripchat_earnings_save', null, { period: period.label, count: rows.length });
+    return sendJson(res, 200, { ok: true, period: period.label, count: rows.length });
+  }
+
+  // ---- Chaturbate: ingreso manual de lo que la Events API no reporta como
+  // tip (privados, spy shows, fan club, contenido) ----
+
+  if (parsed.pathname === '/api/chaturbate-extra/periods' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    const periods = getQuincenaHistory(3, Date.now()).map((p, idx) => ({ index: idx, label: p.label, payoutLabel: p.payoutLabel }));
+    return sendJson(res, 200, { periods });
+  }
+
+  if (parsed.pathname === '/api/chaturbate-extra/current' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    const idx = Math.min(2, Math.max(0, parseInt(parsed.query.periodIndex, 10) || 0));
+    const period = getQuincenaHistory(3, Date.now())[idx];
+    const [models, rows] = await Promise.all([
+      sbFetchAllModels(),
+      sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    ]);
+    const byUser = {};
+    for (const r of rows) byUser[r.username] = { tokens: r.tokens, note: r.note || '' };
+    const entries = models.filter((m) => m.role === 'modelo').map((m) => ({
+      username: m.username,
+      tokens: (byUser[m.username] && byUser[m.username].tokens) || 0,
+      note: (byUser[m.username] && byUser[m.username].note) || '',
+    }));
+    return sendJson(res, 200, { period: { label: period.label }, entries });
+  }
+
+  if (parsed.pathname === '/api/chaturbate-extra/save' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    const idx = Math.min(2, Math.max(0, parseInt(body.periodIndex, 10) || 0));
+    const period = getQuincenaHistory(3, Date.now())[idx];
+    const models = await sbFetchAllModels();
+    const validUsernames = new Set(models.map((m) => m.username));
+    const periodStartStr = toDateStr(period.start);
+    const periodEndStr = toDateStr(period.end);
+    const rows = [];
+    for (const e of entries) {
+      const username = sanitizeUsername(e.username);
+      const tokens = Math.max(0, Math.floor(Number(e.tokens)));
+      if (!username || !validUsernames.has(username) || !Number.isFinite(tokens)) continue;
+      const note = typeof e.note === 'string' ? e.note.slice(0, 200) : null;
+      rows.push({ username, period_start: periodStartStr, period_end: periodEndStr, tokens, note });
+    }
+    if (!rows.length) return sendJson(res, 400, { error: 'No hay entradas válidas para guardar' });
+    const ok = await sbUpsertChaturbateExtraEarningsBatch(rows, session.username);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    await sbLogAudit(session, 'chaturbate_extra_earnings_save', null, { period: period.label, count: rows.length });
     return sendJson(res, 200, { ok: true, period: period.label, count: rows.length });
   }
 

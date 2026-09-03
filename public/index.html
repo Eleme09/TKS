@@ -549,6 +549,15 @@
         <div class="meta-small" style="margin-bottom:12px;">Cambia la contraseña de acceso de cualquier modelo o cierra sus sesiones abiertas en otros dispositivos.</div>
         <div id="modelAccountsList"></div>
       </div>
+      <div class="card" id="chaturbateExtraCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Otros ingresos de Chaturbate</h3>
+        <div class="meta-small" style="margin-bottom:12px;">La conexión en vivo solo cuenta propinas públicas. Privados, spy shows, fan club y contenido pagado no llegan por ahí — revisa el total real de cada modelo en Chaturbate y anota acá la diferencia, quincena por quincena. Se suma directo al desprendible.</div>
+        <label for="ctbExtraPeriod">Quincena</label>
+        <select id="ctbExtraPeriod"></select>
+        <div id="ctbExtraList" style="margin-top:10px;"></div>
+        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbExtra" style="flex:1;">Guardar</button></div>
+        <div id="ctbExtraError" class="errbox"></div>
+      </div>
       <div class="card" id="auditLogCard">
         <details id="auditDetails">
           <summary style="cursor:pointer; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Registro de actividad</summary>
@@ -602,6 +611,10 @@
     displayNameInput: document.getElementById('displayNameInput'),
     btnSaveDisplayName: document.getElementById('btnSaveDisplayName'),
     displayNameError: document.getElementById('displayNameError'),
+    ctbExtraPeriod: document.getElementById('ctbExtraPeriod'),
+    ctbExtraList: document.getElementById('ctbExtraList'),
+    btnSaveCtbExtra: document.getElementById('btnSaveCtbExtra'),
+    ctbExtraError: document.getElementById('ctbExtraError'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
@@ -1019,6 +1032,8 @@
     setTimeout(function () { el.btnSaveDisplayName.textContent = 'Guardar'; }, 1500);
   });
 
+  el.btnSaveCtbExtra.addEventListener('click', saveChaturbateExtra);
+
   async function refreshPayslips() {
     const gen = sessionGen;
     const canManage = currentRole === 'administrador' || currentRole === 'ceo';
@@ -1281,6 +1296,58 @@
     });
   }
 
+  let ctbExtraPeriodsLoaded = false;
+  async function loadChaturbateExtraPeriods() {
+    const r = await fetch('/api/chaturbate-extra/periods');
+    if (!r.ok) return;
+    const data = await r.json();
+    const periods = data.periods || [];
+    el.ctbExtraPeriod.innerHTML = periods.map(function (p) {
+      return '<option value="' + p.index + '">' + escapeHtml(p.label) + (p.index === 0 ? ' (actual)' : '') + '</option>';
+    }).join('');
+    if (!ctbExtraPeriodsLoaded) {
+      ctbExtraPeriodsLoaded = true;
+      el.ctbExtraPeriod.addEventListener('change', function () {
+        loadChaturbateExtraCurrent(parseInt(el.ctbExtraPeriod.value, 10) || 0);
+      });
+    }
+    loadChaturbateExtraCurrent(parseInt(el.ctbExtraPeriod.value, 10) || 0);
+  }
+
+  async function loadChaturbateExtraCurrent(periodIndex) {
+    el.ctbExtraError.style.display = 'none';
+    const r = await fetch('/api/chaturbate-extra/current?periodIndex=' + periodIndex);
+    if (!r.ok) { el.ctbExtraError.style.display = 'block'; el.ctbExtraError.textContent = 'No se pudo cargar.'; return; }
+    const data = await r.json();
+    const entries = data.entries || [];
+    if (!entries.length) { el.ctbExtraList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>'; return; }
+    el.ctbExtraList.innerHTML = entries.map(function (e) {
+      return '<div class="row" style="align-items:center; margin-top:6px;">' +
+        '<span style="flex:1; font-size:13px;">' + escapeHtml(e.username) + '</span>' +
+        '<input type="number" min="0" step="1" data-ctb-user="' + escapeHtml(e.username) + '" value="' + (e.tokens || 0) + '" style="width:90px;">' +
+        '</div>';
+    }).join('');
+  }
+
+  async function saveChaturbateExtra() {
+    el.ctbExtraError.style.display = 'none';
+    const periodIndex = parseInt(el.ctbExtraPeriod.value, 10) || 0;
+    const entries = Array.from(el.ctbExtraList.querySelectorAll('[data-ctb-user]')).map(function (input) {
+      return { username: input.getAttribute('data-ctb-user'), tokens: input.value };
+    });
+    const r = await fetch('/api/chaturbate-extra/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ periodIndex, entries }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      el.ctbExtraError.style.display = 'block';
+      el.ctbExtraError.textContent = err.error || 'No se pudo guardar.';
+      return;
+    }
+    alert('Guardado.');
+  }
+
   async function forceLogoutAccount(type, username) {
     if (!confirm('¿Cerrar todas las sesiones abiertas de "' + username + '"? Tendrá que volver a iniciar sesión en todos sus dispositivos.')) return;
     const r = await fetch('/api/accounts/logout-everywhere', {
@@ -1311,6 +1378,7 @@
     logout_everywhere: 'cerró todas sus sesiones',
     force_logout: 'forzó el cierre de sesiones de',
     stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
+    chaturbate_extra_earnings_save: 'guardó otros ingresos de Chaturbate a mano',
     news_post_create: 'publicó una noticia',
     news_post_delete: 'eliminó una noticia',
     set_display_name: 'cambió su nombre para mostrar',
@@ -1649,7 +1717,7 @@
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
-    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); }
+    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 
