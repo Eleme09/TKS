@@ -412,13 +412,6 @@
         <div class="empty">Todavía no hay modelos agregadas — usa el botón de arriba para sumar la primera.</div>
       </div>
 
-      <div class="card" id="myChaturbateCsvCard" style="display:none;">
-        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Actualizar mis ingresos de Chaturbate</h3>
-        <div class="meta-small" style="margin-bottom:12px;">Privados, spy, fan club y contenido no se cuentan solos con la conexión en vivo. Andá a tu cuenta de Chaturbate → "Estadísticas de las fichas" → "Descargar el historial de transacciones", y subí acá el archivo — se suma solo a tu desprendible, ninguna otra persona tiene que hacer nada.</div>
-        <input type="file" id="myCtbCsvFile" accept=".csv" style="width:100%;">
-        <div id="myCtbCsvResult" class="meta-small" style="margin-top:8px;"></div>
-      </div>
-
       <details class="card" style="margin-top:16px; max-width:760px;">
         <summary>Sobre los pagos</summary>
         <ul>
@@ -577,11 +570,6 @@
         <div id="ctbExtraList" style="margin-top:4px;"></div>
         <div class="row" style="margin-top:10px;"><button id="btnSaveCtbExtra" style="flex:1;">Guardar</button></div>
         <div id="ctbExtraError" class="errbox"></div>
-        <div class="meta-small" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-soft);">O subí el historial completo — Chaturbate → "Estadísticas de las fichas" → "Descargar el historial de transacciones" — y que la web sume sola, para varias quincenas de una vez, sin escribir ningún número:</div>
-        <label for="ctbCsvUser" style="margin-top:8px;">Modelo</label>
-        <select id="ctbCsvUser"></select>
-        <input type="file" id="ctbCsvFile" accept=".csv" style="margin-top:8px; width:100%;">
-        <div id="ctbCsvResult" class="meta-small" style="margin-top:8px;"></div>
       </div>
       <div class="card" id="auditLogCard">
         <details id="auditDetails">
@@ -640,12 +628,6 @@
     ctbExtraList: document.getElementById('ctbExtraList'),
     btnSaveCtbExtra: document.getElementById('btnSaveCtbExtra'),
     ctbExtraError: document.getElementById('ctbExtraError'),
-    ctbCsvUser: document.getElementById('ctbCsvUser'),
-    ctbCsvFile: document.getElementById('ctbCsvFile'),
-    ctbCsvResult: document.getElementById('ctbCsvResult'),
-    myChaturbateCsvCard: document.getElementById('myChaturbateCsvCard'),
-    myCtbCsvFile: document.getElementById('myCtbCsvFile'),
-    myCtbCsvResult: document.getElementById('myCtbCsvResult'),
     ctbStatsUser: document.getElementById('ctbStatsUser'),
     ctbStatsToken: document.getElementById('ctbStatsToken'),
     btnSaveCtbStats: document.getElementById('btnSaveCtbStats'),
@@ -1385,54 +1367,6 @@
     alert('Guardado.');
   }
 
-  async function loadCtbCsvUserOptions() {
-    const r = await fetch('/api/models');
-    if (!r.ok) return;
-    const data = await r.json();
-    const models = data.models || [];
-    el.ctbCsvUser.innerHTML = models.map(function (m) {
-      return '<option value="' + escapeHtml(m.account) + '">' + escapeHtml(m.account) + '</option>';
-    }).join('');
-  }
-
-  async function uploadChaturbateCsv(username, file, resultEl) {
-    resultEl.textContent = 'Procesando…';
-    let text;
-    try { text = await file.text(); } catch (e) { resultEl.textContent = 'No se pudo leer el archivo.'; return; }
-    const r = await fetch('/api/chaturbate-csv/upload', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, csvText: text }),
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(function () { return {}; });
-      resultEl.textContent = err.error || 'No se pudo procesar el archivo.';
-      return;
-    }
-    const data = await r.json();
-    resultEl.innerHTML = 'Listo, ' + escapeHtml(data.username) + ' — quedó como base, de acá en más solo se suman los tokens nuevos:<br>' + data.results.map(function (res) {
-      if (!res.saved) return escapeHtml(res.label) + ': el archivo no llega tan atrás, no se tocó.';
-      return escapeHtml(res.label) + ': ' + res.csvTotal.toLocaleString('es-ES') + ' tokens (base)';
-    }).join('<br>');
-  }
-
-  el.ctbCsvFile.addEventListener('change', async function () {
-    const file = el.ctbCsvFile.files[0];
-    if (!file) return;
-    const username = el.ctbCsvUser.value;
-    if (!username) { alert('Elegí una modelo primero'); el.ctbCsvFile.value = ''; return; }
-    await uploadChaturbateCsv(username, file, el.ctbCsvResult);
-    el.ctbCsvFile.value = '';
-    loadChaturbateExtraCurrent(parseInt(el.ctbExtraPeriod.value, 10) || 0);
-  });
-
-  el.myCtbCsvFile.addEventListener('change', async function () {
-    const file = el.myCtbCsvFile.files[0];
-    if (!file) return;
-    await uploadChaturbateCsv(currentUsername, file, el.myCtbCsvResult);
-    el.myCtbCsvFile.value = '';
-    refresh();
-  });
-
   async function loadCtbStatsStatus() {
     const r = await fetch('/api/models');
     if (r.ok) {
@@ -1846,8 +1780,7 @@
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
-    el.myChaturbateCsvCard.style.display = session.role === 'modelo' ? 'block' : 'none';
-    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbCsvUserOptions(); loadCtbStatsStatus(); }
+    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbStatsStatus(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 

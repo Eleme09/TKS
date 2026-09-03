@@ -619,6 +619,30 @@ async function sbWriteCritical(label, url, body) {
   return false;
 }
 
+// Igual que sbWriteCritical pero para PATCH (actualizar una fila existente en
+// vez de insertar una nueva) — mismo criterio de reintentos, para updates que
+// tambien representan dinero (ej. last_balance: si un PATCH falla y se traga
+// el error en silencio, el proximo sondeo de balance vuelve a leer el valor
+// viejo y contaria de nuevo la misma subida como si fuera plata nueva).
+async function sbPatchCritical(label, url, body) {
+  const attempts = 3;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const resp = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) return true;
+      if (i === attempts) console.error('FALLO ACTUALIZANDO ' + label + ' tras ' + attempts + ' intentos: HTTP ' + resp.status + ' ' + JSON.stringify(body));
+    } catch (e) {
+      if (i === attempts) console.error('FALLO ACTUALIZANDO ' + label + ' tras ' + attempts + ' intentos: ' + e.message + ' ' + JSON.stringify(body));
+    }
+    if (i < attempts) await sleep(1000 * i);
+  }
+  return false;
+}
+
 async function sbInsertTip(username, tokens, eventId) {
   await sbWriteCritical('tip', SUPABASE_URL + '/rest/v1/cb_tips', { username, tokens, event_id: eventId });
 }
@@ -631,8 +655,17 @@ async function sbInsertBroadcastEvent(username, eventType, eventId) {
 // (privados, spy shows, fan club, compras de contenido, etc.) se guarda crudo
 // aqui en vez de descartarse en silencio, para poder revisar despues si trae
 // tokens que hoy no estamos contando en el pago.
+// A diferencia de tips/broadcast events, esto es puro diagnostico (no
+// dinero) — un solo intento, sin reintentos, y SIN await en el llamador para
+// no frenar el procesamiento del resto de eventos del mismo poll si una sala
+// con mucho trafico (chatMessage, userEnter/userLeave, follow) genera varios
+// de estos seguidos.
 async function sbInsertUnhandledEvent(username, method, payload) {
-  await sbWriteCritical('unhandled_event', SUPABASE_URL + '/rest/v1/cb_unhandled_events', { username, method, payload });
+  await fetch(SUPABASE_URL + '/rest/v1/cb_unhandled_events', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ username, method, payload }),
+  }).catch(() => {});
 }
 
 async function sbFetchLastBroadcastEvent(username) {
@@ -648,7 +681,7 @@ async function sbFetchAllModels() {
 }
 
 async function sbFetchTipsInRange(startIso, endIso) {
-  const qs = '?select=username,tokens&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso);
+  const qs = '?select=username,tokens,created_at&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
@@ -776,11 +809,9 @@ async function sbSetStatsApiToken(username, statsToken) {
 }
 
 async function sbUpdateLastBalance(username, balance, sampledAtIso) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
-    method: 'PATCH',
-    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ last_balance: balance, last_balance_at: sampledAtIso }),
-  }).catch(() => {});
+  await sbPatchCritical('last_balance', SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    last_balance: balance, last_balance_at: sampledAtIso,
+  });
 }
 
 async function sbInsertBalanceTick(username, tokens, sampledAtIso) {
@@ -842,20 +873,33 @@ async function sbFetchPeriodBaseForUserSince(username, sincePeriodStartStr) {
 
 // El total de Chaturbate de una modelo en una quincena, con las tres fuentes
 // posibles resueltas sin duplicar ni perder nada:
-//  - Con base congelada (CSV subido): base + ticks posteriores a lo que cubre.
+//  - Con base congelada (CSV subido): base + lo posterior a lo que cubre —
+//    tomando el MAYOR entre ticks de balance y propinas posteriores, nunca
+//    solo ticks. Bug real encontrado en revision: la subida de CSV esta
+//    disponible para que una modelo la haga ella misma (myChaturbateCsvCard)
+//    SIN que tenga el balance en vivo activado (eso lo activa el admin
+//    aparte). Si solo se mirara "ticks despues de la base" y nunca hubo
+//    stats_api_token, ticks siempre da vacio y el total quedaria congelado
+//    en la base para siempre, perdiendo en silencio cada propina nueva que
+//    la conexion en vivo (Events API, que corre siempre, tenga o no token de
+//    stats) siga sumando el resto de la quincena.
 //  - Sin base pero con ticks: los ticks (ya incluyen propinas, no se suma cb_tips).
 //  - Sin nada de lo anterior: el esquema viejo, propinas + correccion manual.
-function resolveChaturbateTokens({ base, ticks, tipsTokens, extraTokens }) {
+function resolveChaturbateTokens({ base, ticks, tips, extraTokens }) {
   if (base) {
     const coversUntilMs = new Date(base.covers_until).getTime();
-    const after = ticks
+    const ticksAfter = ticks
       .filter((t) => new Date(t.sampled_at).getTime() > coversUntilMs)
       .reduce((sum, t) => sum + t.tokens, 0);
-    return base.base_tokens + after;
+    const tipsAfter = tips
+      .filter((t) => new Date(t.created_at).getTime() > coversUntilMs)
+      .reduce((sum, t) => sum + t.tokens, 0);
+    return base.base_tokens + Math.max(ticksAfter, tipsAfter);
   }
   const ticksTotal = ticks.reduce((sum, t) => sum + t.tokens, 0);
-  if (ticksTotal > 0) return Math.max(ticksTotal, tipsTokens + extraTokens);
-  return tipsTokens + extraTokens;
+  const tipsTotal = tips.reduce((sum, t) => sum + t.tokens, 0);
+  if (ticksTotal > 0) return Math.max(ticksTotal, tipsTotal + extraTokens);
+  return tipsTotal + extraTokens;
 }
 
 // Consulta la Stats API oficial de Chaturbate por el balance actual de
@@ -884,7 +928,15 @@ async function fetchChaturbateBalance(username, statsToken) {
 // partida, sin registrar tick — no hay forma de saber cuanto de ese balance ya
 // se conto antes por otro medio (tips/CSV), asi que se arranca en limpio desde
 // ahi en vez de acreditar de golpe todo lo que tuviera acumulado.
+// Evita corridas superpuestas: en la ventana densa pre-retiro (cada 20s) una
+// corrida para varias modelos puede tardar mas que el propio intervalo si
+// Chaturbate responde lento — sin esta guarda, dos corridas en paralelo leen
+// el mismo last_balance viejo antes de que ninguna lo actualice y registran
+// el mismo ingreso como dos ticks distintos (plata duplicada).
+let balancePollRunning = false;
 async function pollChaturbateBalances() {
+  if (balancePollRunning) return;
+  balancePollRunning = true;
   try {
     const models = await sbFetchModelsWithStatsToken();
     for (const m of models) {
@@ -903,6 +955,8 @@ async function pollChaturbateBalances() {
     }
   } catch (e) {
     console.error('Error en el sondeo de balance de Chaturbate: ' + e.message);
+  } finally {
+    balancePollRunning = false;
   }
 }
 
@@ -1063,7 +1117,11 @@ async function buildModelReports() {
   ]);
 
   const tipsByUser = {};
-  for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+  const tipRowsByUser = {};
+  for (const t of tips) {
+    tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+    (tipRowsByUser[t.username] = tipRowsByUser[t.username] || []).push(t);
+  }
   const stripchatByUser = {};
   for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
   const chaturbateExtraByUser = {};
@@ -1093,12 +1151,13 @@ async function buildModelReports() {
     const chaturbateTipsTokensPeriod = tipsByUser[m.username] || 0;
     const chaturbateExtraTokensPeriod = chaturbateExtraByUser[m.username] || 0;
     const userTicks = ticksByUser[m.username] || [];
+    const userTips = tipRowsByUser[m.username] || [];
     const userBase = baseByUser[m.username] || null;
     const chaturbateBalanceTokensPeriod = userTicks.reduce((sum, t) => sum + t.tokens, 0);
     const chaturbateTokensPeriod = resolveChaturbateTokens({
       base: userBase,
       ticks: userTicks,
-      tipsTokens: chaturbateTipsTokensPeriod,
+      tips: userTips,
       extraTokens: chaturbateExtraTokensPeriod,
     });
     const stripchatTokensPeriod = stripchatByUser[m.username] || 0;
@@ -1258,7 +1317,7 @@ async function pollLoop(tracker) {
         tracker.onlineSince = null;
         await sbInsertBroadcastEvent(username, 'stop', ev.id);
       } else if (ev.method) {
-        await sbInsertUnhandledEvent(username, ev.method, ev);
+        sbInsertUnhandledEvent(username, ev.method, ev);
       }
     }
 
@@ -1299,10 +1358,11 @@ function sendJson(res, code, obj) {
   res.end(body);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes) {
+  const limit = maxBytes || 1024 * 1024;
   return new Promise((resolve, reject) => {
     let chunks = '';
-    req.on('data', (c) => { chunks += c; if (chunks.length > 10 * 1024 * 1024) req.destroy(); });
+    req.on('data', (c) => { chunks += c; if (chunks.length > limit) req.destroy(); });
     req.on('end', () => {
       try { resolve(chunks ? JSON.parse(chunks) : {}); } catch (e) { reject(e); }
     });
@@ -1711,9 +1771,9 @@ const server = http.createServer(async (req, res) => {
       ]);
 
       const rows = periods.map((p, idx) => {
-        const chaturbateTipsTokens = tips
-          .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; })
-          .reduce((sum, t) => sum + t.tokens, 0);
+        const periodTips = tips
+          .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; });
+        const chaturbateTipsTokens = periodTips.reduce((sum, t) => sum + t.tokens, 0);
         const periodStartStr = toDateStr(p.start);
         const periodEndStr = toDateStr(p.end);
         const chaturbateExtraTokens = chaturbateExtraRows
@@ -1725,7 +1785,7 @@ const server = http.createServer(async (req, res) => {
         const chaturbateTokens = resolveChaturbateTokens({
           base: periodBase,
           ticks: periodTicks,
-          tipsTokens: chaturbateTipsTokens,
+          tips: periodTips,
           extraTokens: chaturbateExtraTokens,
         });
         const stripchatTokens = stripchatRows
@@ -1896,7 +1956,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, { error: 'No autorizado' });
     }
     let body;
-    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    try { body = await readBody(req, 10 * 1024 * 1024); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = session.role === 'modelo' ? session.username : sanitizeUsername(body.username);
     const csvText = typeof body.csvText === 'string' ? body.csvText : '';
     if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
