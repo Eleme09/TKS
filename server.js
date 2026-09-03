@@ -1654,11 +1654,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsed.pathname === '/api/chaturbate-csv/upload' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    // Admin puede subir el historial de cualquier modelo; una modelo solo el
+    // suyo — esto es lo que hace que escale con muchas modelos: cada una sube
+    // el propio cuando lo tiene a mano, sin que el admin tenga que entrar
+    // cuenta por cuenta.
+    const session = await requireSession(req, res);
     if (!session) return;
+    if (session.role !== 'administrador' && session.role !== 'modelo') {
+      return sendJson(res, 403, { error: 'No autorizado' });
+    }
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
-    const username = sanitizeUsername(body.username);
+    const username = session.role === 'modelo' ? session.username : sanitizeUsername(body.username);
     const csvText = typeof body.csvText === 'string' ? body.csvText : '';
     if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
     if (!csvText.trim()) return sendJson(res, 400, { error: 'El archivo llegó vacío' });

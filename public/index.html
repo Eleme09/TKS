@@ -412,6 +412,13 @@
         <div class="empty">Todavía no hay modelos agregadas — usa el botón de arriba para sumar la primera.</div>
       </div>
 
+      <div class="card" id="myChaturbateCsvCard" style="display:none;">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Actualizar mis ingresos de Chaturbate</h3>
+        <div class="meta-small" style="margin-bottom:12px;">Privados, spy, fan club y contenido no se cuentan solos con la conexión en vivo. Andá a tu cuenta de Chaturbate → "Estadísticas de las fichas" → "Descargar el historial de transacciones", y subí acá el archivo — se suma solo a tu desprendible, ninguna otra persona tiene que hacer nada.</div>
+        <input type="file" id="myCtbCsvFile" accept=".csv" style="width:100%;">
+        <div id="myCtbCsvResult" class="meta-small" style="margin-top:8px;"></div>
+      </div>
+
       <details class="card" style="margin-top:16px; max-width:760px;">
         <summary>Sobre los pagos</summary>
         <ul>
@@ -624,6 +631,9 @@
     ctbCsvUser: document.getElementById('ctbCsvUser'),
     ctbCsvFile: document.getElementById('ctbCsvFile'),
     ctbCsvResult: document.getElementById('ctbCsvResult'),
+    myChaturbateCsvCard: document.getElementById('myChaturbateCsvCard'),
+    myCtbCsvFile: document.getElementById('myCtbCsvFile'),
+    myCtbCsvResult: document.getElementById('myCtbCsvResult'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
@@ -1368,31 +1378,43 @@
     }).join('');
   }
 
+  async function uploadChaturbateCsv(username, file, resultEl) {
+    resultEl.textContent = 'Procesando…';
+    let text;
+    try { text = await file.text(); } catch (e) { resultEl.textContent = 'No se pudo leer el archivo.'; return; }
+    const r = await fetch('/api/chaturbate-csv/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, csvText: text }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      resultEl.textContent = err.error || 'No se pudo procesar el archivo.';
+      return;
+    }
+    const data = await r.json();
+    resultEl.innerHTML = 'Listo, ' + escapeHtml(data.username) + ':<br>' + data.results.map(function (res) {
+      if (!res.saved) return escapeHtml(res.label) + ': el archivo no llega tan atrás, no se tocó.';
+      return escapeHtml(res.label) + ': total real ' + res.csvTotal.toLocaleString('es-ES') +
+        ' (ya contado en vivo: ' + res.liveTips.toLocaleString('es-ES') + ', agregado: ' + res.extra.toLocaleString('es-ES') + ')';
+    }).join('<br>');
+  }
+
   el.ctbCsvFile.addEventListener('change', async function () {
     const file = el.ctbCsvFile.files[0];
     if (!file) return;
     const username = el.ctbCsvUser.value;
     if (!username) { alert('Elegí una modelo primero'); el.ctbCsvFile.value = ''; return; }
-    el.ctbCsvResult.textContent = 'Procesando…';
-    let text;
-    try { text = await file.text(); } catch (e) { el.ctbCsvResult.textContent = 'No se pudo leer el archivo.'; return; }
-    const r = await fetch('/api/chaturbate-csv/upload', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, csvText: text }),
-    });
+    await uploadChaturbateCsv(username, file, el.ctbCsvResult);
     el.ctbCsvFile.value = '';
-    if (!r.ok) {
-      const err = await r.json().catch(function () { return {}; });
-      el.ctbCsvResult.textContent = err.error || 'No se pudo procesar el archivo.';
-      return;
-    }
-    const data = await r.json();
-    el.ctbCsvResult.innerHTML = 'Listo — ' + escapeHtml(data.username) + ':<br>' + data.results.map(function (res) {
-      if (!res.saved) return escapeHtml(res.label) + ': el archivo no llega tan atrás, no se tocó.';
-      return escapeHtml(res.label) + ': total real ' + res.csvTotal.toLocaleString('es-ES') +
-        ' (ya contado en vivo: ' + res.liveTips.toLocaleString('es-ES') + ', agregado: ' + res.extra.toLocaleString('es-ES') + ')';
-    }).join('<br>');
     loadChaturbateExtraCurrent(parseInt(el.ctbExtraPeriod.value, 10) || 0);
+  });
+
+  el.myCtbCsvFile.addEventListener('change', async function () {
+    const file = el.myCtbCsvFile.files[0];
+    if (!file) return;
+    await uploadChaturbateCsv(currentUsername, file, el.myCtbCsvResult);
+    el.myCtbCsvFile.value = '';
+    refresh();
   });
 
   async function forceLogoutAccount(type, username) {
@@ -1765,6 +1787,7 @@
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
+    el.myChaturbateCsvCard.style.display = session.role === 'modelo' ? 'block' : 'none';
     if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbCsvUserOptions(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
