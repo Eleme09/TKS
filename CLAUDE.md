@@ -689,12 +689,30 @@ solo si la causa es una credencial vencida. Eso es intencional, no una
 limitación a mejorar (ver la sección de arriba sobre por qué no se
 scriptea login).
 
+**Dónde llegan los avisos (added 2026-09-03, misma tarde):** un aviso que
+solo se escribe en el chat de la sesión solo lo ve el usuario si abre
+justo esa sesión puntual (`session_01QshGfHzbioszhKaEjmkEor`) desde
+algún dispositivo — el usuario trabaja desde varias terminales y pidió
+explícitamente que esto no dependa de eso. Ambos triggers (el vigía
+diario y el de verificación de la hora de cashout) ahora, cuando
+encuentran algo real, además de avisar en el chat mandan un correo por
+Gmail a `menajeiner@gmail.com` con formato fijo: DÓNDE (archivo/función/
+tabla exacta), QUÉ PASÓ (explicado para que un programador o una futura
+sesión de Claude sin memoria de esta lo resuelva sin investigar desde
+cero) y CÓMO SE VE EN LA WEB (el síntoma que notaría el usuario o una
+modelo, o decir explícitamente que todavía no hay ninguno visible — no
+inventar uno). Si Gmail no está disponible en esa corrida, el trigger
+avisa eso en el chat en vez de fallar en silencio, y no reintenta el
+envío por su cuenta.
+
 Trigger actual: `trig_01BXcfPNvAetGc9gcNcJUa7m` ("Vigía diario del
-sistema"). Si hace falta agregar una quinta señal al chequeo,
-`update_trigger` con el prompt completo (reemplaza el anterior entero,
-no es un parche) — no crear un trigger nuevo para cada señal nueva, un
-solo chequeo diario que las cubra todas es más fácil de mantener que
-varios sueltos.
+sistema") y `trig_01Wn2Q8ZTrL6dpzJ6bx4PPuf` ("Verificar hora real del
+retiro diario de Chaturbate", one-shot, fires 2026-09-04T04:40Z). Si
+hace falta agregar una quinta señal al chequeo diario o cambiar el
+formato del correo, `update_trigger` con el prompt completo (reemplaza
+el anterior entero, no es un parche) — no crear un trigger nuevo para
+cada señal nueva, un solo chequeo diario que las cubra todas es más
+fácil de mantener que varios sueltos.
 
 ## How this user likes to work
 
