@@ -632,6 +632,49 @@ anything) — end-to-end verification against the real Supabase project
 via a scratch instance on another port remains the way to test
 anything that touches the DB or a live API, same as always.
 
+## Vigía automático del sistema (added 2026-09-03)
+
+El usuario preguntó cómo hacer que la base "se auto-sostenga" dado que él
+va a seguir siendo el único que puede entregar credenciales nuevas
+(login sigue siendo suyo, ver la sección de arriba sobre por qué no se
+automatiza). Respuesta: un chequeo diario programado (Routine, vía
+`mcp__Claude_Code_Remote__create_trigger`/`update_trigger`, corre a las
+12:00 UTC contra esta sesión) que revisa señales reales en la base y
+solo avisa si encuentra algo — silencioso el resto de los días. Cubre:
+
+1. `cb_unhandled_events` — método nuevo que no sea userEnter/userLeave/
+   follow (ver sección de arriba).
+2. **`cb_api_errors`** (tabla nueva: source, message, created_at) — cada
+   fallo de `fetchChaturbateBalance` o `fetchStripchatModelEarnings`
+   (HTTP no-ok, excepción, o **la forma de la respuesta cambió** — ej.
+   si Chaturbate renombra `token_balance` o Stripchat `totalEarnings`,
+   esto lo agarra igual que un HTTP 500) queda logueado ahí además de
+   por `console.error`. Sin esto, un cambio de API silencioso solo se
+   veía en los logs de Render, que esta sesión no puede leer — con esto,
+   una consulta SQL alcanza. Sin reintentos, fire-and-forget: es
+   diagnóstico, no dinero.
+3. Balance de una modelo con `stats_api_token` activo que no se
+   actualiza hace más de 2h — probable token revocado, necesita que
+   ella regenere uno nuevo en `chaturbate.com/statsapi/authtoken/`.
+4. Sync de Stripchat sin actualizarse en 24h — probable API key vencida
+   o cambio de API.
+
+**El límite real, sin vuelta que darle:** cualquier diagnóstico que
+requiera loguearse a algo (probar si un token nuevo funciona, ver una
+pantalla de Chaturbate/Stripchat) sigue necesitando que el usuario
+genere la credencial y la pase acá — el vigía puede *detectar* que algo
+se rompió y decir *qué* modelo/plataforma, pero nunca puede *resolverlo*
+solo si la causa es una credencial vencida. Eso es intencional, no una
+limitación a mejorar (ver la sección de arriba sobre por qué no se
+scriptea login).
+
+Trigger actual: `trig_01BXcfPNvAetGc9gcNcJUa7m` ("Vigía diario del
+sistema"). Si hace falta agregar una quinta señal al chequeo,
+`update_trigger` con el prompt completo (reemplaza el anterior entero,
+no es un parche) — no crear un trigger nuevo para cada señal nueva, un
+solo chequeo diario que las cubra todas es más fácil de mantener que
+varios sueltos.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

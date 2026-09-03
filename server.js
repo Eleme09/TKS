@@ -602,6 +602,18 @@ async function sbInsertUnhandledEvent(username, method, payload) {
   }).catch(() => {});
 }
 
+// Registro liviano de fallos de APIs externas (Chaturbate Stats, Stripchat)
+// para poder detectar un cambio de API sin acceso a los logs de Render — un
+// chequeo automatico programado revisa esta tabla y avisa si hay un salto de
+// errores. Puro diagnostico, sin reintentos.
+async function sbLogApiError(source, message) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_api_errors', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ source, message }),
+  }).catch(() => {});
+}
+
 async function sbFetchLastBroadcastEvent(username) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events?username=eq.' + encodeURIComponent(username) + '&select=event_type,created_at&order=created_at.desc&limit=1', { headers: SB_HEADERS });
   if (!r.ok) return null;
@@ -817,13 +829,18 @@ async function fetchChaturbateBalance(username, statsToken) {
     const resp = await fetch(url);
     if (!resp.ok) {
       console.error('Chaturbate Stats API respondio ' + resp.status + ' para ' + username);
+      sbLogApiError('chaturbate_stats', 'HTTP ' + resp.status + ' para ' + username);
       return null;
     }
     const data = await resp.json();
-    if (!data || typeof data.token_balance !== 'number') return null;
+    if (!data || typeof data.token_balance !== 'number') {
+      sbLogApiError('chaturbate_stats', 'respuesta sin token_balance para ' + username + ': ' + JSON.stringify(data));
+      return null;
+    }
     return data.token_balance;
   } catch (e) {
     console.error('Error consultando Chaturbate Stats API para ' + username + ': ' + e.message);
+    sbLogApiError('chaturbate_stats', 'excepcion para ' + username + ': ' + e.message);
     return null;
   }
 }
@@ -904,13 +921,18 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
     const resp = await fetch(url, { headers: { 'API-Key': STRIPCHAT_API_KEY, accept: 'application/json' } });
     if (!resp.ok) {
       console.error('Stripchat API respondio ' + resp.status + ' para ' + modelUsername);
+      sbLogApiError('stripchat', 'HTTP ' + resp.status + ' para ' + modelUsername);
       return null;
     }
     const data = await resp.json();
-    if (!data || typeof data.totalEarnings !== 'number') return null;
+    if (!data || typeof data.totalEarnings !== 'number') {
+      sbLogApiError('stripchat', 'respuesta sin totalEarnings para ' + modelUsername + ': ' + JSON.stringify(data));
+      return null;
+    }
     return Math.round(data.totalEarnings);
   } catch (e) {
     console.error('Error consultando Stripchat API para ' + modelUsername + ': ' + e.message);
+    sbLogApiError('stripchat', 'excepcion para ' + modelUsername + ': ' + e.message);
     return null;
   }
 }
