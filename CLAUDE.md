@@ -29,16 +29,35 @@ updated_at) holds reference documents that aren't code but that the user
 needs from any device — right now: `skill-studio-tracker-setup.md` (mirror
 of `.claude/skills/studio-tracker-setup/SKILL.md`), `ficha-alta.html` and
 `ficha-cliente.html` (the two onboarding checklists for replicating this
-project to a new studio — see that skill), and `sales-script.md` /
-`sales-email.md` (cold-outreach copy for selling this system to other
-webcam studios — the real pitch is "we consolidate your numbers into one
-clean place across platforms," never "the platforms hide income from
-you"; the base $750.000/6-day price includes the client's own
-administrador account for their day-to-day, and does NOT include the
-"rol avanzado" — Jeiner keeping the technical superuser actions
-(password resets, force-logout, reconnect) — which is a separate paid
-add-on; see the notes inside each file before reusing this copy). Query
-it from any terminal with
+project to a new studio — see that skill), and the sales funnel:
+`sales-script.md` / `sales-email.md` (first cold contact — problem/
+solution pitch, ends by offering a demo with invented numbers, never
+mentions a price) and `post-demo-proposal.md` (sent only after the
+prospect approves the demo — the $250.000 deposit ask, the real data
+ficha, and the actual pricing menu). **Current pricing (2026-09-03,
+confirm with the user before reusing — these numbers change):**
+$750.000 one-time build (6 days, Jeiner hosts on his own Render/
+Supabase, client gets a normal `administrador` account for their own
+day-to-day — this does NOT include the "rol avanzado" of technical
+superuser actions like password resets/force-logout/reconnect, which
+stays with Jeiner unless sold separately); $580.000 every quincena if
+the client wants Jeiner to keep hosting/maintaining it instead of just
+the one-time build; $4.500.000 one-time full buyout — client gets their
+own Render/Supabase accounts plus the editable source code, delivered
+clean (see below); $40.000/$100.000 per incident for fixing bugs a
+THIRD-PARTY programmer introduced (not Jeiner's own bugs). The real
+pitch, always: "we consolidate your platforms' numbers into one clean
+place," never "the platforms hide income from you" — see the correction
+in the Chaturbate-income section below for exactly why that second
+framing is wrong. **Clean delivery for the 4.5M tier:** verified
+2026-09-03 that only `CLAUDE.md`, `.claude/skills/`, and one line in
+`iniciar.bat` mention "Claude" anywhere in this repo — `server.js`,
+`chaturbate-lib.js`, `index.html`, `schema.sql` have zero AI-authorship
+tells. A client handoff for that tier means excluding those files and
+shipping without git history (or a squashed single-commit history with
+no Claude co-author trailer) — normal delivery hygiene, not deception,
+and never fabricate a false human author name for it. Query it from any
+terminal with
 `select id, content from cb_kit_docs where id = '...'` instead of asking
 the user to re-upload or re-describe something already produced once. If
 the skill or the fichas change, re-upsert the matching row here too — the
