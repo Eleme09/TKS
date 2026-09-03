@@ -556,8 +556,20 @@
         <div class="meta-small" style="margin-bottom:12px;">Cambia la contraseña de acceso de cualquier modelo o cierra sus sesiones abiertas en otros dispositivos.</div>
         <div id="modelAccountsList"></div>
       </div>
+      <div class="card" id="chaturbateAutoCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Automatizar Chaturbate por completo (recomendado)</h3>
+        <div class="meta-small" style="margin-bottom:12px;">Una sola vez por modelo: generá un token en <b>chaturbate.com/statsapi/authtoken/</b> (logueada en su cuenta) y pegalo acá. Desde ahí el sistema vigila su balance de tokens solo, cada 5 minutos, para siempre — incluye propinas, privados, spy, fan club y contenido, todo junto, sin que nadie tenga que exportar ni cargar nada nunca más.</div>
+        <label for="ctbStatsUser">Modelo</label>
+        <select id="ctbStatsUser"></select>
+        <label for="ctbStatsToken">Token de Stats API</label>
+        <input id="ctbStatsToken" placeholder="24 caracteres" autocomplete="off">
+        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbStats" style="flex:1;">Guardar y activar</button></div>
+        <div id="ctbStatsResult" class="meta-small" style="margin-top:8px;"></div>
+        <div id="ctbStatsList" style="margin-top:10px;"></div>
+      </div>
       <div class="card" id="chaturbateExtraCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Otros ingresos de Chaturbate</h3>
+        <div class="meta-small" style="margin-bottom:12px; opacity:.75;">Respaldo manual — una vez activada la automatización de arriba para una modelo, ya no hace falta usar esto con ella.</div>
         <div class="meta-small" style="margin-bottom:12px;">La conexión en vivo solo cuenta propinas públicas — privados, spy shows, fan club y contenido pagado no llegan por ahí. No hace falta separar nada por categoría: entrá al "Token Stats" de cada modelo en Chaturbate para esta quincena y copiá acá el total que te muestra la página. El sistema calcula solo la diferencia contra lo que ya contamos y la suma al desprendible.</div>
         <label for="ctbExtraPeriod">Quincena</label>
         <select id="ctbExtraPeriod"></select>
@@ -634,6 +646,11 @@
     myChaturbateCsvCard: document.getElementById('myChaturbateCsvCard'),
     myCtbCsvFile: document.getElementById('myCtbCsvFile'),
     myCtbCsvResult: document.getElementById('myCtbCsvResult'),
+    ctbStatsUser: document.getElementById('ctbStatsUser'),
+    ctbStatsToken: document.getElementById('ctbStatsToken'),
+    btnSaveCtbStats: document.getElementById('btnSaveCtbStats'),
+    ctbStatsResult: document.getElementById('ctbStatsResult'),
+    ctbStatsList: document.getElementById('ctbStatsList'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
@@ -1417,6 +1434,48 @@
     refresh();
   });
 
+  async function loadCtbStatsStatus() {
+    const r = await fetch('/api/models');
+    if (r.ok) {
+      const data = await r.json();
+      const models = data.models || [];
+      el.ctbStatsUser.innerHTML = models.map(function (m) {
+        return '<option value="' + escapeHtml(m.account) + '">' + escapeHtml(m.account) + '</option>';
+      }).join('');
+    }
+    const r2 = await fetch('/api/chaturbate-stats-token/status');
+    if (!r2.ok) return;
+    const data2 = await r2.json();
+    const entries = data2.entries || [];
+    el.ctbStatsList.innerHTML = entries.map(function (e) {
+      const dot = e.active ? '🟢' : '⚪';
+      const label = e.active ? 'automático' : 'sin activar';
+      return '<div class="meta-small">' + dot + ' ' + escapeHtml(e.username) + ' — ' + label + '</div>';
+    }).join('');
+  }
+
+  el.btnSaveCtbStats.addEventListener('click', async function () {
+    el.ctbStatsResult.textContent = '';
+    const username = el.ctbStatsUser.value;
+    const statsToken = el.ctbStatsToken.value.trim();
+    if (!username || !statsToken) { el.ctbStatsResult.textContent = 'Elegí la modelo y pegá el token.'; return; }
+    el.btnSaveCtbStats.disabled = true;
+    const r = await fetch('/api/chaturbate-stats-token/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, statsToken }),
+    });
+    el.btnSaveCtbStats.disabled = false;
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      el.ctbStatsResult.textContent = err.error || 'No se pudo activar.';
+      return;
+    }
+    const data = await r.json();
+    el.ctbStatsToken.value = '';
+    el.ctbStatsResult.textContent = 'Listo — ' + data.username + ' activada. Balance actual: ' + data.currentBalance.toLocaleString('es-ES') + ' tokens.';
+    loadCtbStatsStatus();
+  });
+
   async function forceLogoutAccount(type, username) {
     if (!confirm('¿Cerrar todas las sesiones abiertas de "' + username + '"? Tendrá que volver a iniciar sesión en todos sus dispositivos.')) return;
     const r = await fetch('/api/accounts/logout-everywhere', {
@@ -1449,6 +1508,7 @@
     stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
     chaturbate_extra_earnings_save: 'guardó otros ingresos de Chaturbate a mano',
     chaturbate_csv_upload: 'subió un historial de transacciones de Chaturbate para',
+    chaturbate_stats_token_set: 'activó el seguimiento automático de balance de Chaturbate para',
     news_post_create: 'publicó una noticia',
     news_post_delete: 'eliminó una noticia',
     set_display_name: 'cambió su nombre para mostrar',
@@ -1788,7 +1848,7 @@
     el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     el.myChaturbateCsvCard.style.display = session.role === 'modelo' ? 'block' : 'none';
-    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbCsvUserOptions(); }
+    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbCsvUserOptions(); loadCtbStatsStatus(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 

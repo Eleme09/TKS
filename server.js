@@ -43,6 +43,18 @@ const STRIPCHAT_ENABLED = !!(STRIPCHAT_API_KEY && STRIPCHAT_STUDIO_USERNAME);
 const STRIPCHAT_BASE = 'https://stripchat.com';
 const STRIPCHAT_POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
 
+// Chaturbate Stats API (oficial, con token propio de cada modelo — no es
+// login, es el mismo tipo de credencial que el Events API Token). Solo trae
+// token_balance, no un desglose, pero el balance sube con CUALQUIER ingreso
+// (propina, privado, spy, fan club, contenido) y Chaturbate le hace un retiro
+// automatico diario a cada modelo que deja el balance en $0 — verificado con
+// datos reales que la suma de esos retiros diarios coincide exacto con
+// "Ganancias del periodo" de la propia Chaturbate. Viendo el balance subir
+// entre sondeos (y nunca restando cuando baja, porque bajar = retiro, no
+// gasto) se reconstruye el total real completo, 100% automatico, sin login.
+const CHATURBATE_STATS_BASE = 'https://chaturbate.com/statsapi/';
+const CHATURBATE_BALANCE_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 min: el propio dato de Chaturbate no se actualiza mas seguido que eso
+
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const SB_HEADERS = {
   apikey: SUPABASE_ANON_KEY,
@@ -609,7 +621,7 @@ async function sbFetchLastBroadcastEvent(username) {
 }
 
 async function sbFetchAllModels() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,role,created_at&order=username.asc', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,role,created_at,stats_api_token&order=username.asc', { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
 
@@ -722,6 +734,90 @@ async function sbFetchChaturbateExtraEarningsForUserSince(username, sincePeriodS
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
+}
+
+// ---- Chaturbate: seguimiento automatico del balance (Stats API oficial) ----
+
+async function sbFetchModelsWithStatsToken() {
+  const qs = '?select=username,stats_api_token,last_balance,last_balance_at&stats_api_token=not.is.null';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbSetStatsApiToken(username, statsToken) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ stats_api_token: statsToken, last_balance: null, last_balance_at: null }),
+  });
+  return resp.ok;
+}
+
+async function sbUpdateLastBalance(username, balance, sampledAtIso) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ last_balance: balance, last_balance_at: sampledAtIso }),
+  }).catch(() => {});
+}
+
+async function sbInsertBalanceTick(username, tokens, sampledAtIso) {
+  await sbWriteCritical('balance_tick', SUPABASE_URL + '/rest/v1/cb_balance_ticks', { username, tokens, sampled_at: sampledAtIso });
+}
+
+async function sbFetchBalanceTicksInRange(startIso, endIso) {
+  const qs = '?select=username,tokens&sampled_at=gte.' + encodeURIComponent(startIso) + '&sampled_at=lte.' + encodeURIComponent(endIso);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchUserBalanceTicksSince(username, sinceIso) {
+  const qs = '?select=tokens,sampled_at&username=eq.' + encodeURIComponent(username) + '&sampled_at=gte.' + encodeURIComponent(sinceIso);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+// Consulta la Stats API oficial de Chaturbate por el balance actual de
+// tokens de una modelo. null si algo falla (token invalido, API caida, etc.)
+// para que una modelo con problemas no tumbe el sondeo de las demas.
+async function fetchChaturbateBalance(username, statsToken) {
+  const url = CHATURBATE_STATS_BASE + '?username=' + encodeURIComponent(username) + '&token=' + encodeURIComponent(statsToken);
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error('Chaturbate Stats API respondio ' + resp.status + ' para ' + username);
+      return null;
+    }
+    const data = await resp.json();
+    if (!data || typeof data.token_balance !== 'number') return null;
+    return data.token_balance;
+  } catch (e) {
+    console.error('Error consultando Chaturbate Stats API para ' + username + ': ' + e.message);
+    return null;
+  }
+}
+
+// Corre al iniciar el servidor y despues cada CHATURBATE_BALANCE_POLL_INTERVAL_MS
+// para cada modelo que tenga un stats_api_token guardado. La primera vez que se
+// sondea una modelo (last_balance null) solo se guarda el balance como punto de
+// partida, sin registrar tick — no hay forma de saber cuanto de ese balance ya
+// se conto antes por otro medio (tips/CSV), asi que se arranca en limpio desde
+// ahi en vez de acreditar de golpe todo lo que tuviera acumulado.
+async function pollChaturbateBalances() {
+  try {
+    const models = await sbFetchModelsWithStatsToken();
+    for (const m of models) {
+      const balance = await fetchChaturbateBalance(m.username, m.stats_api_token);
+      if (balance == null) continue;
+      const nowIso = new Date().toISOString();
+      if (m.last_balance != null && balance > m.last_balance) {
+        await sbInsertBalanceTick(m.username, balance - m.last_balance, nowIso);
+      }
+      await sbUpdateLastBalance(m.username, balance, nowIso);
+    }
+  } catch (e) {
+    console.error('Error en el sondeo de balance de Chaturbate: ' + e.message);
+  }
 }
 
 // El "historial de transacciones" que Chaturbate deja descargar desde la
@@ -848,11 +944,12 @@ async function buildModelReports() {
   const startIso = new Date(period.start).toISOString();
   const endIso = new Date(period.end).toISOString();
 
-  const [models, tips, stripchat, chaturbateExtra] = await Promise.all([
+  const [models, tips, stripchat, chaturbateExtra, balanceTicks] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
     sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
     sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    sbFetchBalanceTicksInRange(startIso, endIso),
   ]);
 
   const tipsByUser = {};
@@ -861,6 +958,8 @@ async function buildModelReports() {
   for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
   const chaturbateExtraByUser = {};
   for (const c of chaturbateExtra) chaturbateExtraByUser[c.username] = (chaturbateExtraByUser[c.username] || 0) + c.tokens;
+  const balanceByUser = {};
+  for (const b of balanceTicks) balanceByUser[b.username] = (balanceByUser[b.username] || 0) + b.tokens;
 
   return models.map((m) => {
     const tr = trackers.get(m.username);
@@ -881,7 +980,17 @@ async function buildModelReports() {
 
     const chaturbateTipsTokensPeriod = tipsByUser[m.username] || 0;
     const chaturbateExtraTokensPeriod = chaturbateExtraByUser[m.username] || 0;
-    const chaturbateTokensPeriod = chaturbateTipsTokensPeriod + chaturbateExtraTokensPeriod;
+    const chaturbateBalanceTokensPeriod = balanceByUser[m.username] || 0;
+    // El balance ya incluye TODO (propinas, privados, spy, fan club, contenido),
+    // asi que no se suma aparte con tips/extra (se duplicaria: una propina sube
+    // el balance Y genera un evento "tip"). Se usa el MAYOR de los dos en vez de
+    // preferir balance a ciegas: si una modelo activa esto a mitad de quincena,
+    // el balance solo cubre desde ese momento en adelante y por un rato seria
+    // menor a lo que tips+extra ya tenia bien contado — tomar el maximo evita
+    // que el total baje de golpe, y una vez que el balance crece mas que el
+    // viejo numero congelado, pasa solo a ser la fuente (verificado con datos
+    // reales: activar a mitad de periodo no debe hacer bajar el desprendible).
+    const chaturbateTokensPeriod = Math.max(chaturbateBalanceTokensPeriod, chaturbateTipsTokensPeriod + chaturbateExtraTokensPeriod);
     const stripchatTokensPeriod = stripchatByUser[m.username] || 0;
 
     return {
@@ -892,6 +1001,8 @@ async function buildModelReports() {
       chaturbateTokensPeriod,
       chaturbateTipsTokensPeriod,
       chaturbateExtraTokensPeriod,
+      chaturbateBalanceTokensPeriod,
+      chaturbateAutoTracked: !!m.stats_api_token,
       stripchatTokensPeriod,
       reportGeneratedAt: now,
       trackingSince,
@@ -1479,10 +1590,11 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
       const oldestStart = periods[periods.length - 1].start;
-      const [tips, stripchatRows, chaturbateExtraRows, dollar] = await Promise.all([
+      const [tips, stripchatRows, chaturbateExtraRows, balanceTicks, dollar] = await Promise.all([
         sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
         sbFetchStripchatEarningsForUserSince(username, toDateStr(oldestStart)),
         sbFetchChaturbateExtraEarningsForUserSince(username, toDateStr(oldestStart)),
+        sbFetchUserBalanceTicksSince(username, new Date(oldestStart).toISOString()),
         getDollarRate(),
       ]);
 
@@ -1495,7 +1607,10 @@ const server = http.createServer(async (req, res) => {
         const chaturbateExtraTokens = chaturbateExtraRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
-        const chaturbateTokens = chaturbateTipsTokens + chaturbateExtraTokens;
+        const chaturbateBalanceTokens = balanceTicks
+          .filter((t) => { const ts = new Date(t.sampled_at).getTime(); return ts >= p.start && ts <= p.end; })
+          .reduce((sum, t) => sum + t.tokens, 0);
+        const chaturbateTokens = Math.max(chaturbateBalanceTokens, chaturbateTipsTokens + chaturbateExtraTokens);
         const stripchatTokens = stripchatRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
@@ -1714,6 +1829,35 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, username, results });
   }
 
+  if (parsed.pathname === '/api/chaturbate-stats-token/set' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    const statsToken = typeof body.statsToken === 'string' ? body.statsToken.trim() : '';
+    if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
+    if (!statsToken) return sendJson(res, 400, { error: 'Pegá el token de Stats API' });
+    const models = await sbFetchAllModels();
+    if (!models.some((m) => m.username === username)) return sendJson(res, 400, { error: 'Esa modelo no existe' });
+    const balance = await fetchChaturbateBalance(username, statsToken);
+    if (balance == null) {
+      return sendJson(res, 400, { error: 'Chaturbate no respondió válido con ese usuario/token — revisá que sea el de Stats API (chaturbate.com/statsapi/authtoken/), no el de Events API.' });
+    }
+    const ok = await sbSetStatsApiToken(username, statsToken);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    await sbUpdateLastBalance(username, balance, new Date().toISOString());
+    await sbLogAudit(session, 'chaturbate_stats_token_set', username);
+    return sendJson(res, 200, { ok: true, username, currentBalance: balance });
+  }
+
+  if (parsed.pathname === '/api/chaturbate-stats-token/status' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    const models = await sbFetchAllModels();
+    const entries = models.filter((m) => m.role === 'modelo').map((m) => ({ username: m.username, active: !!m.stats_api_token }));
+    return sendJson(res, 200, { entries });
+  }
+
   // ---- Noticias ----
 
   if (parsed.pathname === '/api/news' && req.method === 'GET') {
@@ -1880,4 +2024,6 @@ server.listen(PORT, () => {
   } else {
     console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
   }
+  pollChaturbateBalances();
+  setInterval(pollChaturbateBalances, CHATURBATE_BALANCE_POLL_INTERVAL_MS);
 });
