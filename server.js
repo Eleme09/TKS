@@ -53,7 +53,29 @@ const STRIPCHAT_POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
 // entre sondeos (y nunca restando cuando baja, porque bajar = retiro, no
 // gasto) se reconstruye el total real completo, 100% automatico, sin login.
 const CHATURBATE_STATS_BASE = 'https://chaturbate.com/statsapi/';
-const CHATURBATE_BALANCE_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 min: el propio dato de Chaturbate no se actualiza mas seguido que eso
+
+// Chaturbate le vacia el balance a 0 a cada modelo una vez al dia (retiro
+// automatico). El ultimo valor que se alcance a leer ANTES de ese vaciado es
+// el total real del dia, asi que cerca de esa hora se sondea denso en vez de
+// cada par de minutos.
+// La hora: en el CSV real los retiros figuran ~21:30 (hora del servidor de
+// Chaturbate, US Pacific) y la web se lo muestra al usuario como 11:30 p.m.
+// hora Colombia — las dos cosas son el MISMO instante, 04:30 UTC. Ojo con esto
+// si algun dia hay que ajustarlo: no es 21:30 UTC ni 23:30 UTC.
+// Cada caida de balance queda registrada en cb_balance_resets, asi que la hora
+// real se puede verificar con datos (select detected_at from cb_balance_resets)
+// y corregir aca si Chaturbate la mueve o si el horario de verano la desplaza.
+const CHATURBATE_CASHOUT_UTC_HOUR = 4;
+const CHATURBATE_CASHOUT_UTC_MINUTE = 30;
+// Cuantos minutos antes del retiro arranca el sondeo denso, y cada cuanto.
+const CASHOUT_WINDOW_MINUTES = 12;
+const BALANCE_TICK_MS = 20 * 1000;          // latido base del sondeo
+const BALANCE_NORMAL_EVERY_TICKS = 6;       // fuera de la ventana: cada 2 min
+// Nota honesta sobre el limite: la Stats API de Chaturbate se refresca sola
+// "una vez cada 5 minutos" (su documentacion oficial), asi que sondear cada 20s
+// no da mas resolucion real — lo que asegura es leer el valor mas fresco que
+// exista justo antes del corte, en vez de arriesgar que el unico sondeo de la
+// franja caiga 5 minutos antes del vaciado.
 
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const SB_HEADERS = {
@@ -765,8 +787,20 @@ async function sbInsertBalanceTick(username, tokens, sampledAtIso) {
   await sbWriteCritical('balance_tick', SUPABASE_URL + '/rest/v1/cb_balance_ticks', { username, tokens, sampled_at: sampledAtIso });
 }
 
+// Cada vez que el balance baja (el retiro automatico diario de Chaturbate) se
+// registra aca. No es dinero — es el rastro para poder verificar con datos a
+// que hora UTC ocurre realmente el vaciado, y ajustar la ventana de sondeo
+// denso si hiciera falta.
+async function sbInsertBalanceReset(username, fromBalance, toBalance, detectedAtIso) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_balance_resets', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ username, from_balance: fromBalance, to_balance: toBalance, detected_at: detectedAtIso }),
+  }).catch(() => {});
+}
+
 async function sbFetchBalanceTicksInRange(startIso, endIso) {
-  const qs = '?select=username,tokens&sampled_at=gte.' + encodeURIComponent(startIso) + '&sampled_at=lte.' + encodeURIComponent(endIso);
+  const qs = '?select=username,tokens,sampled_at&sampled_at=gte.' + encodeURIComponent(startIso) + '&sampled_at=lte.' + encodeURIComponent(endIso);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
 }
@@ -775,6 +809,53 @@ async function sbFetchUserBalanceTicksSince(username, sinceIso) {
   const qs = '?select=tokens,sampled_at&username=eq.' + encodeURIComponent(username) + '&sampled_at=gte.' + encodeURIComponent(sinceIso);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
+}
+
+// ---- Base congelada de la quincena (CSV) ----
+// Cuando se sube el historial de transacciones de una modelo que ya tiene el
+// seguimiento de balance activo, ese CSV dice exactamente cuanto gano en la
+// quincena HASTA su fecha de corte (todo incluido: privados, spy, fan club,
+// contenido). Ese numero se congela como "base" junto con hasta cuando cubre,
+// y de ahi en adelante solo se le suman los ticks de balance posteriores.
+// Asi no se duplica (los ticks nuevos no re-cuentan lo que ya trae la base) ni
+// se pierde lo viejo (la base no se descarta cuando los ticks crecen).
+async function sbUpsertPeriodBase(row) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_period_base?on_conflict=username,period_start,period_end', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ ...row, updated_at: new Date().toISOString() }]),
+  });
+  return resp.ok;
+}
+
+async function sbFetchPeriodBaseForPeriod(periodStartStr, periodEndStr) {
+  const qs = '?select=username,base_tokens,covers_until&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_period_base' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchPeriodBaseForUserSince(username, sincePeriodStartStr) {
+  const qs = '?select=period_start,period_end,base_tokens,covers_until&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_period_base' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+// El total de Chaturbate de una modelo en una quincena, con las tres fuentes
+// posibles resueltas sin duplicar ni perder nada:
+//  - Con base congelada (CSV subido): base + ticks posteriores a lo que cubre.
+//  - Sin base pero con ticks: los ticks (ya incluyen propinas, no se suma cb_tips).
+//  - Sin nada de lo anterior: el esquema viejo, propinas + correccion manual.
+function resolveChaturbateTokens({ base, ticks, tipsTokens, extraTokens }) {
+  if (base) {
+    const coversUntilMs = new Date(base.covers_until).getTime();
+    const after = ticks
+      .filter((t) => new Date(t.sampled_at).getTime() > coversUntilMs)
+      .reduce((sum, t) => sum + t.tokens, 0);
+    return base.base_tokens + after;
+  }
+  const ticksTotal = ticks.reduce((sum, t) => sum + t.tokens, 0);
+  if (ticksTotal > 0) return Math.max(ticksTotal, tipsTokens + extraTokens);
+  return tipsTokens + extraTokens;
 }
 
 // Consulta la Stats API oficial de Chaturbate por el balance actual de
@@ -812,12 +893,40 @@ async function pollChaturbateBalances() {
       const nowIso = new Date().toISOString();
       if (m.last_balance != null && balance > m.last_balance) {
         await sbInsertBalanceTick(m.username, balance - m.last_balance, nowIso);
+      } else if (m.last_balance != null && balance < m.last_balance) {
+        // Bajo: es el retiro automatico, no un gasto. No se resta nada del
+        // acumulado (lo ya sumado sigue siendo plata que gano), solo se deja
+        // rastro y el nuevo balance pasa a ser la base.
+        await sbInsertBalanceReset(m.username, m.last_balance, balance, nowIso);
       }
       await sbUpdateLastBalance(m.username, balance, nowIso);
     }
   } catch (e) {
     console.error('Error en el sondeo de balance de Chaturbate: ' + e.message);
   }
+}
+
+// Devuelve true si falta poco para el retiro automatico diario: ahi se sondea
+// denso para leer el balance mas alto posible antes de que se vacie a 0.
+function isNearChaturbateCashout(nowMs) {
+  const d = new Date(nowMs);
+  const minutesNow = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const cashoutMinutes = CHATURBATE_CASHOUT_UTC_HOUR * 60 + CHATURBATE_CASHOUT_UTC_MINUTE;
+  // Solo la franja ANTES del retiro (incluido el minuto exacto), no despues:
+  // despues del vaciado no hay nada que rescatar.
+  const minutesUntil = cashoutMinutes - minutesNow;
+  return minutesUntil >= 0 && minutesUntil <= CASHOUT_WINDOW_MINUTES;
+}
+
+let balanceTickCount = 0;
+function startChaturbateBalancePolling() {
+  pollChaturbateBalances();
+  setInterval(() => {
+    balanceTickCount++;
+    if (isNearChaturbateCashout(Date.now()) || balanceTickCount % BALANCE_NORMAL_EVERY_TICKS === 0) {
+      pollChaturbateBalances();
+    }
+  }, BALANCE_TICK_MS);
 }
 
 // El "historial de transacciones" que Chaturbate deja descargar desde la
@@ -944,12 +1053,13 @@ async function buildModelReports() {
   const startIso = new Date(period.start).toISOString();
   const endIso = new Date(period.end).toISOString();
 
-  const [models, tips, stripchat, chaturbateExtra, balanceTicks] = await Promise.all([
+  const [models, tips, stripchat, chaturbateExtra, balanceTicks, periodBases] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
     sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
     sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
     sbFetchBalanceTicksInRange(startIso, endIso),
+    sbFetchPeriodBaseForPeriod(toDateStr(period.start), toDateStr(period.end)),
   ]);
 
   const tipsByUser = {};
@@ -958,8 +1068,10 @@ async function buildModelReports() {
   for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
   const chaturbateExtraByUser = {};
   for (const c of chaturbateExtra) chaturbateExtraByUser[c.username] = (chaturbateExtraByUser[c.username] || 0) + c.tokens;
-  const balanceByUser = {};
-  for (const b of balanceTicks) balanceByUser[b.username] = (balanceByUser[b.username] || 0) + b.tokens;
+  const ticksByUser = {};
+  for (const b of balanceTicks) (ticksByUser[b.username] = ticksByUser[b.username] || []).push(b);
+  const baseByUser = {};
+  for (const b of periodBases) baseByUser[b.username] = b;
 
   return models.map((m) => {
     const tr = trackers.get(m.username);
@@ -980,17 +1092,15 @@ async function buildModelReports() {
 
     const chaturbateTipsTokensPeriod = tipsByUser[m.username] || 0;
     const chaturbateExtraTokensPeriod = chaturbateExtraByUser[m.username] || 0;
-    const chaturbateBalanceTokensPeriod = balanceByUser[m.username] || 0;
-    // El balance ya incluye TODO (propinas, privados, spy, fan club, contenido),
-    // asi que no se suma aparte con tips/extra (se duplicaria: una propina sube
-    // el balance Y genera un evento "tip"). Se usa el MAYOR de los dos en vez de
-    // preferir balance a ciegas: si una modelo activa esto a mitad de quincena,
-    // el balance solo cubre desde ese momento en adelante y por un rato seria
-    // menor a lo que tips+extra ya tenia bien contado — tomar el maximo evita
-    // que el total baje de golpe, y una vez que el balance crece mas que el
-    // viejo numero congelado, pasa solo a ser la fuente (verificado con datos
-    // reales: activar a mitad de periodo no debe hacer bajar el desprendible).
-    const chaturbateTokensPeriod = Math.max(chaturbateBalanceTokensPeriod, chaturbateTipsTokensPeriod + chaturbateExtraTokensPeriod);
+    const userTicks = ticksByUser[m.username] || [];
+    const userBase = baseByUser[m.username] || null;
+    const chaturbateBalanceTokensPeriod = userTicks.reduce((sum, t) => sum + t.tokens, 0);
+    const chaturbateTokensPeriod = resolveChaturbateTokens({
+      base: userBase,
+      ticks: userTicks,
+      tipsTokens: chaturbateTipsTokensPeriod,
+      extraTokens: chaturbateExtraTokensPeriod,
+    });
     const stripchatTokensPeriod = stripchatByUser[m.username] || 0;
 
     return {
@@ -1003,6 +1113,7 @@ async function buildModelReports() {
       chaturbateExtraTokensPeriod,
       chaturbateBalanceTokensPeriod,
       chaturbateAutoTracked: !!m.stats_api_token,
+      chaturbateHasBase: !!userBase,
       stripchatTokensPeriod,
       reportGeneratedAt: now,
       trackingSince,
@@ -1590,11 +1701,12 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
       const oldestStart = periods[periods.length - 1].start;
-      const [tips, stripchatRows, chaturbateExtraRows, balanceTicks, dollar] = await Promise.all([
+      const [tips, stripchatRows, chaturbateExtraRows, balanceTicks, periodBases, dollar] = await Promise.all([
         sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
         sbFetchStripchatEarningsForUserSince(username, toDateStr(oldestStart)),
         sbFetchChaturbateExtraEarningsForUserSince(username, toDateStr(oldestStart)),
         sbFetchUserBalanceTicksSince(username, new Date(oldestStart).toISOString()),
+        sbFetchPeriodBaseForUserSince(username, toDateStr(oldestStart)),
         getDollarRate(),
       ]);
 
@@ -1607,10 +1719,15 @@ const server = http.createServer(async (req, res) => {
         const chaturbateExtraTokens = chaturbateExtraRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
-        const chaturbateBalanceTokens = balanceTicks
-          .filter((t) => { const ts = new Date(t.sampled_at).getTime(); return ts >= p.start && ts <= p.end; })
-          .reduce((sum, t) => sum + t.tokens, 0);
-        const chaturbateTokens = Math.max(chaturbateBalanceTokens, chaturbateTipsTokens + chaturbateExtraTokens);
+        const periodTicks = balanceTicks
+          .filter((t) => { const ts = new Date(t.sampled_at).getTime(); return ts >= p.start && ts <= p.end; });
+        const periodBase = periodBases.find((b) => b.period_start === periodStartStr && b.period_end === periodEndStr) || null;
+        const chaturbateTokens = resolveChaturbateTokens({
+          base: periodBase,
+          ticks: periodTicks,
+          tipsTokens: chaturbateTipsTokens,
+          extraTokens: chaturbateExtraTokens,
+        });
         const stripchatTokens = stripchatRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
@@ -1801,6 +1918,15 @@ const server = http.createServer(async (req, res) => {
     // estarlo. Por eso solo se guardan las quincenas totalmente cubiertas
     // por el rango de fechas del archivo.
     const oldestDateStr = rows.reduce((min, r) => (r.dateStr < min ? r.dateStr : min), rows[0].dateStr);
+    // El momento del upload (no la fecha del ultimo renglon del CSV) es el
+    // corte seguro: cualquier tick de balance con sampled_at posterior a esto
+    // es DEFINITIVAMENTE plata que el archivo no pudo haber visto todavia
+    // (el archivo se genero antes), asi que sumarla encima nunca duplica.
+    // Puede dejar un huequito de unos minutos entre "ultima fila del CSV" y
+    // "se subio el archivo" sin contar — se prefiere ese huequito chico a
+    // arriesgar duplicar, mismo criterio de "mejor quedarse corto" del resto
+    // de esta funcionalidad.
+    const coversUntilIso = new Date().toISOString();
     const periods = getQuincenaHistory(6, Date.now());
     const rowsToSave = [];
     const results = [];
@@ -1809,22 +1935,22 @@ const server = http.createServer(async (req, res) => {
       const periodEndStr = toDateStr(period.end);
       const covered = periodStartStr >= oldestDateStr;
       const csvTotal = sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr);
-      const tips = await sbFetchTipsInRange(new Date(period.start).toISOString(), new Date(period.end).toISOString());
-      const liveTips = tips.filter((t) => t.username === username).reduce((sum, t) => sum + t.tokens, 0);
-      const extra = Math.max(0, csvTotal - liveTips);
-      results.push({ label: period.label, csvTotal, liveTips, extra, saved: covered });
+      results.push({ label: period.label, csvTotal, saved: covered });
       if (covered) {
         rowsToSave.push({
-          username, period_start: periodStartStr, period_end: periodEndStr, tokens: extra,
-          note: 'Historial de transacciones (CSV) — subido ' + toDateStr(Date.now()),
+          username, period_start: periodStartStr, period_end: periodEndStr,
+          base_tokens: csvTotal, covers_until: coversUntilIso,
+          source: 'csv-upload', entered_by: session.username,
         });
       }
     }
     if (!rowsToSave.length) {
       return sendJson(res, 400, { error: 'El archivo no cubre completa ninguna de las últimas quincenas (llega solo hasta ' + oldestDateStr + ') — no se guardó nada para no dejar un número a medias.' });
     }
-    const ok = await sbUpsertChaturbateExtraEarningsBatch(rowsToSave, session.username);
-    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    for (const row of rowsToSave) {
+      const ok = await sbUpsertPeriodBase(row);
+      if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    }
     await sbLogAudit(session, 'chaturbate_csv_upload', username, { periods: rowsToSave.length });
     return sendJson(res, 200, { ok: true, username, results });
   }
@@ -2024,6 +2150,5 @@ server.listen(PORT, () => {
   } else {
     console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
   }
-  pollChaturbateBalances();
-  setInterval(pollChaturbateBalances, CHATURBATE_BALANCE_POLL_INTERVAL_MS);
+  startChaturbateBalancePolling();
 });

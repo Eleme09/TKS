@@ -1409,10 +1409,9 @@
       return;
     }
     const data = await r.json();
-    resultEl.innerHTML = 'Listo, ' + escapeHtml(data.username) + ':<br>' + data.results.map(function (res) {
+    resultEl.innerHTML = 'Listo, ' + escapeHtml(data.username) + ' — quedó como base, de acá en más solo se suman los tokens nuevos:<br>' + data.results.map(function (res) {
       if (!res.saved) return escapeHtml(res.label) + ': el archivo no llega tan atrás, no se tocó.';
-      return escapeHtml(res.label) + ': total real ' + res.csvTotal.toLocaleString('es-ES') +
-        ' (ya contado en vivo: ' + res.liveTips.toLocaleString('es-ES') + ', agregado: ' + res.extra.toLocaleString('es-ES') + ')';
+      return escapeHtml(res.label) + ': ' + res.csvTotal.toLocaleString('es-ES') + ' tokens (base)';
     }).join('<br>');
   }
 
