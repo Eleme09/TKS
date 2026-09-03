@@ -470,15 +470,12 @@ or shape-change now also pushes an immediate notification (tag
 or a manual `cb_api_errors` query. Scoped to `administrador` only (not
 `ceo`, per explicit user request) since this is the same kind of
 technical/actionable alert as a connection drop — a role that can't
-act on it doesn't need to be woken up by it. Verified: server boots and
-serves fine with this change (scratch instance against the real
-Supabase project, immediately killed after to avoid double-polling
-live models), `npm test` still 32/32. Actual push *delivery* through
-this new path was not separately re-verified beyond that — it reuses
-`sendPushToRole` byte-for-byte the same way `sendConnectionAlert` does,
-and that path is confirmed working in production (the user has
-screenshotted a real "Se cayó la conexión de conni_f00x" push arriving
-on his device).
+act on it doesn't need to be woken up by it. Verified end-to-end for
+real: a temporary admin-only `GET /api/test-error-notification` was
+deployed, hit once from the user's own logged-in browser, confirmed
+delivering the push notification to his device, then removed again —
+the codebase carries no trace of that test endpoint. `npm test` 32/32
+throughout.
 
 Push subscriptions are **per-device**, not per-account — a user
 subscribing on their PC does not enable notifications on their phone,
