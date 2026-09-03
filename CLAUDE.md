@@ -29,7 +29,16 @@ updated_at) holds reference documents that aren't code but that the user
 needs from any device — right now: `skill-studio-tracker-setup.md` (mirror
 of `.claude/skills/studio-tracker-setup/SKILL.md`), `ficha-alta.html` and
 `ficha-cliente.html` (the two onboarding checklists for replicating this
-project to a new studio — see that skill). Query it from any terminal with
+project to a new studio — see that skill), and `sales-script.md` /
+`sales-email.md` (cold-outreach copy for selling this system to other
+webcam studios — the real pitch is "we consolidate your numbers into one
+clean place across platforms," never "the platforms hide income from
+you"; the base $750.000/6-day price includes the client's own
+administrador account for their day-to-day, and does NOT include the
+"rol avanzado" — Jeiner keeping the technical superuser actions
+(password resets, force-logout, reconnect) — which is a separate paid
+add-on; see the notes inside each file before reusing this copy). Query
+it from any terminal with
 `select id, content from cb_kit_docs where id = '...'` instead of asking
 the user to re-upload or re-describe something already produced once. If
 the skill or the fichas change, re-upsert the matching row here too — the
