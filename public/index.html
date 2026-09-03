@@ -551,10 +551,11 @@
       </div>
       <div class="card" id="chaturbateExtraCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Otros ingresos de Chaturbate</h3>
-        <div class="meta-small" style="margin-bottom:12px;">La conexión en vivo solo cuenta propinas públicas. Privados, spy shows, fan club y contenido pagado no llegan por ahí — revisa el total real de cada modelo en Chaturbate y anota acá la diferencia, quincena por quincena. Se suma directo al desprendible.</div>
+        <div class="meta-small" style="margin-bottom:12px;">La conexión en vivo solo cuenta propinas públicas — privados, spy shows, fan club y contenido pagado no llegan por ahí. No hace falta separar nada por categoría: entrá al "Token Stats" de cada modelo en Chaturbate para esta quincena y copiá acá el total que te muestra la página. El sistema calcula solo la diferencia contra lo que ya contamos y la suma al desprendible.</div>
         <label for="ctbExtraPeriod">Quincena</label>
         <select id="ctbExtraPeriod"></select>
-        <div id="ctbExtraList" style="margin-top:10px;"></div>
+        <div class="meta-small" style="margin-top:10px;">Total real en Chaturbate (Token Stats) para cada modelo, esa quincena:</div>
+        <div id="ctbExtraList" style="margin-top:4px;"></div>
         <div class="row" style="margin-top:10px;"><button id="btnSaveCtbExtra" style="flex:1;">Guardar</button></div>
         <div id="ctbExtraError" class="errbox"></div>
       </div>
@@ -1323,8 +1324,9 @@
     if (!entries.length) { el.ctbExtraList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>'; return; }
     el.ctbExtraList.innerHTML = entries.map(function (e) {
       return '<div class="row" style="align-items:center; margin-top:6px;">' +
-        '<span style="flex:1; font-size:13px;">' + escapeHtml(e.username) + '</span>' +
-        '<input type="number" min="0" step="1" data-ctb-user="' + escapeHtml(e.username) + '" value="' + (e.tokens || 0) + '" style="width:90px;">' +
+        '<span style="flex:1; font-size:13px;">' + escapeHtml(e.username) +
+          '<div class="meta-small">nuestras propinas: ' + e.chaturbateTipsTokens.toLocaleString('es-ES') + '</div></span>' +
+        '<input type="number" min="0" step="1" data-ctb-user="' + escapeHtml(e.username) + '" value="' + (e.realTotal || 0) + '" style="width:100px;">' +
         '</div>';
     }).join('');
   }
@@ -1333,7 +1335,7 @@
     el.ctbExtraError.style.display = 'none';
     const periodIndex = parseInt(el.ctbExtraPeriod.value, 10) || 0;
     const entries = Array.from(el.ctbExtraList.querySelectorAll('[data-ctb-user]')).map(function (input) {
-      return { username: input.getAttribute('data-ctb-user'), tokens: input.value };
+      return { username: input.getAttribute('data-ctb-user'), realTotal: input.value };
     });
     const r = await fetch('/api/chaturbate-extra/save', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

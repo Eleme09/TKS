@@ -1530,17 +1530,29 @@ const server = http.createServer(async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
     const idx = Math.min(2, Math.max(0, parseInt(parsed.query.periodIndex, 10) || 0));
     const period = getQuincenaHistory(3, Date.now())[idx];
-    const [models, rows] = await Promise.all([
+    const [models, tips, extraRows] = await Promise.all([
       sbFetchAllModels(),
+      sbFetchTipsInRange(new Date(period.start).toISOString(), new Date(period.end).toISOString()),
       sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
     ]);
-    const byUser = {};
-    for (const r of rows) byUser[r.username] = { tokens: r.tokens, note: r.note || '' };
-    const entries = models.filter((m) => m.role === 'modelo').map((m) => ({
-      username: m.username,
-      tokens: (byUser[m.username] && byUser[m.username].tokens) || 0,
-      note: (byUser[m.username] && byUser[m.username].note) || '',
-    }));
+    const tipsByUser = {};
+    for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+    const extraByUser = {};
+    for (const r of extraRows) extraByUser[r.username] = { tokens: r.tokens, note: r.note || '' };
+    // "realTotal" es lo que el admin ve tal cual en la pagina de Chaturbate — no
+    // tiene que separar categorias, solo comparar un numero contra otro. Guardamos
+    // internamente nada mas la diferencia (chaturbateTipsTokens) para no duplicar
+    // lo que ya cuenta la conexion en vivo.
+    const entries = models.filter((m) => m.role === 'modelo').map((m) => {
+      const chaturbateTipsTokens = tipsByUser[m.username] || 0;
+      const extra = (extraByUser[m.username] && extraByUser[m.username].tokens) || 0;
+      return {
+        username: m.username,
+        chaturbateTipsTokens,
+        realTotal: chaturbateTipsTokens + extra,
+        note: (extraByUser[m.username] && extraByUser[m.username].note) || '',
+      };
+    });
     return sendJson(res, 200, { period: { label: period.label }, entries });
   }
 
@@ -1552,15 +1564,21 @@ const server = http.createServer(async (req, res) => {
     const entries = Array.isArray(body.entries) ? body.entries : [];
     const idx = Math.min(2, Math.max(0, parseInt(body.periodIndex, 10) || 0));
     const period = getQuincenaHistory(3, Date.now())[idx];
-    const models = await sbFetchAllModels();
+    const [models, tips] = await Promise.all([
+      sbFetchAllModels(),
+      sbFetchTipsInRange(new Date(period.start).toISOString(), new Date(period.end).toISOString()),
+    ]);
     const validUsernames = new Set(models.map((m) => m.username));
+    const tipsByUser = {};
+    for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
     const periodStartStr = toDateStr(period.start);
     const periodEndStr = toDateStr(period.end);
     const rows = [];
     for (const e of entries) {
       const username = sanitizeUsername(e.username);
-      const tokens = Math.max(0, Math.floor(Number(e.tokens)));
-      if (!username || !validUsernames.has(username) || !Number.isFinite(tokens)) continue;
+      const realTotal = Math.max(0, Math.floor(Number(e.realTotal)));
+      if (!username || !validUsernames.has(username) || !Number.isFinite(realTotal)) continue;
+      const tokens = Math.max(0, realTotal - (tipsByUser[username] || 0));
       const note = typeof e.note === 'string' ? e.note.slice(0, 200) : null;
       rows.push({ username, period_start: periodStartStr, period_end: periodEndStr, tokens, note });
     }
