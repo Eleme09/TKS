@@ -782,6 +782,63 @@ el anterior entero, no es un parche) — no crear un trigger nuevo para
 cada señal nueva, un solo chequeo diario que las cubra todas es más
 fácil de mantener que varios sueltos.
 
+## Auditoría de diseño / móvil (2026-09-03)
+
+Revisión hecha con capturas reales (Playwright + Chromium, instancia
+scratch en otro puerto, cuenta admin temporal borrada al terminar) en
+375×812 / 768×1024 / 1440×900, las 5 pestañas. Lo arreglado:
+
+- **Contraste**: `--muted-dim` era `#55555b` sobre `#0a0a0b` → ~2.5:1,
+  muy por debajo del mínimo WCAG AA de 4.5:1, y es el color de **todos**
+  los `label` de formulario, `.meta-small`, notas de tasa de cambio,
+  días del calendario y estados vacíos. Ahora `#85858d` (~5.4:1 sobre
+  el fondo, ~4.7:1 sobre `--surface-2`, que es donde se usa dentro de
+  `.stat`/`.shift-day`). `--muted` subió a `#9a9aa2` para conservar el
+  escalón de jerarquía. **Si tocas estos dos valores, verificá contra
+  ambos fondos** (`--bg` y `--surface-2`), no solo contra el más oscuro.
+- **`.btn-primary`** (nueva clase): antes 6 botones no tenían ningún
+  estilo y caían al botón gris nativo del navegador, en una UI que por
+  lo demás está toda tematizada — `btnCreateShift`, `btnNewsCreate`,
+  `btnSaveDisplayName`, `btnSaveCtbStats`, `btnSaveCtbExtra` y
+  `.btnNewsComment`. La regla vieja `#btnAdd, #btnLogin, #btnCreateAdmin`
+  (bloque blanco sólido) quedó reducida a **`#btnLogin` solamente** —
+  el resto migró a `.btn-primary` (rosa translúcido con borde). Regla
+  para lo que venga: acción principal de una card = `.btn-primary`; el
+  blanco sólido es exclusivo del login. Ojo con la especificidad: una
+  regla por `#id` le gana a `.btn-primary`.
+- **Pestañas**: Desprendibles y Noticias eran solo ícono (el texto vivía
+  únicamente en `title`/`aria-label`) — en móvil no hay hover, así que
+  una modelo no tenía forma de saber qué eran sin tocarlas. Ahora las 5
+  tienen texto visible (`<span class="tablabel">`); en móvil los dos
+  SVG se ocultan y el texto pasa a `text-transform:none` / 10px para
+  que "Desprendibles" entre en la barra inferior de 375px. No vuelvas a
+  dejar una pestaña sin texto visible.
+- **Área de toque**: `.btnAnon` ("ocultar mi nombre", "cerrar mis
+  sesiones en todos lados") tenía 10.5px de texto y 2px de padding.
+  Ahora 11.5px + `padding: 8px 6px`, y color `--muted` en vez de
+  `--muted-dim`.
+- **Picker de hora en Extras**: el `<select>` de AM/PM se cortaba en
+  móvil ("AN" con el chevron encima). Causa real: el grid del form era
+  `minmax(140px,1fr)`, así que a 375px seguía en 2 columnas y los 3
+  selects quedaban con ~41px cada uno. Ahora `minmax(185px,1fr)` → una
+  columna en móvil. **Esto es lo que el usuario había reportado como
+  "íconos encima" en ese picker**; el arreglo anterior (chevron custom
+  con `appearance:none`) no era la causa raíz.
+- **Filas de cuentas** (`.admin-list-row`): en móvil los 3 botones se
+  amontonaban contra el borde derecho; ahora la fila apila
+  nombre-arriba / botones-abajo bajo 640px.
+- **Ícono decorativo** de cada pestaña (`.banner-icon`): en móvil bajó
+  de `min(110px,46%)` a `min(84px,34%)` y el margen del bloque se
+  redujo — empujaba demasiado el contenido real hacia abajo en cada
+  cambio de pestaña. En desktop quedó igual.
+
+Lo que se revisó y **está bien, no lo "arregles"**: la `.tabnav` fija
+abajo en móvil con `body { padding-bottom: 64px + safe-area }` es
+deliberada (alcance del pulgar) y está correcta. En una captura
+`fullPage` de Playwright esa barra aparece flotando en mitad del
+contenido — es un artefacto de cómo Chromium compone `position:fixed`
+al capturar más allá del viewport, no un bug real; no lo persigas.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

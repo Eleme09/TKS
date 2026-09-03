@@ -15,7 +15,7 @@
   :root {
     --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d;
     --border: #242427; --border-soft: #1c1c1f;
-    --text: #f5f5f7; --muted: #8c8c93; --muted-dim: #55555b;
+    --text: #f5f5f7; --muted: #9a9aa2; --muted-dim: #85858d;
     --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4); --pink-glow: rgba(255,143,190,0.17);
     --theme-glow: var(--pink-glow); --theme-glow-2: var(--pink-glow);
     --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
@@ -163,7 +163,13 @@
   button { padding: 10px 14px; border-radius: 10px; border: none; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: var(--font-body); transition: transform .12s ease, filter .15s ease, opacity .15s ease, border-color .15s ease; }
   button:hover:not(:disabled) { filter: brightness(1.15); }
   button:active:not(:disabled) { transform: scale(0.97); }
-  #btnAdd, #btnLogin, #btnCreateAdmin { background: var(--text); color: #0a0a0b; text-transform: uppercase; letter-spacing: 0.03em; }
+  #btnLogin { background: var(--text); color: #0a0a0b; text-transform: uppercase; letter-spacing: 0.03em; }
+  .btn-primary {
+    background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
+    color: var(--pink); border: 1px solid var(--pink-line);
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, rgba(255,143,190,0.26), rgba(255,143,190,0.12)); }
   .btnStart { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.22); }
   .btnStop { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
   .btnKey { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
@@ -220,8 +226,9 @@
   .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; animation: fadeUp .3s ease both; gap: 10px; flex-wrap: wrap; }
   .topbar .who { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .topbar .who b { color: var(--text); font-family: var(--font-mono); font-weight: 700; }
-  .btnAnon { background: none; border: none; color: var(--muted-dim); font-size: 10.5px; text-decoration: underline; padding: 2px 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em; }
-  .btnBell { text-decoration: none; display: inline-flex; align-items: center; padding: 3px 5px; vertical-align: middle; }
+  .btnAnon { background: none; border: none; color: var(--muted); font-size: 11.5px; text-decoration: underline; padding: 8px 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em; }
+  .btnAnon:hover { color: var(--text); }
+  .btnBell { text-decoration: none; display: inline-flex; align-items: center; padding: 7px 8px; vertical-align: middle; }
   .btnBell svg { display: block; }
   .btnBell.active { color: var(--pink); filter: drop-shadow(0 0 4px var(--pink)); }
   .admin-list-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; animation: fadeUp .3s ease both; }
@@ -230,7 +237,7 @@
   .tabbtn { background: none; border: none; color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px 1px; cursor: pointer; border-bottom: 1px solid transparent; border-radius: 0; transition: color .15s ease, border-color .15s ease; text-transform: uppercase; letter-spacing: 0.04em; }
   .tabbtn:hover { color: var(--text); }
   .tabbtn.active { color: var(--text); border-bottom-color: var(--pink); }
-  .tabIcon { display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; }
+  .tabIcon { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 1px; }
   .tabIcon svg { display: block; filter: drop-shadow(0 0 3px var(--pink)); opacity: 0.75; transition: opacity .15s ease; }
   .tabIcon:hover svg, .tabIcon.active svg { opacity: 1; }
   .tabpanel { animation: tabIn .4s cubic-bezier(.2,.8,.3,1) both; }
@@ -290,11 +297,15 @@
     #loginCard { max-width: 100%; }
     .models { grid-template-columns: 1fr; }
     .model-grid { grid-template-columns: 1fr 1fr; }
-    .banner-icon { width: min(110px, 46%); }
+    .banner-icon { width: min(84px, 34%); }
+    .section-banner { margin: 0 0 14px; }
     .model-head { flex-direction: column; align-items: flex-start; }
     .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
     .topbar > button { width: 100%; }
     .conn { flex-direction: column; align-items: stretch; gap: 10px; }
+    /* filas de cuentas: nombre arriba, botones abajo, en vez de apretarse a la derecha */
+    .admin-list-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .admin-list-row > span:last-child { justify-content: flex-start; }
     .conn-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
     .conn button { width: 100%; }
     .quincena-nav button { padding: 6px 8px; font-size: 11.5px; }
@@ -306,8 +317,11 @@
       background: var(--surface); padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
       justify-content: space-around; gap: 2px; animation: none;
     }
-    .tabbtn { flex: 1; text-align: center; padding: 9px 2px; font-size: 10.5px; letter-spacing: 0.02em; border-bottom: none; border-top: 2px solid transparent; }
+    /* Todas las pestanas con texto: en movil no hay hover que muestre el title */
+    .tabbtn { flex: 1; text-align: center; padding: 11px 1px; font-size: 10px; letter-spacing: 0; text-transform: none; border-bottom: none; border-top: 2px solid transparent; }
     .tabbtn.active { border-top-color: var(--pink); border-bottom-color: transparent; }
+    .tabIcon { gap: 0; padding: 11px 1px; }
+    .tabIcon svg { display: none; }
     body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   }
 </style>
@@ -363,11 +377,13 @@
     <div class="tabnav" id="tabnav">
       <button class="tabbtn" data-tab="modelos" id="tabBtnModelos">Modelos</button>
       <button class="tabbtn" data-tab="horas">Extras</button>
-      <button class="tabbtn tabIcon" data-tab="desprendibles" title="Desprendibles" aria-label="Desprendibles">
+      <button class="tabbtn tabIcon" data-tab="desprendibles" title="Desprendibles">
         <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="9" cy="15" r="6" fill="none" stroke="var(--pink)" stroke-width="1.6"/><circle cx="15" cy="9" r="6" fill="none" stroke="var(--pink)" stroke-width="1.6"/></svg>
+        <span class="tablabel">Desprendibles</span>
       </button>
-      <button class="tabbtn tabIcon" data-tab="noticias" title="Noticias" aria-label="Noticias">
+      <button class="tabbtn tabIcon" data-tab="noticias" title="Noticias">
         <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="var(--pink)" stroke-width="1.6"/><line x1="6.5" y1="9" x2="10.5" y2="9" stroke="var(--pink)" stroke-width="1.4" stroke-linecap="round"/><line x1="6.5" y1="12" x2="10.5" y2="12" stroke="var(--pink)" stroke-width="1.4" stroke-linecap="round"/><line x1="6.5" y1="15" x2="10.5" y2="15" stroke="var(--pink)" stroke-width="1.4" stroke-linecap="round"/><rect x="13" y="9" width="4.5" height="6" fill="none" stroke="var(--pink)" stroke-width="1.4"/></svg>
+        <span class="tablabel">Noticias</span>
       </button>
       <button class="tabbtn" data-tab="cuentas" id="tabBtnCuentas" style="display:none;">Cuentas</button>
     </div>
@@ -403,7 +419,7 @@
         </div>
         <div id="tokenInfo" class="meta-small"></div>
         <div class="row">
-          <button id="btnAdd">Agregar modelo y empezar a rastrear</button>
+          <button id="btnAdd" class="btn-primary">Agregar modelo y empezar a rastrear</button>
         </div>
         <div id="errbox" class="errbox"></div>
       </div>
@@ -435,7 +451,7 @@
         <div class="meta-small" style="margin-bottom:12px;" id="shiftsHint"></div>
 
         <div id="shiftCreateForm" class="field-row-narrow" style="display:none; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--border-soft);">
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap:10px;">
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(185px,1fr)); gap:10px;">
             <div><label for="shiftDate">Fecha</label><input id="shiftDate" type="date"></div>
             <div>
               <label for="shiftHour">Horario</label>
@@ -449,7 +465,7 @@
           </div>
           <label for="shiftNote">Nota (opcional)</label>
           <input id="shiftNote" placeholder="ej: turno de madrugada">
-          <div class="row"><button id="btnCreateShift" style="flex:1;">Publicar horario</button></div>
+          <div class="row"><button id="btnCreateShift" class="btn-primary" style="flex:1;">Publicar horario</button></div>
           <div id="shiftError" class="errbox"></div>
         </div>
 
@@ -506,7 +522,7 @@
           <option value="hilo">Hilo (permite respuestas)</option>
           <option value="aviso">Aviso (sin respuestas)</option>
         </select>
-        <div class="row" style="margin-top:10px;"><button id="btnNewsCreate" style="flex:1;">Publicar</button></div>
+        <div class="row" style="margin-top:10px;"><button id="btnNewsCreate" class="btn-primary" style="flex:1;">Publicar</button></div>
         <div id="newsError" class="errbox"></div>
       </div>
       <div id="newsList"></div>
@@ -525,7 +541,7 @@
         <div class="meta-small" style="margin-bottom:12px;">Cámbialo cuando quieras — se usa el que esté activo justo al momento de publicar. Si "mostrar mi nombre / anónimo" está en anónimo, esto no aplica.</div>
         <label for="displayNameInput">Nombre a mostrar</label>
         <input id="displayNameInput" placeholder="ej: Elemee" autocomplete="off" maxlength="60">
-        <div class="row" style="margin-top:10px;"><button id="btnSaveDisplayName" style="flex:1;">Guardar</button></div>
+        <div class="row" style="margin-top:10px;"><button id="btnSaveDisplayName" class="btn-primary" style="flex:1;">Guardar</button></div>
         <div id="displayNameError" class="errbox"></div>
       </div>
       <div class="card" id="adminAccountsCard">
@@ -541,7 +557,7 @@
           <option value="m">Hombre (celeste)</option>
           <option value="f">Mujer (rosa)</option>
         </select>
-        <div class="row"><button id="btnCreateAdmin" style="flex:1;">Crear cuenta CEO</button></div>
+        <div class="row"><button id="btnCreateAdmin" class="btn-primary" style="flex:1;">Crear cuenta CEO</button></div>
         <div id="adminError" class="errbox"></div>
       </div>
       <div class="card" id="modelAccountsCard">
@@ -556,7 +572,7 @@
         <select id="ctbStatsUser"></select>
         <label for="ctbStatsToken">Token de Stats API</label>
         <input id="ctbStatsToken" placeholder="24 caracteres" autocomplete="off">
-        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbStats" style="flex:1;">Guardar y activar</button></div>
+        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbStats" class="btn-primary" style="flex:1;">Guardar y activar</button></div>
         <div id="ctbStatsResult" class="meta-small" style="margin-top:8px;"></div>
         <div id="ctbStatsList" style="margin-top:10px;"></div>
       </div>
@@ -568,7 +584,7 @@
         <select id="ctbExtraPeriod"></select>
         <div class="meta-small" style="margin-top:10px;">Total real en Chaturbate (Token Stats) para cada modelo, esa quincena:</div>
         <div id="ctbExtraList" style="margin-top:4px;"></div>
-        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbExtra" style="flex:1;">Guardar</button></div>
+        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbExtra" class="btn-primary" style="flex:1;">Guardar</button></div>
         <div id="ctbExtraError" class="errbox"></div>
       </div>
       <div class="card" id="auditLogCard">
@@ -1177,7 +1193,7 @@
           '<div style="border-top:1px solid var(--border-soft); padding-top:10px; margin-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
           '<div class="row" style="margin-top:10px; gap:8px;">' +
             '<input class="newsCommentInput" data-post-id="' + p.id + '" placeholder="responder..." style="flex:1;">' +
-            '<button class="btnNewsComment" data-post-id="' + p.id + '">Enviar</button>' +
+            '<button class="btnNewsComment btn-primary" data-post-id="' + p.id + '">Enviar</button>' +
           '</div>') +
       '</div>';
     }).join('');
