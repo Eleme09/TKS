@@ -724,6 +724,70 @@ async function sbFetchChaturbateExtraEarningsForUserSince(username, sincePeriodS
   return r.ok ? r.json() : [];
 }
 
+// El "historial de transacciones" que Chaturbate deja descargar desde la
+// propia cuenta (boton "Descargar el historial de transacciones" en
+// Estadisticas de las fichas) trae TODAS las categorias por separado
+// (Tip received, Private show, Spy on private show, Photos/videos sold,
+// Fan club membership, y "Tokens cashed out" como retiro, no ganancia).
+// Formato real observado: columnas entre comillas para texto, numeros sin
+// comillas — parser propio en vez de un split(',') porque el campo "Note"
+// podria traer una coma adentro.
+function parseCsvLine(line) {
+  const fields = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = false; }
+      } else {
+        cur += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      fields.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+function parseChaturbateTransactionsCsv(text) {
+  const lines = String(text || '').split(/\r?\n/).filter((l) => l.trim().length);
+  if (!lines.length) return null;
+  const header = parseCsvLine(lines[0]).map((h) => h.trim());
+  const idxTimestamp = header.indexOf('Timestamp');
+  const idxChange = header.indexOf('Token change');
+  if (idxTimestamp === -1 || idxChange === -1) return null;
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const f = parseCsvLine(lines[i]);
+    const timestamp = f[idxTimestamp];
+    const change = parseInt(f[idxChange], 10);
+    if (!timestamp || !Number.isFinite(change)) continue;
+    rows.push({ dateStr: timestamp.slice(0, 10), change });
+  }
+  return rows;
+}
+
+// Suma cualquier cambio POSITIVO de tokens dentro del rango — no se filtra por
+// nombre de categoria a proposito: "Tokens cashed out" (retiro) es la unica
+// fila negativa que existe, asi que cualquier cambio positivo en este libro
+// mayor es ganancia real por definicion, incluyendo categorias nuevas que
+// Chaturbate agregue despues sin que haya que tocar este codigo.
+function sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr) {
+  let total = 0;
+  for (const r of rows) {
+    if (r.change > 0 && r.dateStr >= periodStartStr && r.dateStr <= periodEndStr) total += r.change;
+  }
+  return total;
+}
+
 // "YYYY-MM-DD HH:MM:SS" en hora local, formato que pide la Studio API de
 // Stripchat para periodStart/periodEnd (misma convencion de hora local que ya
 // usa toDateStr, para que coincida exactamente con los limites de la quincena
@@ -1016,7 +1080,7 @@ function sendJson(res, code, obj) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let chunks = '';
-    req.on('data', (c) => { chunks += c; if (chunks.length > 1e6) req.destroy(); });
+    req.on('data', (c) => { chunks += c; if (chunks.length > 10 * 1024 * 1024) req.destroy(); });
     req.on('end', () => {
       try { resolve(chunks ? JSON.parse(chunks) : {}); } catch (e) { reject(e); }
     });
@@ -1587,6 +1651,60 @@ const server = http.createServer(async (req, res) => {
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
     await sbLogAudit(session, 'chaturbate_extra_earnings_save', null, { period: period.label, count: rows.length });
     return sendJson(res, 200, { ok: true, period: period.label, count: rows.length });
+  }
+
+  if (parsed.pathname === '/api/chaturbate-csv/upload' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    const csvText = typeof body.csvText === 'string' ? body.csvText : '';
+    if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
+    if (!csvText.trim()) return sendJson(res, 400, { error: 'El archivo llegó vacío' });
+    const models = await sbFetchAllModels();
+    if (!models.some((m) => m.username === username)) return sendJson(res, 400, { error: 'Esa modelo no existe' });
+    const rows = parseChaturbateTransactionsCsv(csvText);
+    if (!rows || !rows.length) {
+      return sendJson(res, 400, { error: 'No reconozco el formato de este archivo — ¿es el CSV de "Descargar el historial de transacciones" de Chaturbate?' });
+    }
+
+    // Chaturbate no guarda el detalle linea-por-linea para siempre — este
+    // archivo suele traer solo los ultimos ~30 dias. Una quincena que arranca
+    // ANTES de la fecha mas vieja del archivo esta incompleta ahi (se
+    // verifico con datos reales: el archivo daba 4549 para una quincena
+    // donde "Ganancias del periodo" en la propia web de Chaturbate marcaba
+    // 6829 — el archivo no llegaba al dia 1 completo). Guardar ese numero
+    // parcial seria peor que no guardar nada: se veria "ya corregido" sin
+    // estarlo. Por eso solo se guardan las quincenas totalmente cubiertas
+    // por el rango de fechas del archivo.
+    const oldestDateStr = rows.reduce((min, r) => (r.dateStr < min ? r.dateStr : min), rows[0].dateStr);
+    const periods = getQuincenaHistory(6, Date.now());
+    const rowsToSave = [];
+    const results = [];
+    for (const period of periods) {
+      const periodStartStr = toDateStr(period.start);
+      const periodEndStr = toDateStr(period.end);
+      const covered = periodStartStr >= oldestDateStr;
+      const csvTotal = sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr);
+      const tips = await sbFetchTipsInRange(new Date(period.start).toISOString(), new Date(period.end).toISOString());
+      const liveTips = tips.filter((t) => t.username === username).reduce((sum, t) => sum + t.tokens, 0);
+      const extra = Math.max(0, csvTotal - liveTips);
+      results.push({ label: period.label, csvTotal, liveTips, extra, saved: covered });
+      if (covered) {
+        rowsToSave.push({
+          username, period_start: periodStartStr, period_end: periodEndStr, tokens: extra,
+          note: 'Historial de transacciones (CSV) — subido ' + toDateStr(Date.now()),
+        });
+      }
+    }
+    if (!rowsToSave.length) {
+      return sendJson(res, 400, { error: 'El archivo no cubre completa ninguna de las últimas quincenas (llega solo hasta ' + oldestDateStr + ') — no se guardó nada para no dejar un número a medias.' });
+    }
+    const ok = await sbUpsertChaturbateExtraEarningsBatch(rowsToSave, session.username);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    await sbLogAudit(session, 'chaturbate_csv_upload', username, { periods: rowsToSave.length });
+    return sendJson(res, 200, { ok: true, username, results });
   }
 
   // ---- Noticias ----
