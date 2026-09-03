@@ -608,6 +608,30 @@ It only matters for a model with no `stats_api_token` and no
 other two mechanisms has data for a period, this one is ignored by
 `resolveChaturbateTokens`'s max()/base logic.
 
+## Tests (added 2026-09-03)
+
+`npm test` runs `node --test` (Node's built-in test runner, no new
+dependency added). Only the money/date math is tested —
+`chaturbate-lib.js` holds every pure function this project has (no
+`fetch`, no Supabase, no server state): `getQuincena`/
+`getQuincenaHistory`/`toDateStr`, `sanitizeUsername`, `hashPassword`/
+`verifyPassword`, the Chaturbate CSV parser
+(`parseCsvLine`/`parseChaturbateTransactionsCsv`/
+`sumChaturbateCsvEarningsForPeriod`), `isNearChaturbateCashout`, and
+**`resolveChaturbateTokens`** — the function every Chaturbate total in
+the app goes through. `server.js` requires this module instead of
+defining these functions itself; don't redefine any of them back in
+`server.js`, and don't add a new pure function there either — put it in
+`chaturbate-lib.js` and export it so it stays testable.
+`chaturbate-lib.test.js` includes a regression test named after the
+exact bug it guards (base-freeze not falling back to ongoing tips) —
+if you ever touch `resolveChaturbateTokens`, run `npm test` before
+pushing, not just a manual scratch-instance check. `server.js` itself
+still has zero test coverage (it needs real Supabase/Chaturbate to do
+anything) — end-to-end verification against the real Supabase project
+via a scratch instance on another port remains the way to test
+anything that touches the DB or a live API, same as always.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

@@ -5,7 +5,8 @@
   "description": "Rastreador local de tokens de Chaturbate (Events API) para un estudio de modelos.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"
