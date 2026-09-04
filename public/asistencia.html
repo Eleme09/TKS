@@ -29,7 +29,7 @@
   html { background: var(--bg); }
   body {
     margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body);
-    padding: 28px clamp(14px, 4vw, 44px) 60px;
+    padding: calc(28px + env(safe-area-inset-top)) clamp(14px, 4vw, 44px) 60px;
   }
   .wrap { max-width: 1180px; margin: 0 auto; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
@@ -101,6 +101,25 @@
   .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
   .row-name { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
   a.file { color: var(--pink); font-size: 12.5px; }
+  /* Mismo tratamiento que el desprendible en la app: el numero grande y la
+     tasa en chico debajo, sin parrafo explicativo. */
+  .deuda-hero {
+    background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .deuda-hero.debe { border-color: rgba(255,107,107,0.4); background: linear-gradient(180deg, rgba(255,107,107,0.12), var(--surface-2) 70%); }
+  .deuda-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-dim); font-weight: 700; margin-bottom: 6px; }
+  .deuda-v { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+  .deuda-hero.debe .deuda-k { color: var(--bad); opacity: 0.9; }
+  .deuda-hero.debe .deuda-v { color: var(--bad); }
+  /* Controles de correccion: solo los ve el administrador. */
+  .fix-btn {
+    font-family: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.03em; cursor: pointer; padding: 5px 9px; border-radius: 7px;
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  }
+  .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
+  .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
   @media (max-width: 640px) {
     /* Mismo criterio que en la app: en el teléfono los títulos de texto a
@@ -114,7 +133,7 @@
       /* Sin este min-width el navegador aplasta las 7 columnas dentro de los
          375px del teléfono y el justificante queda de una palabra por renglón.
          Con él, la tabla se desplaza de lado como una planilla de verdad. */
-      min-width: 660px;
+      min-width: 760px;
     }
     td { padding: 9px 8px; }
     /* Cada columna con su ancho mínimo: si no, las cortas ceden y la de texto
@@ -283,14 +302,22 @@
     var cols = withName ? 8 : 7;
     if (!days.length) return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
     var index = justIndex(justs);
+    var puedeCorregir = data.role === 'administrador';
     var head = '<tr>' + th('Día', 'dia') + (withName ? th('Modelo', 'modelo') : '')
       + th('Entrada', 'entrada') + th('Salida', 'salida') + th('Retraso', 'retraso')
-      + th('Problemática', 'problema') + th('Justificante', 'justificante') + th('Estado', 'estado') + '</tr>';
+      + th('Problemática', 'problema') + th('Justificante', 'justificante') + th('Estado', 'estado')
+      + (puedeCorregir ? '<th title="Corregir" aria-label="Corregir"><span class="th-txt">Corregir</span>'
+          + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span></th>' : '')
+      + '</tr>';
 
     var rows = days.map(function (d) {
       var mine = index[d.username + '|' + d.work_date] || [];
-      var problemas = mine.length
-        ? mine.map(function (j) { return '<span class="tag">' + kindShort(j.kind) + '</span>'; }).join(' ')
+      // Un mismo dia puede tener varios justificantes del mismo tipo; la
+      // columna muestra cada tipo una sola vez en vez de repetir la etiqueta.
+      var tipos = [];
+      mine.forEach(function (j) { if (tipos.indexOf(j.kind) === -1) tipos.push(j.kind); });
+      var problemas = tipos.length
+        ? tipos.map(function (k) { return '<span class="tag">' + kindShort(k) + '</span>'; }).join(' ')
         : '<span class="muted">—</span>';
       var textos = mine.length
         ? mine.map(function (j) { return '<div class="just-cell">' + escapeHtml(j.body) + '</div>'; }).join('')
@@ -310,6 +337,12 @@
         + '<td>' + problemas + '</td>'
         + '<td class="just-col">' + textos + '</td>'
         + '<td>' + estadoHtml(d.status) + '</td>'
+        + (puedeCorregir
+            ? '<td><div class="fix-actions">'
+              + '<button type="button" class="fix-btn" data-reset="' + d.id + '">Reiniciar</button>'
+              + '<button type="button" class="fix-btn danger" data-borrar-dia="' + d.id + '">Borrar</button>'
+              + '</div></td>'
+            : '')
         + '</tr>';
     }).join('');
     return head + rows;
@@ -326,6 +359,9 @@
         + '<span class="meta">' + fecha(j.work_date) + '</span>'
         + '</div>'
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
+        + (data.role === 'administrador'
+            ? '<div class="fix-actions" style="margin-top:8px;"><button type="button" class="fix-btn danger" data-borrar-just="' + j.id + '">Bajar este justificante</button></div>'
+            : '')
         + '</div>';
     }).join('');
   }
@@ -420,45 +456,61 @@
     var totals = (data.totals || []).filter(function (t) { return f ? t.username === f : true; });
     var fee = data.late_hour_fee_cop || 0;
 
-    el.deudaRegla.textContent = cop(fee) + ' por cada hora completa de retraso acumulado en la quincena'
-      + ' (una hora empezada no se cobra hasta completarla). Pasadas '
-      + horasMin(data.threshold_minutes) + ' acumuladas, la modelo asume su propia seguridad social.';
+    // Sin explicación larga: el número y, debajo, la tasa en chico — el mismo
+    // tratamiento que el dólar en los desprendibles.
+    el.deudaRegla.textContent = '';
 
-    var conDeuda = totals.filter(function (t) { return t.debt_cop > 0 || t.owes_social_security; });
-    if (!conDeuda.length) {
-      el.tablaDeuda.innerHTML = '<tr><td class="muted" style="padding:14px 10px;">Nadie tiene horas de retraso completas esta quincena. Sin deuda.</td></tr>';
-      el.deudaTotal.innerHTML = '';
+    var total = totals.reduce(function (a, t) { return a + (t.debt_cop || 0); }, 0);
+    var horas = totals.reduce(function (a, t) { return a + (t.debt_hours || 0); }, 0);
+    var pie = '<div class="meta" style="margin-top:6px;">' + horas + ' h × ' + cop(fee) + ' COP por hora</div>';
+
+    // Una modelo (o la hoja filtrada por una) ve solo su total: es un dato
+    // privado de cada una, no una lista comparativa.
+    var unaSola = !staff || !!f;
+    if (unaSola) {
+      el.tablaDeuda.innerHTML = '';
+      var suya = totals[0];
+      var debe = suya && suya.debt_cop > 0;
+      el.deudaTotal.innerHTML = '<div class="deuda-hero' + (debe ? ' debe' : '') + '">'
+        + '<div class="deuda-k">Total a pagar por retraso</div>'
+        + '<div class="deuda-v">' + cop(total) + '</div>'
+        + (debe ? pie : '<div class="meta" style="margin-top:6px;">Sin horas completas de retraso esta quincena.</div>')
+        + (suya && suya.owes_social_security
+            ? '<div style="margin-top:10px;"><span class="pill rechazada">asume seguridad social</span></div>'
+            : '')
+        + '</div>';
       return;
     }
 
-    var head = '<tr>' + th('Modelo', 'modelo') + th('Retraso', 'retraso')
-      + '<th title="Horas cobradas" aria-label="Horas cobradas"><span class="th-txt">Horas cobradas</span>'
-      + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.3l3.4 2"/></svg></span></th>'
-      + '<th title="Deuda" aria-label="Deuda"><span class="th-txt">Deuda</span>'
+    // Vista de administración sin filtro: la lista de quienes deben, para
+    // poder cobrar. Cada modelo por su lado sigue viendo solo lo suyo.
+    var conDeuda = totals.filter(function (t) { return t.debt_cop > 0 || t.owes_social_security; });
+    if (!conDeuda.length) {
+      el.tablaDeuda.innerHTML = '';
+      el.deudaTotal.innerHTML = '<div class="deuda-hero">'
+        + '<div class="deuda-k">Total a pagar por retraso</div>'
+        + '<div class="deuda-v">' + cop(0) + '</div>'
+        + '<div class="meta" style="margin-top:6px;">Ninguna modelo tiene horas completas de retraso esta quincena.</div>'
+        + '</div>';
+      return;
+    }
+
+    var headDeuda = '<tr>' + th('Modelo', 'modelo')
+      + '<th title="A pagar" aria-label="A pagar"><span class="th-txt">A pagar</span>'
       + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M16.5 7.2C15.6 6 14 5.4 12 5.4c-2.4 0-4 1.2-4 3s1.6 2.7 4 3.3 4 1.5 4 3.3-1.6 3-4 3c-2 0-3.6-.6-4.5-1.8"/></svg></span></th>'
       + th('Estado', 'estado') + '</tr>';
-
-    var rows = conDeuda.map(function (t) {
+    el.tablaDeuda.innerHTML = headDeuda + conDeuda.map(function (t) {
       return '<tr>'
         + '<td class="num">' + escapeHtml(t.username) + '</td>'
-        + '<td class="num">' + retrasoHtml(t.late_minutes) + '</td>'
-        + '<td class="num">' + (t.debt_hours || 0) + '</td>'
         + '<td class="num"><b>' + cop(t.debt_cop) + '</b></td>'
-        + '<td>' + (t.owes_social_security
-            ? '<span class="pill rechazada">asume seguridad social</span>'
-            : '<span class="pill validada">solo la deuda</span>') + '</td>'
+        + '<td>' + (t.owes_social_security ? '<span class="pill rechazada">asume seguridad social</span>' : '') + '</td>'
         + '</tr>';
     }).join('');
-    el.tablaDeuda.innerHTML = head + rows;
 
-    var total = conDeuda.reduce(function (a, t) { return a + (t.debt_cop || 0); }, 0);
-    var horas = conDeuda.reduce(function (a, t) { return a + (t.debt_hours || 0); }, 0);
-    el.deudaTotal.innerHTML = '<div class="row-item" style="margin-top:14px;">'
-      + '<div class="row-head"><span class="row-name">' + (f ? 'Total de ' + escapeHtml(f) : 'Total del estudio') + '</span>'
-      + '<span class="pill rechazada">' + cop(total) + '</span></div>'
-      + '<div class="meta">' + horas + ' hora(s) cobrada(s) a ' + cop(fee) + ' cada una.'
-      + ' Este monto es aparte del desprendible por tokens: se descuenta al pagar, no está restado del total de tokens.</div>'
-      + '</div>';
+    el.deudaTotal.innerHTML = '<div class="deuda-hero debe" style="margin-top:14px;">'
+      + '<div class="deuda-k">Total a pagar por retraso — estudio</div>'
+      + '<div class="deuda-v">' + cop(total) + '</div>'
+      + pie + '</div>';
   }
 
   function pintarTabla() {
@@ -530,6 +582,35 @@
   document.addEventListener('click', function (e) {
     var cell = e.target.closest && e.target.closest('.just-cell');
     if (cell) cell.classList.toggle('open');
+  });
+
+  // Correcciones del administrador. Se confirma antes: son acciones que
+  // borran datos y no hay deshacer (queda el rastro en el registro de
+  // actividad, pero el dato en si no vuelve).
+  async function postFix(url, payload, pregunta) {
+    if (!window.confirm(pregunta)) return;
+    var r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    var res = await r.json().catch(function () { return {}; });
+    if (!r.ok) { window.alert(res.error || 'No se pudo hacer'); return; }
+    var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
+    if (d) { data = d; render(); }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-borrar-just],[data-reset],[data-borrar-dia]');
+    if (!t) return;
+    if (t.hasAttribute('data-borrar-just')) {
+      postFix('/api/attendance/justification/delete', { id: Number(t.getAttribute('data-borrar-just')) },
+        '¿Bajar este justificante? No se puede deshacer.');
+    } else if (t.hasAttribute('data-reset')) {
+      postFix('/api/attendance/day/reset', { id: Number(t.getAttribute('data-reset')), mode: 'revalidar' },
+        '¿Reiniciar esta jornada? Vuelve a quedar pendiente de validar, se borra la hora válida y la salida, y se vuelve a leer el turno que tenga asignado ahora.');
+    } else {
+      postFix('/api/attendance/day/reset', { id: Number(t.getAttribute('data-borrar-dia')), mode: 'borrar' },
+        '¿Borrar esta jornada completa? La modelo podrá reportar ese día otra vez desde cero.');
+    }
   });
 
   fetch('/api/attendance').then(function (r) {

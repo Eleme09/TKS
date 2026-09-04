@@ -653,6 +653,27 @@ async function sbListAttendanceJustifications(fromDate, toDate, username) {
   return r.ok ? r.json() : [];
 }
 
+async function sbFetchAttendanceJustification(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbDeleteAttendanceJustification(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications?id=eq.' + encodeURIComponent(id), {
+    method: 'DELETE', headers: SB_HEADERS,
+  });
+  return r.ok;
+}
+
+async function sbDeleteAttendanceDay(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days?id=eq.' + encodeURIComponent(id), {
+    method: 'DELETE', headers: SB_HEADERS,
+  });
+  return r.ok;
+}
+
 async function sbInsertAttendanceJustification(row) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications', {
     method: 'POST',
@@ -2518,6 +2539,66 @@ const server = http.createServer(async (req, res) => {
     const ok = await sbInsertAttendanceJustification({ username: session.username, work_date: workDate, kind, body: text });
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar la justificación' });
     return sendJson(res, 200, { ok: true });
+  }
+
+  // Bajar un justificante. Solo administrador: el CEO ve la hoja pero no la
+  // corrige, y una modelo no puede borrar lo que ya escribió.
+  if (parsed.pathname === '/api/attendance/justification/delete' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const row = await sbFetchAttendanceJustification(id);
+    if (!row) return sendJson(res, 404, { error: 'Ese justificante ya no existe' });
+    const ok = await sbDeleteAttendanceJustification(id);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo borrar' });
+    await sbLogAudit(session, 'attendance_justification_delete', row.username, { id, kind: row.kind, work_date: row.work_date, body: row.body });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Corregir una jornada ya registrada. Dos modos:
+  //  - 'revalidar': la deja pendiente otra vez y vuelve a leer el horario
+  //    vigente de la modelo, que es lo que hace falta cuando el turno estaba
+  //    mal cuando ella fichó.
+  //  - 'borrar': la elimina, y la modelo puede volver a reportar ese día
+  //    desde cero.
+  // El audit log guarda lo que había antes en los dos casos.
+  if (parsed.pathname === '/api/attendance/day/reset' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const day = await sbFetchAttendanceDayById(id);
+    if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
+
+    if (body.mode === 'borrar') {
+      const ok = await sbDeleteAttendanceDay(id);
+      if (!ok) return sendJson(res, 500, { error: 'No se pudo borrar la jornada' });
+      await sbLogAudit(session, 'attendance_day_delete', day.username, {
+        id, work_date: day.work_date, status: day.status, late_minutes: day.late_minutes,
+      });
+      return sendJson(res, 200, { ok: true, deleted: true });
+    }
+
+    const schedule = await sbListAttendanceSchedule();
+    const hers = schedule.find((s) => s.username === day.username);
+    const scheduledMs = hers ? studioScheduledMs(day.work_date, hers.entry_time) : null;
+    const updated = await sbUpdateAttendanceDay(id, {
+      status: 'pendiente',
+      scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
+      official_at: null, official_source: null,
+      validated_at: null, validated_by: null,
+      reject_reason: null, late_minutes: null, exit_at: null,
+    });
+    if (!updated) return sendJson(res, 500, { error: 'No se pudo reiniciar la jornada' });
+    await sbLogAudit(session, 'attendance_day_reset', day.username, {
+      id, work_date: day.work_date, antes: { status: day.status, late_minutes: day.late_minutes, official_at: day.official_at },
+    });
+    return sendJson(res, 200, { ok: true, day: updated });
   }
 
   if (parsed.pathname === '/api/attendance/excuse' && req.method === 'POST') {

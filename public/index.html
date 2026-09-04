@@ -1687,8 +1687,12 @@
 
     const rows = days.map(function (d) {
       const mine = index[d.username + '|' + d.work_date] || [];
-      const problemas = mine.length
-        ? mine.map(function (j) { return '<span class="att-tag">' + attKindShort(j.kind) + '</span>'; }).join(' ')
+      // Un mismo dia puede tener varios justificantes del mismo tipo; se
+      // muestra cada tipo una sola vez en vez de repetir la etiqueta.
+      const tipos = [];
+      mine.forEach(function (j) { if (tipos.indexOf(j.kind) === -1) tipos.push(j.kind); });
+      const problemas = tipos.length
+        ? tipos.map(function (k) { return '<span class="att-tag">' + attKindShort(k) + '</span>'; }).join(' ')
         : '<span class="muted">—</span>';
       const textos = mine.length
         ? mine.map(function (j) { return '<div class="att-just-cell" title="' + escapeHtml(j.body) + '">' + escapeHtml(j.body) + '</div>'; }).join('')

@@ -1025,6 +1025,34 @@ no recalculada dentro del desprendible.
 servidor). Es más simple que un bucket aparte para el volumen real; si esa
 tabla crece mucho, esa es la señal para mudarlo a almacenamiento de archivos.
 
+**Correcciones del administrador (2026-09-04):** solo el rol
+`administrador` (el CEO ve pero no corrige, y una modelo no puede bajar lo
+que ya escribió).
+- `POST /api/attendance/justification/delete` `{id}` — baja un justificante.
+- `POST /api/attendance/day/reset` `{id, mode}` — `'revalidar'` deja la
+  jornada pendiente otra vez, borra hora válida/salida/retraso y **vuelve a
+  leer el turno vigente** de esa modelo (que es lo que hace falta cuando el
+  turno estaba mal en el momento en que ella fichó); `'borrar'` la elimina y
+  ella puede reportar ese día desde cero.
+- Los dos guardan en `cb_audit_log` lo que había antes. Eso ya sirvió para
+  recuperar una jornada borrada por error, así que **no le quites el
+  `sbLogAudit` a estas dos rutas**: son las únicas acciones de asistencia que
+  destruyen datos sin deshacer.
+- Los botones viven en `asistencia.html`, en la tabla de jornadas y en cada
+  justificante, y solo se pintan si `data.role === 'administrador'`.
+
+**La deuda se muestra como un solo número**, sin párrafo explicativo: "Total
+a pagar por retraso" grande y debajo, en chico, "N h × $10.000 COP por hora"
+— el mismo tratamiento que la tasa del dólar en los desprendibles. Una modelo
+(o la hoja filtrada por una) ve **solo su total**; la lista comparativa de
+quién debe qué es únicamente para administración sin filtro.
+
+**Al probar contra la base real, filtra por tus propias cuentas de prueba.**
+El 2026-09-04 se tomó `days[0]` de la respuesta para probar el borrado y esa
+fila resultó ser del usuario, no de la cuenta de prueba: se borró una jornada
+real. Se pudo restaurar desde `cb_audit_log`, pero nunca agarres "el primero
+de la lista" en una base compartida — filtra por el prefijo de tus cuentas.
+
 **Gotcha al probar con cuentas falsas:** una fila de prueba en `cb_models` con
 `role: 'modelo'` la levanta el poller de Stripchat **de producción** (no el
 scratch), que le pide sus ganancias y se come un 404 por modelo por ciclo,
