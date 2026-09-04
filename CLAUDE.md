@@ -500,13 +500,34 @@ existing pattern for author_username across cb_news_*.
 ## Chaturbate income beyond public tips — resolved (2026-09-03)
 
 **The problem, found by the user comparing real numbers:** the Events API
-only ever fires `tip` for public in-room tips. Chaturbate also pays for
-private shows, spy shows, fan club joins, and content purchases — none of
-that comes through as any Events API event (confirmed empirically: a
-catch-all logger for every non-tip/broadcastStart/broadcastStop event —
-see `cb_unhandled_events` below — has run for hours across all 6 models
-and only ever seen `userEnter`/`userLeave`/`follow`, never anything
-token-bearing). For pinky_f00x this was a **63% undercount**: 71 tokens
+only ever fires `tip` for public in-room tips. Chaturbate también paga por
+private shows, spy shows, fan club joins y compras de contenido, y casi nada
+de eso llega como evento de la Events API.
+
+**Corrección importante (2026-09-04, encontrada por el vigía diario):** la
+versión anterior de esta sección decía que NADA de eso llegaba nunca como
+evento, "solo userEnter/userLeave/follow". **Eso ya no es cierto.**
+`cb_unhandled_events` registró **`mediaPurchase`** con tokens adentro, en
+`object.media.tokens` — tres compras de contenido de abigail_f00x el
+2026-09-03 (125, 130 y 66 tokens, mismo comprador). O sea que las compras de
+contenido SÍ llegan por la Events API, con el monto exacto. Con el tiempo
+también aparecieron `privateMessage`, `chatMessage`, `roomSubjectChange` y
+`unfollow`, que no traen tokens. Los privados y spy shows siguen sin aparecer.
+**Esa plata NO se perdió:** abigail tiene `stats_api_token` activo y los ticks
+de balance de esa franja (76 a las 18:48, 501 a las 18:54, 395 a las 19:00)
+cubren los 321 tokens de sobra, porque el balance sube por toda categoría.
+Verificado fila por fila, no asumido.
+
+**Lo que esto habilita, y por qué NO se implementó al vuelo:** para una modelo
+SIN `stats_api_token`, hoy solo se cuentan sus propinas públicas — sumarle
+`mediaPurchase` mejoraría su número real. Para una modelo CON token no cambia
+nada, porque `resolveChaturbateTokens` ya toma `max(ticks, tips)` y los ticks
+lo incluyen. Hoy las 6 tienen token, así que es resiliencia, no un agujero
+abierto. Si se implementa: va a `cb_tips` (o tabla equivalente que entre por
+el lado `tips` del max), NUNCA sumado aparte, o se duplica la plata de las
+que sí tienen balance activo.
+
+For pinky_f00x this was a **63% undercount**: 71 tokens
 counted vs 192+ real for the same days, and the tracker's own number for
 her ago 16-31 quincena was **11,898 tokens** short of her real Chaturbate
 total before this fix.
@@ -566,6 +587,9 @@ evidence):**
    (`fanclubJoin`, `mediaPurchase` are documented Chaturbate methods
    that would show up here) — if one ever appears, that category can be
    wired into automatic tracking with zero login risk.
+   **Ya apareció uno: `mediaPurchase`, el 2026-09-03, con el monto en
+   `object.media.tokens`** — ver la corrección al principio de esta
+   sección. `fanclubJoin` todavía no. Este chequeo sirve, no lo quites.
 
 2. **CSV historical backfill** (`cb_chaturbate_period_base` table:
    username, period_start, period_end, base_tokens, covers_until,
