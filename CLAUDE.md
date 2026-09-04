@@ -99,9 +99,17 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
   Render dashboard's Environment tab, which is the source of truth, or
   ask the user). `iniciar.bat` sources `env.bat` then runs `node
   server.js`.
-- **Uptime**: a free UptimeRobot monitor pings the live site every 5 min
-  so Render's free tier doesn't sleep. Drop it if/when the studio
-  upgrades to a paid Render plan.
+- **Uptime**: production is now on a **paid Render plan** (upgraded
+  2026-09-04, confirmed by the user in chat — not independently verified
+  from this session, since no browser tool is available here to check the
+  Render dashboard directly). A paid plan doesn't sleep on inactivity and
+  has no monthly instance-hour cap, so the old free-tier problem this
+  section used to describe no longer applies. **The UptimeRobot monitor
+  is now redundant and can be removed** — it existed only to ping the
+  site every 5 min so the old free tier wouldn't spin down. If a future
+  session finds it still configured, that's leftover cleanup, not a sign
+  something's wrong; removing it is safe once the paid plan is confirmed
+  active in the Render dashboard.
 - **Staging**: a second Render free web service, `tks-staging`
   (`tks-staging.onrender.com`), same repo, branch `dev`, same three
   secrets (but its own `SESSION_SECRET`, different from production's).
