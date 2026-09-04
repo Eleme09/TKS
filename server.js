@@ -9,6 +9,7 @@ const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
 const webpush = require('web-push');
+const nodemailer = require('nodemailer');
 const {
   getQuincena, getQuincenaHistory, toDateStr, sanitizeUsername,
   hashPassword, verifyPassword, resolveChaturbateTokens,
@@ -43,6 +44,45 @@ if (PUSH_ENABLED) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 } else {
   console.log('Notificaciones push desactivadas (faltan VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT).');
+}
+
+// Respaldo por correo para las alertas realmente graves (caida de conexion,
+// error de API), independiente de si el push llega o no al celular del
+// administrador — el push por si solo puede fallar en silencio (ej. iOS
+// revoca la suscripcion sin avisar), y ese es justo el caso donde mas
+// importa enterarse. Opcional: sin GMAIL_USER/GMAIL_APP_PASSWORD el
+// servidor sigue funcionando normal, solo sin este respaldo (mismo patron
+// que VAPID/STRIPCHAT). GMAIL_APP_PASSWORD es una "contraseña de
+// aplicacion" generada en myaccount.google.com/apppasswords, no la
+// contraseña normal de la cuenta.
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const EMAIL_ALERT_ENABLED = !!(GMAIL_USER && GMAIL_APP_PASSWORD);
+const ALERT_EMAIL_TO = 'menajeiner@gmail.com';
+let emailTransporter = null;
+if (EMAIL_ALERT_ENABLED) {
+  emailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  });
+} else {
+  console.log('Respaldo de alertas por correo desactivado (faltan GMAIL_USER o GMAIL_APP_PASSWORD).');
+}
+
+// Fire-and-forget, sin reintentos — es un respaldo de aviso, no dinero. No
+// debe frenar ni tumbar al llamador si Gmail falla o no esta configurado.
+async function sendAlertEmail(subject, body) {
+  if (!EMAIL_ALERT_ENABLED) return;
+  try {
+    await emailTransporter.sendMail({
+      from: GMAIL_USER,
+      to: ALERT_EMAIL_TO,
+      subject: 'Placer Studios — ' + subject,
+      text: body,
+    });
+  } catch (e) {
+    console.error('No se pudo mandar el correo de respaldo:', e.message);
+  }
 }
 // Integracion con la Studio API oficial de Stripchat: opcional. Si faltan las
 // dos variables, el servidor sigue funcionando normal, solo que sin traer los
@@ -378,7 +418,9 @@ async function sendOnlineNotifications(modelUsername) {
 // resolver, y ahora que las modelos tambien pueden suscribirse (para
 // Noticias) hay que ser explicito aqui en vez de mandarla a todos.
 async function sendConnectionAlert(modelUsername, reason) {
-  await sendPushToRole(['administrador', 'ceo'], 'Se cayó la conexión de ' + modelUsername + ': ' + reason, { tag: 'placer-conn-alert' });
+  const msg = 'Se cayó la conexión de ' + modelUsername + ': ' + reason;
+  await sendPushToRole(['administrador', 'ceo'], msg, { tag: 'placer-conn-alert' });
+  sendAlertEmail('Se cayó la conexión de ' + modelUsername, msg).catch(() => {});
 }
 
 // Avisa a los demas suscritos (admin/CEO) cuando se publica una noticia nueva,
@@ -948,6 +990,7 @@ async function sbLogApiError(source, message) {
     body: JSON.stringify({ source, message }),
   }).catch(() => {});
   sendPushToRole('administrador', 'Error en ' + source + ': ' + message, { tag: 'placer-api-error' }).catch(() => {});
+  sendAlertEmail('Error en ' + source, message).catch(() => {});
 }
 
 async function sbFetchLastBroadcastEvent(username) {

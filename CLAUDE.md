@@ -92,7 +92,8 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
   `SESSION_SECRET`; check server.js top-of-file for any others that may
   have been added since (e.g. `VAPID_*` for push notifications,
   `STRIPCHAT_API_KEY`/`STRIPCHAT_STUDIO_USERNAME` for the Stripchat
-  auto-sync — those two are optional, not required to start). Never
+  auto-sync, `GMAIL_USER`/`GMAIL_APP_PASSWORD` for the critical-alert
+  email backup below — all optional, not required to start). Never
   hardcode secret values in source — the server intentionally refuses to
   start without them as env vars. Locally they live in `env.bat` (in
   .gitignore, not in the repo — if missing, regenerate values from the
@@ -504,6 +505,69 @@ don't add a single-table FK to `cb_admins` — there's no clean two-table
 FK in Postgres, so these columns are deliberately left unconstrained at
 the DB level and trusted at the application level instead, matching
 existing pattern for author_username across cb_news_*.
+
+## Email backup for critical alerts (added 2026-09-04)
+
+Push-only alerts have a real gap, found via a real case: the user (role
+`administrador`) got a `chaturbate_stats` HTTP 403 push on his PC (Edge)
+but the same push never showed on his iPhone, even though his Apple Web
+Push subscription for that device was still present and valid in
+`cb_push_subscriptions` (no 404/410 came back, so `sendPushToRole` never
+auto-deleted it — the failure is device-side: iOS silently stops
+delivering to a PWA that's not on the home screen anymore, or has
+notifications toggled off in Settings, without ever telling the server).
+Root cause is unfixable from this codebase — it's an iOS platform
+behavior, not a bug here. The user's actual worry: if a *genuinely*
+serious one lands exactly when his phone's push is silently broken, he
+finds out late or not at all.
+
+**Fix: the two alerts worth waking up for now also go out by email**,
+independent of push and independent of any device's subscription state
+— `sendConnectionAlert` (a model's tracker actually dropped — we stop
+seeing her live tips) and `sbLogApiError` (Chaturbate/Stripchat API
+broken or changed shape). Both still push as before; email is pure
+redundancy, not a replacement. `sendOnlineNotifications` and
+`sendNewsNotification` deliberately do NOT get this — they're not
+"wake up for this" material.
+
+- `sendAlertEmail(subject, body)` in server.js, right after the VAPID
+  setup block. Uses `nodemailer` (new dependency,
+  `npm install nodemailer`) with Gmail SMTP
+  (`nodemailer.createTransport({ service: 'gmail', auth: {...} })`).
+  Destination is hardcoded `ALERT_EMAIL_TO = 'menajeiner@gmail.com'`
+  (the user's own address, not a secret — same address the vigía
+  triggers already email, see below).
+- **Optional, same pattern as VAPID/Stripchat**: needs `GMAIL_USER` +
+  `GMAIL_APP_PASSWORD` env vars (a Gmail *app password* — generated at
+  myaccount.google.com/apppasswords, requires 2-Step Verification on
+  that Google account; NOT the account's normal login password). Without
+  both, `EMAIL_ALERT_ENABLED` is false and the server runs exactly as
+  before, just without this backup — verified by booting a scratch
+  instance both with and without these two vars set (`SOLO_UI=1`, dummy
+  Supabase creds) and confirming a clean boot log either way. Fire-and-
+  forget, no retries, wrapped in try/catch — this is a diagnostic
+  redundancy channel, not money, so it must never throw or block the
+  caller (`sendConnectionAlert`/`sbLogApiError` both already run
+  fire-and-forget themselves).
+- **As of 2026-09-04 these env vars are not yet set anywhere** (not in
+  Render, not local) — the user asked for this to be built, but hadn't
+  generated the app password yet. A future session: check
+  `GMAIL_USER`/`GMAIL_APP_PASSWORD` are actually in Render's Environment
+  tab before assuming this is live; if missing, the feature is dormant
+  by design (see "optional" above), not broken.
+- **Don't confuse this with the vigía's emails** (daily system-health
+  check + the one-shot cashout-hour check, both described further down)
+  — those are sent from *this Claude Code session's own* Gmail MCP
+  access, which only exists while a session is actively running/
+  scheduled. This new mechanism sends straight from the running
+  server.js process on Render, so it fires the instant the real event
+  happens, with no dependency on any Claude session being alive.
+- If a third alert type ever earns "wake up for this" status, wire it
+  the same way: one `sendAlertEmail(...)` call alongside its existing
+  `sendPushToRole(...)` call, fire-and-forget. Don't build a generic
+  every-push-also-emails switch — that would just spam the inbox with
+  low-stakes stuff (online status, news posts) the user explicitly
+  doesn't want waking him up.
 
 ## Chaturbate income beyond public tips — resolved (2026-09-03)
 
