@@ -960,12 +960,33 @@ si al validar ya entraron todas las que tienen horario y ninguna llegó tarde,
 (`cb_attendance_daily_notice` tiene la fecha como primary key, así que el
 segundo intento choca y no repite).
 
-**Aviso de seguridad social:** aparece solo a quien le aplica. Umbral en
-`cb_attendance_settings.late_threshold_minutes`, configurable desde la UI.
-**Arranca en 300 min (5 h) por quincena, que es un número inventado por mí —
-el usuario nunca dijo cuánto. Confirmarlo antes de tratarlo como real.**
-Llegar temprano NO descuenta retrasos de otros días (`sumLateMinutes` solo
-suma los positivos), si no se podría "compensar" un retraso grande.
+**Deuda por retrasos y seguridad social — reglas confirmadas por el usuario
+el 2026-09-04, ya no son inventadas:**
+- **$10.000 COP por cada HORA COMPLETA** de retraso acumulado en la quincena.
+  Se cobra por hora alcanzada, **no proporcional**: 59 minutos acumulados no
+  deben nada, 60 deben una hora entera (`lateDebtHours`/`lateDebtCop` en
+  `chaturbate-lib.js`, con tests).
+- **Pasadas 6 horas (360 min)** acumuladas, la modelo asume su propia
+  seguridad social esa quincena. Antes el umbral era 300 min, que era un
+  número que me inventé como valor de arranque; 360 es el real.
+- Los dos valores son configurables desde Asistencia → Horarios y umbral
+  (`late_threshold_minutes` y `late_hour_fee_cop` en
+  `cb_attendance_settings`). La tarifa se pasa como parámetro a
+  `lateDebtCop`, no está fija dentro de la función.
+- **La deuda NO se resta automáticamente del desprendible por tokens.** Se
+  muestra como su propio total, y la UI dice explícitamente que se descuenta
+  al pagar. Cambiar eso a un descuento automático es una decisión de plata
+  que el usuario no ha pedido — preguntar antes.
+- Llegar temprano NO descuenta retrasos de otros días (`sumLateMinutes` solo
+  suma los positivos), si no se podría "compensar" un retraso grande.
+
+**Separación deliberada tokens / retrasos:** los tokens (ingreso, viene de
+APIs externas) viven en Modelos y Desprendibles; los retrasos y su deuda
+(disciplina, dato interno) viven en Asistencia. Se mantienen separados a
+propósito: mezclarlos haría que una modelo que reclama su pago tenga que
+desenredar dos cosas que no tienen nada que ver. El punto donde se juntan es
+al momento de pagar, y ahí la deuda entra como una línea de descuento aparte,
+no recalculada dentro del desprendible.
 
 **Excusas médicas:** el archivo va en base64 dentro de
 `cb_attendance_excuses` (tope 2.5 MB, solo JPG/PNG/WEBP/PDF, validado en el
@@ -1007,6 +1028,25 @@ pasada, a pedido del usuario):**
   `index.html` a propósito: es una página suelta que tiene que poder abrirse,
   recargarse e imprimirse por su cuenta (tiene `@media print`). **Si cambian
   los colores de marca, cambiarlos en los dos archivos.**
+
+**Barra superior y pestañas compactadas en móvil (2026-09-04, tercera
+pasada):** la barra superior eran cuatro renglones apilados ("ocultar mi
+nombre", "cerrar mis sesiones en todos lados" y un "Salir" de ancho completo)
+que se comían ~200px antes del primer dato; ahora el nombre va en una línea y
+las cuatro acciones quedan en una fila de iconos (`.topbar-actions`,
+`.btnAnon-ico`/`.btnAnon-txt`). Las 6 pestañas pasaron a icono-arriba /
+etiqueta-abajo (`.tabIcon` en columna), que es el patrón estándar de barra
+inferior: **todas siguen con texto visible**, no se repitió el error de dejar
+pestañas solo-icono. **Ojo:** hay JS que antes hacía `textContent` sobre
+`#btnToggleAnon` y `#tabBtnModelos` — ahora escribe sobre el `<span>` interno,
+porque tocar el `textContent` del botón entero borraría su icono.
+
+**Acceso a la hoja de una sola modelo:** cada fila del resumen de admin/CEO
+tiene "Ver su hoja" → `/asistencia.html?modelo=<username>`, que abre la
+planilla ya filtrada. El parámetro solo se aplica si esa modelo existe en la
+lista; un `?modelo=` inventado no deja el selector en un valor fantasma.
+La hoja también trae **"Descargar CSV"**, que exporta las jornadas que se
+están viendo (respeta el filtro) más una sección con la deuda calculada.
 
 **`SOLO_UI=1`** (nuevo en server.js): levanta el servidor sin ningún sondeo
 externo. Es para probar la interfaz desde una instancia suelta en otro puerto

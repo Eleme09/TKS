@@ -271,6 +271,21 @@ function pickWorkDate(nowMs, entryTime, takenDates) {
   return Math.abs(nowMs - schedYesterday) < Math.abs(nowMs - schedToday) ? yesterday : today;
 }
 
+// Deuda por retraso: se cobra por HORA ALCANZADA, no proporcional. 59 minutos
+// de retraso acumulado no deben nada; a los 60 se debe una hora completa.
+// Regla del estudio (confirmada por el usuario 2026-09-04): $10.000 COP por
+// hora, y pasadas las 6 horas acumuladas en la quincena la modelo asume su
+// propia seguridad social. La tarifa y el umbral son configurables — esta
+// función recibe la tarifa en vez de tenerla fija adentro.
+function lateDebtHours(lateMinutes) {
+  if (!lateMinutes || lateMinutes <= 0) return 0;
+  return Math.floor(lateMinutes / 60);
+}
+
+function lateDebtCop(lateMinutes, feePerHourCop) {
+  return lateDebtHours(lateMinutes) * (feePerHourCop || 0);
+}
+
 // Rango de la quincena actual expresado en fechas "YYYY-MM-DD" del estudio.
 // Se calcula sobre la fecha del estudio (no sobre la del servidor) para que la
 // asistencia use exactamente los mismos limites de quincena que el pago, sin
@@ -308,6 +323,8 @@ module.exports = {
   studioScheduledMs,
   studioQuincenaRange,
   pickWorkDate,
+  lateDebtHours,
+  lateDebtCop,
   computeLateMinutes,
   sumLateMinutes,
   getQuincena,

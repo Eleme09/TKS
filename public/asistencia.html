@@ -133,7 +133,10 @@
       <h1>Hoja de asistencia</h1>
       <div class="sub" id="sub">Cargando…</div>
     </div>
-    <a class="back" href="/">← Volver</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="back" id="btnCsv" type="button" style="cursor:pointer; font-family:inherit;">Descargar CSV</button>
+      <a class="back" href="/">← Volver</a>
+    </div>
   </div>
 
   <div id="warning"></div>
@@ -146,6 +149,13 @@
   <div class="card">
     <h2>Jornadas de la quincena</h2>
     <div class="table-wrap"><table id="tabla"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Deuda por retrasos</h2>
+    <div class="meta" id="deudaRegla" style="margin-bottom:12px;"></div>
+    <div class="table-wrap"><table id="tablaDeuda"></table></div>
+    <div id="deudaTotal"></div>
   </div>
 
   <div class="card" id="totalsCard" style="display:none;">
@@ -173,6 +183,9 @@
     totalsCard: document.getElementById('totalsCard'),
     totales: document.getElementById('totales'),
     excusas: document.getElementById('excusas'),
+    deudaRegla: document.getElementById('deudaRegla'),
+    tablaDeuda: document.getElementById('tablaDeuda'),
+    deudaTotal: document.getElementById('deudaTotal'),
   };
 
   var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -320,29 +333,103 @@
     return '<div class="warning">' + icon + '<div>' + body + '</div></div>';
   }
 
+  // ?modelo=nombre abre la hoja ya filtrada por esa modelo. Es lo que usan los
+  // enlaces "Ver su hoja" de la vista de administración, para poder entrar
+  // directo a la planilla de una sola modelo en vez de tener que filtrar a
+  // mano cada vez.
+  function modeloDeLaUrl() {
+    try {
+      return new URLSearchParams(window.location.search).get('modelo') || '';
+    } catch (e) { return ''; }
+  }
+
   function render() {
     var staff = data.role === 'administrador' || data.role === 'ceo';
-    el.sub.textContent = (staff ? 'Todas las modelos' : data.username)
+    var pedida = staff ? modeloDeLaUrl() : '';
+    el.sub.textContent = (staff ? (pedida || 'Todas las modelos') : data.username)
       + ' · del ' + fecha(data.period.start) + ' al ' + fecha(data.period.end)
       + ' · límite de retraso ' + horasMin(data.threshold_minutes);
     el.warning.innerHTML = warningHtml();
 
     if (staff) {
       el.filterCard.style.display = 'block';
-      var prev = el.filtro.value;
+      var prev = el.filtro.value || pedida;
       el.filtro.innerHTML = '<option value="">Todas</option>'
         + (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
-      if (prev) el.filtro.value = prev;
+      // Solo si esa modelo existe: un ?modelo= inventado no debe dejar el
+      // selector en un valor fantasma que muestre la hoja vacia sin explicar
+      // por que.
+      if (prev && (data.models || []).indexOf(prev) !== -1) el.filtro.value = prev;
       el.totalsCard.style.display = 'block';
-      el.totales.innerHTML = (data.totals || []).map(function (t) {
+    }
+    pintarTabla();
+  }
+
+  // Los acumulados y las excusas siguen al filtro: al abrir la hoja de una
+  // modelo puntual no tiene sentido seguir listando a todas.
+  function pintarTotales() {
+    var f = el.filtro.value;
+    var totals = f ? (data.totals || []).filter(function (t) { return t.username === f; }) : (data.totals || []);
+    el.totales.innerHTML = totals.map(function (t) {
         return '<div class="row-item"><div class="row-head">'
           + '<span class="row-name">' + escapeHtml(t.username) + '</span>'
           + (t.owes_social_security ? '<span class="pill rechazada">asume seguridad social</span>' : '<span class="pill validada">al día</span>')
           + '</div><div class="meta">Retraso acumulado: <b>' + horasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated + '</div></div>';
       }).join('') || '<div class="meta">Sin modelos registradas.</div>';
+  }
+
+  function cop(n) {
+    return '$' + Math.round(n || 0).toLocaleString('es-CO');
+  }
+
+  // Deuda por retrasos. Se cobra por HORA ALCANZADA, no proporcional: 59
+  // minutos acumulados no deben nada, 60 deben una hora completa. Pasado el
+  // umbral, la modelo asume su propia seguridad social esa quincena.
+  function pintarDeuda() {
+    var staff = data.role === 'administrador' || data.role === 'ceo';
+    var f = staff ? el.filtro.value : '';
+    var totals = (data.totals || []).filter(function (t) { return f ? t.username === f : true; });
+    var fee = data.late_hour_fee_cop || 0;
+
+    el.deudaRegla.textContent = cop(fee) + ' por cada hora completa de retraso acumulado en la quincena'
+      + ' (una hora empezada no se cobra hasta completarla). Pasadas '
+      + horasMin(data.threshold_minutes) + ' acumuladas, la modelo asume su propia seguridad social.';
+
+    var conDeuda = totals.filter(function (t) { return t.debt_cop > 0 || t.owes_social_security; });
+    if (!conDeuda.length) {
+      el.tablaDeuda.innerHTML = '<tr><td class="muted" style="padding:14px 10px;">Nadie tiene horas de retraso completas esta quincena. Sin deuda.</td></tr>';
+      el.deudaTotal.innerHTML = '';
+      return;
     }
-    pintarTabla();
-    el.excusas.innerHTML = excusasHtml(data.excuses, staff);
+
+    var head = '<tr>' + th('Modelo', 'modelo') + th('Retraso', 'retraso')
+      + '<th title="Horas cobradas" aria-label="Horas cobradas"><span class="th-txt">Horas cobradas</span>'
+      + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.3l3.4 2"/></svg></span></th>'
+      + '<th title="Deuda" aria-label="Deuda"><span class="th-txt">Deuda</span>'
+      + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M16.5 7.2C15.6 6 14 5.4 12 5.4c-2.4 0-4 1.2-4 3s1.6 2.7 4 3.3 4 1.5 4 3.3-1.6 3-4 3c-2 0-3.6-.6-4.5-1.8"/></svg></span></th>'
+      + th('Estado', 'estado') + '</tr>';
+
+    var rows = conDeuda.map(function (t) {
+      return '<tr>'
+        + '<td class="num">' + escapeHtml(t.username) + '</td>'
+        + '<td class="num">' + retrasoHtml(t.late_minutes) + '</td>'
+        + '<td class="num">' + (t.debt_hours || 0) + '</td>'
+        + '<td class="num"><b>' + cop(t.debt_cop) + '</b></td>'
+        + '<td>' + (t.owes_social_security
+            ? '<span class="pill rechazada">asume seguridad social</span>'
+            : '<span class="pill validada">solo la deuda</span>') + '</td>'
+        + '</tr>';
+    }).join('');
+    el.tablaDeuda.innerHTML = head + rows;
+
+    var total = conDeuda.reduce(function (a, t) { return a + (t.debt_cop || 0); }, 0);
+    var horas = conDeuda.reduce(function (a, t) { return a + (t.debt_hours || 0); }, 0);
+    el.deudaTotal.innerHTML = '<div class="row-item" style="margin-top:14px;">'
+      + '<div class="row-head"><span class="row-name">' + (f ? 'Total de ' + escapeHtml(f) : 'Total del estudio') + '</span>'
+      + '<span class="pill rechazada">' + cop(total) + '</span></div>'
+      + '<div class="meta">' + horas + ' hora(s) cobrada(s) a ' + cop(fee) + ' cada una.'
+      + ' Este monto es aparte del desprendible por tokens: se descuenta al pagar, no está restado del total de tokens.</div>'
+      + '</div>';
   }
 
   function pintarTabla() {
@@ -350,8 +437,64 @@
     var f = staff ? el.filtro.value : '';
     var days = f ? data.days.filter(function (d) { return d.username === f; }) : data.days;
     var justs = f ? data.justifications.filter(function (j) { return j.username === f; }) : data.justifications;
+    var excusas = f ? (data.excuses || []).filter(function (e) { return e.username === f; }) : data.excuses;
     el.tabla.innerHTML = tablaHtml(days, staff, justs);
+    el.excusas.innerHTML = excusasHtml(excusas, staff && !f);
+    pintarDeuda();
+    if (staff) pintarTotales();
   }
+
+  // CSV de la hoja: las mismas jornadas que se están viendo (respeta el
+  // filtro), más una sección con la deuda calculada.
+  function descargarCsv() {
+    if (!data) return;
+    var staff = data.role === 'administrador' || data.role === 'ceo';
+    var f = staff ? el.filtro.value : '';
+    var days = f ? data.days.filter(function (d) { return d.username === f; }) : data.days;
+    var index = justIndex(f ? data.justifications.filter(function (j) { return j.username === f; }) : data.justifications);
+
+    var filas = [['Dia', 'Modelo', 'Entrada', 'Reporto', 'Salida', 'Retraso (min)', 'Problematica', 'Justificante', 'Estado']];
+    days.forEach(function (d) {
+      var mine = index[d.username + '|' + d.work_date] || [];
+      filas.push([
+        d.work_date,
+        d.username,
+        d.official_at ? hora(d.official_at) : '',
+        hora(d.reported_at),
+        d.exit_at ? hora(d.exit_at) : '',
+        d.late_minutes == null ? '' : d.late_minutes,
+        mine.map(function (j) { return kindShort(j.kind); }).join(' | '),
+        mine.map(function (j) { return j.body; }).join(' | '),
+        d.status,
+      ]);
+    });
+
+    filas.push([]);
+    filas.push(['Deuda por retrasos', 'tarifa por hora', data.late_hour_fee_cop, 'umbral seguridad social (min)', data.threshold_minutes]);
+    filas.push(['Modelo', 'Retraso (min)', 'Horas cobradas', 'Deuda (COP)', 'Asume seguridad social']);
+    (data.totals || []).filter(function (t) { return f ? t.username === f : true; }).forEach(function (t) {
+      filas.push([t.username, t.late_minutes, t.debt_hours, t.debt_cop, t.owes_social_security ? 'si' : 'no']);
+    });
+
+    var csv = filas.map(function (row) {
+      return row.map(function (cell) {
+        var v = String(cell == null ? '' : cell);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(',');
+    }).join('\r\n');
+
+    var blob = new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'asistencia_' + (f || 'todas') + '_' + data.period.start + '_a_' + data.period.end + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('btnCsv').addEventListener('click', descargarCsv);
 
   el.filtro.addEventListener('change', pintarTabla);
   document.addEventListener('click', function (e) {

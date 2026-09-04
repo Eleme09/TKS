@@ -360,13 +360,17 @@ create table if not exists public.cb_attendance_excuses (
 create index if not exists cb_attendance_excuses_user on public.cb_attendance_excuses (username, created_at desc);
 
 -- Fila unica (id = 1). El umbral es cuanto retraso acumulado en la quincena
--- hace que la modelo asuma su propia seguridad social.
+-- hace que la modelo asuma su propia seguridad social (6 h, confirmado por el
+-- usuario 2026-09-04). La tarifa se cobra por cada HORA COMPLETA de retraso
+-- acumulado, no proporcional: 59 minutos no deben nada.
 create table if not exists public.cb_attendance_settings (
   id                     int primary key default 1,
-  late_threshold_minutes int not null default 300,
+  late_threshold_minutes int not null default 360,
+  late_hour_fee_cop      int not null default 10000,
   updated_at             timestamptz not null default now()
 );
-insert into public.cb_attendance_settings (id, late_threshold_minutes) values (1, 300) on conflict (id) do nothing;
+insert into public.cb_attendance_settings (id, late_threshold_minutes, late_hour_fee_cop)
+values (1, 360, 10000) on conflict (id) do nothing;
 
 -- Evita que el aviso de "todas entraron a tiempo" salga repetido: la fecha es
 -- la primary key, asi que el segundo intento del dia choca y no manda nada.

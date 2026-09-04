@@ -16,7 +16,7 @@ const {
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
   studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
-  computeLateMinutes, sumLateMinutes,
+  computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -683,18 +683,25 @@ async function sbInsertAttendanceExcuse(row) {
   return rows.length ? rows[0] : null;
 }
 
+const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000 };
+
 async function sbFetchAttendanceSettings() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings?id=eq.1&select=*', { headers: SB_HEADERS });
-  if (!r.ok) return { late_threshold_minutes: 300 };
+  if (!r.ok) return { ...ATTENDANCE_DEFAULTS };
   const rows = await r.json();
-  return rows.length ? rows[0] : { late_threshold_minutes: 300 };
+  return rows.length ? { ...ATTENDANCE_DEFAULTS, ...rows[0] } : { ...ATTENDANCE_DEFAULTS };
 }
 
-async function sbUpdateAttendanceSettings(thresholdMinutes) {
+async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ id: 1, late_threshold_minutes: thresholdMinutes, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({
+      id: 1,
+      late_threshold_minutes: thresholdMinutes,
+      late_hour_fee_cop: feeCop,
+      updated_at: new Date().toISOString(),
+    }),
   });
   return r.ok;
 }
@@ -731,7 +738,8 @@ async function buildAttendancePayload(session) {
     isStaff ? sbFetchAllModels() : Promise.resolve([]),
   ]);
 
-  const threshold = settings.late_threshold_minutes || 300;
+  const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
+  const feeCop = settings.late_hour_fee_cop != null ? settings.late_hour_fee_cop : ATTENDANCE_DEFAULTS.late_hour_fee_cop;
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s.entry_time;
 
@@ -748,6 +756,9 @@ async function buildAttendancePayload(session) {
       late_minutes: lateMinutes,
       entry_time: scheduleByUser[username] || null,
       owes_social_security: lateMinutes >= threshold,
+      // La deuda se cobra por hora alcanzada, no proporcional (ver lateDebtCop).
+      debt_hours: lateDebtHours(lateMinutes),
+      debt_cop: lateDebtCop(lateMinutes, feeCop),
       days_validated: mine.filter((d) => d.status === 'validada').length,
     };
   });
@@ -760,6 +771,7 @@ async function buildAttendancePayload(session) {
     now_time: studioTimeStr(now),
     period,
     threshold_minutes: threshold,
+    late_hour_fee_cop: feeCop,
     schedule,
     days,
     justifications,
@@ -2549,10 +2561,13 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const hours = Number(body.threshold_hours);
     if (!isFinite(hours) || hours <= 0 || hours > 200) return sendJson(res, 400, { error: 'Umbral inválido' });
+    const fee = Number(body.fee_cop);
+    if (!isFinite(fee) || fee < 0 || fee > 10000000) return sendJson(res, 400, { error: 'Tarifa por hora inválida' });
     const minutes = Math.round(hours * 60);
-    const ok = await sbUpdateAttendanceSettings(minutes);
+    const feeCop = Math.round(fee);
+    const ok = await sbUpdateAttendanceSettings(minutes, feeCop);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
-    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes });
+    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes, fee_cop: feeCop });
     return sendJson(res, 200, { ok: true });
   }
 

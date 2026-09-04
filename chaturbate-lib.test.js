@@ -345,3 +345,28 @@ describe('asistencia — a qué turno pertenece una llegada (pickWorkDate)', () 
     assert.equal(lib.pickWorkDate(at('2026-09-05T05:30:00Z'), null, []), '2026-09-05');
   });
 });
+
+describe('asistencia — deuda por retraso (se cobra por hora alcanzada)', () => {
+  test('menos de una hora acumulada no debe nada', () => {
+    assert.equal(lib.lateDebtHours(59), 0);
+    assert.equal(lib.lateDebtCop(59, 10000), 0);
+  });
+  test('la hora exacta ya cuenta como hora alcanzada', () => {
+    assert.equal(lib.lateDebtHours(60), 1);
+    assert.equal(lib.lateDebtCop(60, 10000), 10000);
+  });
+  test('no es proporcional: 119 minutos siguen siendo una sola hora', () => {
+    assert.equal(lib.lateDebtHours(119), 1);
+    assert.equal(lib.lateDebtCop(119, 10000), 10000);
+  });
+  test('6 horas justas: 6 horas de deuda', () => {
+    assert.equal(lib.lateDebtCop(360, 10000), 60000);
+  });
+  test('retraso negativo (llegó temprano) o cero no genera deuda', () => {
+    assert.equal(lib.lateDebtCop(-200, 10000), 0);
+    assert.equal(lib.lateDebtCop(0, 10000), 0);
+  });
+  test('la tarifa es un parámetro, no un número fijo adentro', () => {
+    assert.equal(lib.lateDebtCop(180, 25000), 75000);
+  });
+});
