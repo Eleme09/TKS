@@ -2473,7 +2473,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
     if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
-    const kinds = ['retraso', 'conexion', 'room', 'salud', 'otro'];
+    const kinds = ['retraso', 'internet', 'conexion', 'room', 'salud', 'otro'];
     const kind = kinds.includes(body.kind) ? body.kind : 'otro';
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
     const ok = await sbInsertAttendanceJustification({ username: session.username, work_date: workDate, kind, body: text });

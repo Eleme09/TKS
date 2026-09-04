@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hoja de asistencia — Placer Studios</title>
+<link rel="icon" href="/logo-icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Página independiente: la hoja de asistencia sola, para verla completa sin
+     el resto de la aplicación alrededor. Repite los tokens de index.html a
+     propósito — es una página suelta que tiene que poder abrirse, recargarse
+     e imprimirse por su cuenta, sin depender de que el resto de la app haya
+     cargado. Si cambian los colores de marca, cambiarlos en los dos lados. */
+  :root {
+    --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d;
+    --border: #242427; --border-soft: #1c1c1f;
+    --text: #f5f5f7; --muted: #9a9aa2; --muted-dim: #85858d;
+    --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4);
+    --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
+    --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
+    --font-display: 'Unbounded', 'Arial Narrow', sans-serif;
+    --font-body: 'Hanken Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Quicksand', 'Hanken Grotesk', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body);
+    padding: 28px clamp(14px, 4vw, 44px) 60px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
+  h1 { font-family: var(--font-display); font-size: clamp(18px, 3.2vw, 25px); margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { font-size: 12.5px; color: var(--muted); }
+  .back {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--pink); text-decoration: none; border: 1px solid var(--pink-line);
+    background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
+    padding: 9px 15px; border-radius: 10px; white-space: nowrap;
+  }
+  .card {
+    background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%);
+    border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 14px;
+  }
+  h2 { font-family: var(--font-display); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
+  label { display: block; font-size: 11px; color: var(--muted-dim); margin: 0 0 7px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700; }
+  select {
+    width: 100%; max-width: 340px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-size: 16px; font-family: var(--font-body);
+  }
+  .meta { font-size: 12px; color: var(--muted-dim); line-height: 1.55; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th {
+    text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted-dim); font-weight: 700; padding: 9px 10px;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--font-mono); white-space: nowrap; }
+  .muted { color: var(--muted-dim); }
+  .late { color: var(--bad); font-weight: 700; }
+  .early { color: var(--good); font-weight: 700; }
+  .ontime { color: var(--muted); font-weight: 700; }
+  .sub2 { font-size: 10px; color: var(--muted-dim); margin-top: 2px; white-space: nowrap; }
+  .pill { font-size: 10px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; display: inline-block; white-space: nowrap; }
+  .pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
+  .pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
+  .pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
+  .tag {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+    background: var(--pink-soft); color: var(--pink); border: 1px solid var(--pink-line);
+  }
+  .just-col { max-width: 280px; }
+  /* Sin recortar, un justificante largo estira la fila entera y deja el resto
+     de las columnas con un hueco enorme al lado. Se recorta a dos líneas y se
+     abre al tocarlo. */
+  .just-cell {
+    line-height: 1.45; cursor: pointer;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .just-cell.open { -webkit-line-clamp: unset; overflow: visible; }
+  .th-ico { display: none; }
+  .th-ico svg { display: block; }
+
+  .warning {
+    background: linear-gradient(180deg, rgba(255,107,107,0.14), rgba(255,107,107,0.05));
+    border: 1px solid rgba(255,107,107,0.4); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .warning svg { flex: 0 0 auto; color: var(--bad); }
+  .warning b { color: var(--bad); }
+  .row-item { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .row-item:last-child { margin-bottom: 0; }
+  .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .row-name { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+  a.file { color: var(--pink); font-size: 12.5px; }
+
+  @media (max-width: 640px) {
+    /* Mismo criterio que en la app: en el teléfono los títulos de texto a
+       10px se ven apretados, así que la cabecera pasa a ser el ícono. El
+       nombre real sigue en title/aria-label. */
+    th { padding: 10px 8px; text-align: center; }
+    .th-txt { display: none; }
+    .th-ico { display: inline-flex; color: var(--muted); }
+    table { font-size: 12px; }
+    td { padding: 9px 8px; }
+    .just-col { max-width: 170px; }
+    td:first-child, th:first-child { position: sticky; left: 0; background: var(--surface); }
+    th:first-child { z-index: 1; }
+  }
+
+  @media print {
+    body { background: #fff; color: #000; padding: 0; }
+    .card { background: #fff; border: 1px solid #ccc; }
+    .back, select, label { display: none; }
+    .th-txt { display: inline !important; }
+    .th-ico { display: none !important; }
+    th, .muted, .meta { color: #444; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Hoja de asistencia</h1>
+      <div class="sub" id="sub">Cargando…</div>
+    </div>
+    <a class="back" href="/">← Volver</a>
+  </div>
+
+  <div id="warning"></div>
+
+  <div class="card" id="filterCard" style="display:none;">
+    <label for="filtro">Modelo</label>
+    <select id="filtro"></select>
+  </div>
+
+  <div class="card">
+    <h2>Jornadas de la quincena</h2>
+    <div class="table-wrap"><table id="tabla"></table></div>
+  </div>
+
+  <div class="card" id="totalsCard" style="display:none;">
+    <h2>Retraso acumulado</h2>
+    <div id="totales"></div>
+  </div>
+
+  <div class="card">
+    <h2>Excusas médicas</h2>
+    <div id="excusas"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var data = null;
+  var el = {
+    sub: document.getElementById('sub'),
+    warning: document.getElementById('warning'),
+    filterCard: document.getElementById('filterCard'),
+    filtro: document.getElementById('filtro'),
+    tabla: document.getElementById('tabla'),
+    totalsCard: document.getElementById('totalsCard'),
+    totales: document.getElementById('totales'),
+    excusas: document.getElementById('excusas'),
+  };
+
+  var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Igual que en la app: las horas se muestran siempre en hora del estudio
+  // (Colombia, UTC-5 fijo), no en la del dispositivo, para que el mismo
+  // registro se vea igual desde cualquier lado.
+  function hora(iso) {
+    if (!iso) return '—';
+    var d = new Date(new Date(iso).getTime() - 5 * 3600000);
+    var hh = d.getUTCHours();
+    var mm = String(d.getUTCMinutes()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'p.m.' : 'a.m.';
+    return (hh % 12 === 0 ? 12 : hh % 12) + ':' + mm + ' ' + ampm;
+  }
+
+  function fecha(dateStr) {
+    if (!dateStr) return '—';
+    var p = String(dateStr).split('-');
+    return p.length < 3 ? dateStr : Number(p[2]) + ' ' + (MESES[Number(p[1]) - 1] || '');
+  }
+
+  function horasMin(total) {
+    var m = Math.abs(Math.round(total || 0));
+    var h = Math.floor(m / 60), r = m % 60;
+    if (!h) return r + ' min';
+    return r ? h + ' h ' + r + ' min' : h + ' h';
+  }
+
+  function retrasoHtml(min) {
+    if (min == null) return '<span class="muted">—</span>';
+    if (min > 0) return '<span class="late">+' + horasMin(min) + '</span>';
+    if (min < 0) return '<span class="early">−' + horasMin(min) + '</span>';
+    return '<span class="ontime">a tiempo</span>';
+  }
+
+  function estadoHtml(status) {
+    var s = status || 'pendiente';
+    var label = s === 'validada' ? 'validada' : (s === 'rechazada' ? 'rechazada' : 'por validar');
+    return '<span class="pill ' + s + '">' + label + '</span>';
+  }
+
+  function kindShort(kind) {
+    var map = { retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión', room: 'Room', salud: 'Salud', otro: 'Otro' };
+    return map[kind] || 'Otro';
+  }
+
+  var ICONS = {
+    dia: '<path d="M4 6h16v14H4z"/><path d="M8 3v5M16 3v5M4 11h16"/>',
+    modelo: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/>',
+    entrada: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    salida: '<path d="M14 4h5v16h-5"/><path d="M4 12h9M9.5 8.5 13 12l-3.5 3.5"/>',
+    retraso: '<path d="M7 3h10M7 21h10"/><path d="M7 3c0 4 5 6 5 9s-5 5-5 9"/><path d="M17 3c0 4-5 6-5 9s5 5 5 9"/>',
+    problema: '<path d="M12 4 21 20H3z"/><path d="M12 10.5v4"/><circle cx="12" cy="17.4" r="0.9" fill="currentColor" stroke="none"/>',
+    justificante: '<path d="M4 5h16v11H9l-4 4z"/><path d="M8 9h8M8 12.5h5"/>',
+    estado: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  };
+
+  function th(label, key) {
+    return '<th title="' + label + '" aria-label="' + label + '">'
+      + '<span class="th-txt">' + label + '</span>'
+      + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + ICONS[key] + '</svg></span></th>';
+  }
+
+  function justIndex(list) {
+    var index = {};
+    (list || []).forEach(function (j) {
+      var key = j.username + '|' + j.work_date;
+      (index[key] = index[key] || []).push(j);
+    });
+    return index;
+  }
+
+  function tablaHtml(days, withName, justs) {
+    var cols = withName ? 8 : 7;
+    if (!days.length) return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
+    var index = justIndex(justs);
+    var head = '<tr>' + th('Día', 'dia') + (withName ? th('Modelo', 'modelo') : '')
+      + th('Entrada', 'entrada') + th('Salida', 'salida') + th('Retraso', 'retraso')
+      + th('Problemática', 'problema') + th('Justificante', 'justificante') + th('Estado', 'estado') + '</tr>';
+
+    var rows = days.map(function (d) {
+      var mine = index[d.username + '|' + d.work_date] || [];
+      var problemas = mine.length
+        ? mine.map(function (j) { return '<span class="tag">' + kindShort(j.kind) + '</span>'; }).join(' ')
+        : '<span class="muted">—</span>';
+      var textos = mine.length
+        ? mine.map(function (j) { return '<div class="just-cell">' + escapeHtml(j.body) + '</div>'; }).join('')
+        : '<span class="muted">—</span>';
+      var entrada;
+      if (!d.official_at) entrada = '<span class="muted">—</span>';
+      else if (d.official_source && d.official_source !== 'reportada') {
+        entrada = hora(d.official_at) + '<div class="sub2">reportó ' + hora(d.reported_at) + '</div>';
+      } else entrada = hora(d.official_at);
+
+      return '<tr>'
+        + '<td class="num">' + fecha(d.work_date) + '</td>'
+        + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
+        + '<td class="num">' + entrada + '</td>'
+        + '<td class="num">' + (d.exit_at ? hora(d.exit_at) : '<span class="muted">—</span>') + '</td>'
+        + '<td class="num">' + retrasoHtml(d.late_minutes) + '</td>'
+        + '<td>' + problemas + '</td>'
+        + '<td class="just-col">' + textos + '</td>'
+        + '<td>' + estadoHtml(d.status) + '</td>'
+        + '</tr>';
+    }).join('');
+    return head + rows;
+  }
+
+  function excusasHtml(list, withName) {
+    if (!list || !list.length) return '<div class="meta">Sin excusas subidas.</div>';
+    return list.map(function (e) {
+      var kb = Math.max(1, Math.round((e.size_bytes || 0) / 1024));
+      return '<div class="row-item">'
+        + '<div class="row-head"><span class="row-name">' + (withName ? escapeHtml(e.username) + ' · ' : '') + fecha(e.work_date) + '</span>'
+        + '<span class="meta">' + kb + ' KB</span></div>'
+        + '<a class="file" href="/api/attendance/excuse?id=' + e.id + '" target="_blank" rel="noopener">' + escapeHtml(e.filename) + '</a>'
+        + (e.note ? '<div class="meta" style="margin-top:6px;">' + escapeHtml(e.note) + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+
+  function warningHtml() {
+    var owing = (data.totals || []).filter(function (t) { return t.owes_social_security; });
+    if (!owing.length) return '';
+    var icon = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+      + '<path d="M12 3 22 20H2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
+      + '<path d="M12 10v4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+      + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
+    var body;
+    if (data.role === 'modelo') {
+      body = 'Llevas <b>' + horasMin(owing[0].late_minutes) + '</b> de retraso acumulado y el límite es '
+        + horasMin(data.threshold_minutes) + '. Esta quincena tu seguridad social la asumes tú.';
+    } else {
+      body = 'Pasaron el límite de ' + horasMin(data.threshold_minutes) + ': '
+        + owing.map(function (t) { return '<b>' + escapeHtml(t.username) + '</b> (' + horasMin(t.late_minutes) + ')'; }).join(', ') + '.';
+    }
+    return '<div class="warning">' + icon + '<div>' + body + '</div></div>';
+  }
+
+  function render() {
+    var staff = data.role === 'administrador' || data.role === 'ceo';
+    el.sub.textContent = (staff ? 'Todas las modelos' : data.username)
+      + ' · del ' + fecha(data.period.start) + ' al ' + fecha(data.period.end)
+      + ' · límite de retraso ' + horasMin(data.threshold_minutes);
+    el.warning.innerHTML = warningHtml();
+
+    if (staff) {
+      el.filterCard.style.display = 'block';
+      var prev = el.filtro.value;
+      el.filtro.innerHTML = '<option value="">Todas</option>'
+        + (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      if (prev) el.filtro.value = prev;
+      el.totalsCard.style.display = 'block';
+      el.totales.innerHTML = (data.totals || []).map(function (t) {
+        return '<div class="row-item"><div class="row-head">'
+          + '<span class="row-name">' + escapeHtml(t.username) + '</span>'
+          + (t.owes_social_security ? '<span class="pill rechazada">asume seguridad social</span>' : '<span class="pill validada">al día</span>')
+          + '</div><div class="meta">Retraso acumulado: <b>' + horasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated + '</div></div>';
+      }).join('') || '<div class="meta">Sin modelos registradas.</div>';
+    }
+    pintarTabla();
+    el.excusas.innerHTML = excusasHtml(data.excuses, staff);
+  }
+
+  function pintarTabla() {
+    var staff = data.role === 'administrador' || data.role === 'ceo';
+    var f = staff ? el.filtro.value : '';
+    var days = f ? data.days.filter(function (d) { return d.username === f; }) : data.days;
+    var justs = f ? data.justifications.filter(function (j) { return j.username === f; }) : data.justifications;
+    el.tabla.innerHTML = tablaHtml(days, staff, justs);
+  }
+
+  el.filtro.addEventListener('change', pintarTabla);
+  document.addEventListener('click', function (e) {
+    var cell = e.target.closest && e.target.closest('.just-cell');
+    if (cell) cell.classList.toggle('open');
+  });
+
+  fetch('/api/attendance').then(function (r) {
+    if (r.status === 401) {
+      el.sub.innerHTML = 'Tu sesión no está activa. <a class="file" href="/">Inicia sesión</a> y vuelve a abrir esta hoja.';
+      el.tabla.innerHTML = '';
+      return null;
+    }
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }).then(function (d) {
+    if (!d) return;
+    data = d;
+    render();
+  }).catch(function () {
+    el.sub.textContent = 'No se pudo cargar la hoja. Recarga la página.';
+  });
+})();
+</script>
+</body>
+</html>

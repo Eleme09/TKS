@@ -980,6 +980,34 @@ diario. Pasó el 2026-09-04 con dos cuentas `qa_asist_*`; las filas se borraron
 a mano. Si vuelves a crear modelos de prueba, bórralas rápido y revisa
 `cb_api_errors` después.
 
+**Tabla estilo planilla + `public/asistencia.html` (2026-09-04, segunda
+pasada, a pedido del usuario):**
+- Las tablas de jornadas ahora traen **Día · [Modelo] · Entrada · Salida ·
+  Retraso · Problemática · Justificante · Estado**. "Problemática" es el
+  `kind` de la justificación (Retraso / Internet / Conexión / Room / Salud /
+  Otro — se agregó `internet` a la lista) y "Justificante" es el texto, ambos
+  cruzados por `username|work_date` contra `cb_attendance_justifications`.
+  La columna Entrada muestra la hora que cuenta y, si el admin la corrigió,
+  debajo en chico lo que la modelo había reportado — sin eso se pierde la
+  única pista visible de que hubo corrección.
+- **Encabezados-ícono en móvil** (`attTh()` + `.th-txt`/`.th-ico`): bajo 640px
+  el texto del `<th>` se oculta y queda el ícono de la columna. El usuario
+  pidió esto porque los títulos a 10px "parecen metidos a la fuerza" en el
+  teléfono. El nombre real queda siempre en `title`/`aria-label`, así que el
+  ícono nunca es la única pista. La primera columna queda `position: sticky`
+  para no perder de vista el día al desplazar de lado.
+- Un justificante largo se recorta a dos líneas (`-webkit-line-clamp`) y se
+  abre al tocarlo. **Sin ese recorte una fila con texto largo estira toda la
+  tabla** y deja las demás columnas con un hueco enorme al lado — pasó y se
+  vio en las capturas antes de arreglarlo.
+- **`public/asistencia.html`**: la hoja sola, como página independiente,
+  abierta desde el botón "Abrir la hoja completa" (`target="_blank"`). Usa la
+  misma sesión (cookie) y el mismo `GET /api/attendance`; si no hay sesión
+  muestra un aviso en vez de romperse. Repite los tokens de color/fuentes de
+  `index.html` a propósito: es una página suelta que tiene que poder abrirse,
+  recargarse e imprimirse por su cuenta (tiene `@media print`). **Si cambian
+  los colores de marca, cambiarlos en los dos archivos.**
+
 **`SOLO_UI=1`** (nuevo en server.js): levanta el servidor sin ningún sondeo
 externo. Es para probar la interfaz desde una instancia suelta en otro puerto
 sin duplicar el tráfico a Chaturbate — dos instancias sondeando lo mismo es
