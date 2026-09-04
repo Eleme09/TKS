@@ -948,6 +948,14 @@ suma los positivos), si no se podría "compensar" un retraso grande.
 servidor). Es más simple que un bucket aparte para el volumen real; si esa
 tabla crece mucho, esa es la señal para mudarlo a almacenamiento de archivos.
 
+**Gotcha al probar con cuentas falsas:** una fila de prueba en `cb_models` con
+`role: 'modelo'` la levanta el poller de Stripchat **de producción** (no el
+scratch), que le pide sus ganancias y se come un 404 por modelo por ciclo,
+ensuciando `cb_api_errors` y pudiendo disparar una falsa alarma del vigía
+diario. Pasó el 2026-09-04 con dos cuentas `qa_asist_*`; las filas se borraron
+a mano. Si vuelves a crear modelos de prueba, bórralas rápido y revisa
+`cb_api_errors` después.
+
 **`SOLO_UI=1`** (nuevo en server.js): levanta el servidor sin ningún sondeo
 externo. Es para probar la interfaz desde una instancia suelta en otro puerto
 sin duplicar el tráfico a Chaturbate — dos instancias sondeando lo mismo es
