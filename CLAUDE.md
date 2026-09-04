@@ -641,31 +641,48 @@ evidence):**
      seeds `last_balance` with no tick (no way to know how much of a
      pre-existing balance was already counted elsewhere).
    - **Dense polling before the daily cashout**: `isNearChaturbateCashout`
-     triggers ~20s polling instead of the normal ~2min cadence, to catch
-     the highest possible balance right before it's zeroed. **La ventana
-     es 04:15–04:45 UTC** (`CHATURBATE_CASHOUT_UTC_HOUR/MINUTE` = 4:45,
-     `CASHOUT_WINDOW_MINUTES` = 30, en `chaturbate-lib.js`).
-     **Corregido 2026-09-04 contra datos reales — la versión anterior
-     (04:30, ventana de 12 min → 04:18–04:30) estaba mal.** El 21:30 del
-     CSV (reloj US-Pacific de Chaturbate) = 04:30 UTC es de donde salió
-     esa primera hipótesis, pero el primer retiro realmente observado
-     desde que existe el sondeo de balance cayó **entre 04:38:40 y
-     04:40:40 UTC**: las 3 modelos con saldo ese día (jax_f00x 1314→24,
-     abigail_f00x 1925→0, pinky_f00x 420→2) se detectaron todas en el
-     mismo ciclo, a las 04:40:40, y el ciclo anterior fuera de ventana
-     corre 2 min antes. O sea ~10 min **después** de las 04:30 — con la
-     ventana vieja, el sondeo denso ya estaba cerrado justo cuando el
-     balance se vaciaba de verdad. Lo más probable es que el 21:30 del
-     CSV sea el momento *lógico* del corte y el vaciado real tarde unos
-     minutos. La ventana nueva cubre las dos cosas, con margen.
-     **Es una sola observación**: si se acumulan más días en
-     `cb_balance_resets` y se concentran en una hora más precisa, se
-     puede angostar. Verificar siempre contra
-     `cb_balance_resets.detected_at`, nunca adivinar una hora nueva.
+     sube el sondeo a **cada 60s** (no 20s, ver abajo) en la ventana
+     **04:18–04:30 UTC** (`CHATURBATE_CASHOUT_UTC_HOUR/MINUTE` = 4:30,
+     `CASHOUT_WINDOW_MINUTES` = 12, en `chaturbate-lib.js`), para leer el
+     balance más alto posible antes de que se vacíe. La hora sale del CSV
+     real: los retiros figuran ~21:30 (reloj US-Pacific de Chaturbate) y
+     la web se lo muestra al usuario colombiano como 11:30 p.m. (UTC-5) —
+     el mismo instante, 04:30 UTC.
+   - **Incidente y falsa alarma del 2026-09-04 — leer antes de tocar esto
+     otra vez.** La primera noche que corrió el sondeo denso (cada 20s ×
+     6 modelos = 18 consultas/min) **Chaturbate nos devolvió HTTP 403 a
+     todo, de 04:23:00 a 04:40:40** — 174 errores en `cb_api_errors`,
+     todas las modelos, todas las consultas. Dos consecuencias:
+     1. **El bloqueo cayó justo encima del corte diario**, que es
+        exactamente el momento que la ventana densa existe para no
+        perderse. Última lectura buena antes: 04:21:40. Siguiente:
+        04:40:40. 19 minutos ciegos.
+     2. **Se sacó una conclusión falsa de eso.** Como los tres retiros
+        (jax_f00x 1314→24, abigail_f00x 1925→0, pinky_f00x 420→2)
+        quedaron con `detected_at` = 04:40:40, pareció que el corte real
+        era ~10 min más tarde de lo asumido, y se movió la ventana a
+        04:15–04:45. **Estaba mal**: las 04:40:40 son solo el momento en
+        que la API volvió a responder, no el del corte. El vaciado ocurrió
+        en algún punto de la ventana ciega, que incluye las 04:30. Ya se
+        revirtió. **Regla: un `detected_at` de `cb_balance_resets` solo
+        significa algo si hubo lecturas exitosas continuas antes — cruzar
+        SIEMPRE contra `cb_api_errors` en esa franja antes de concluir
+        nada sobre la hora.**
+     Arreglos que quedaron: sondeo denso a 60s en vez de 20s
+     (`BALANCE_DENSE_EVERY_TICKS`) — y no se pierde nada, porque **la
+     propia Stats API se refresca sola una vez cada 5 minutos** según la
+     documentación de Chaturbate, así que las consultas cada 20s no daban
+     ni un dato extra, solo bloqueo; y un cooldown de 5 min ante un
+     403/429 (`BALANCE_RATE_LIMIT_COOLDOWN_MS` +
+     `chaturbateRateLimitedUntil`) para dejar de insistir en vano — ese
+     día se siguió golpeando la API 17 minutos seguidos, lo que
+     probablemente estiró el bloqueo. **No vuelvas a subir la frecuencia
+     del sondeo "para no perderse el pico": eso es justamente lo que
+     provocó perdérselo.**
      Ojo también: los `to_balance` de ese retiro fueron 24, 0 y 2 — no
-     todos exactamente 0 como decía la nota vieja del CSV; son propinas
-     que entraron entre el vaciado y el momento en que el sondeo lo
-     detectó.
+     todos exactamente 0 como dice la nota del CSV más arriba; son
+     propinas que entraron entre el vaciado y el momento en que el sondeo
+     lo detectó.
    - `pollChaturbateBalances` has a `balancePollRunning` reentrancy
      guard (added in the 2026-09-03 code-review pass) — without it, a
      slow poll cycle during the dense 20s window could overlap the next
@@ -789,13 +806,22 @@ avisa eso en el chat en vez de fallar en silencio, y no reintenta el
 envío por su cuenta.
 
 Trigger actual: `trig_01BXcfPNvAetGc9gcNcJUa7m` ("Vigía diario del
-sistema") y `trig_01Wn2Q8ZTrL6dpzJ6bx4PPuf` ("Verificar hora real del
-retiro diario de Chaturbate", one-shot, fires 2026-09-04T04:40Z). Si
-hace falta agregar una quinta señal al chequeo diario o cambiar el
-formato del correo, `update_trigger` con el prompt completo (reemplaza
-el anterior entero, no es un parche) — no crear un trigger nuevo para
-cada señal nueva, un solo chequeo diario que las cubra todas es más
-fácil de mantener que varios sueltos.
+sistema"). El one-shot `trig_01Wn2Q8ZTrL6dpzJ6bx4PPuf` ("Verificar hora
+real del retiro diario de Chaturbate") **ya se disparó el 2026-09-04 a
+las 04:40Z y se auto-deshabilitó** — no existe más como pendiente; lo
+que encontró (y la conclusión equivocada que sacó) está en la sección
+del incidente del 2026-09-04, más arriba. Si hace falta agregar una
+quinta señal al chequeo diario o cambiar el formato del correo,
+`update_trigger` con el prompt completo (reemplaza el anterior entero,
+no es un parche) — no crear un trigger nuevo para cada señal nueva, un
+solo chequeo diario que las cubra todas es más fácil de mantener que
+varios sueltos.
+
+**Señal nueva que conviene que cubra el vigía diario (a partir del
+incidente del 2026-09-04):** un pico de `cb_api_errors` con HTTP 403/429
+en `chaturbate_stats` — no es "una API que cambió", es Chaturbate
+limitándonos por consultar de más, y el síntoma es una ventana ciega en
+el balance justo cuando más importa.
 
 ## Auditoría de diseño / móvil (2026-09-03)
 

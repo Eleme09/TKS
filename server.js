@@ -70,6 +70,18 @@ const CHATURBATE_STATS_BASE = 'https://chaturbate.com/statsapi/';
 // por que es 04:30 UTC y no 21:30/23:30.
 const BALANCE_TICK_MS = 20 * 1000;          // latido base del sondeo
 const BALANCE_NORMAL_EVERY_TICKS = 6;       // fuera de la ventana: cada 2 min
+// Dentro de la ventana pre-retiro: cada 60s, NO cada 20s. El 2026-09-04 el
+// sondeo cada 20s (6 modelos x 3 consultas/min = 18 req/min) hizo que
+// Chaturbate nos devolviera HTTP 403 a todo desde las 04:23 hasta las 04:40 —
+// justo encima del corte diario, que es exactamente el momento que la ventana
+// densa existe para no perderse. Como la propia API se refresca sola cada 5
+// minutos (ver la nota de abajo), sondear cada 20s no aportaba ni un dato
+// extra: era solo la forma mas rapida de que nos bloquearan.
+const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
+// Si la API contesta 403/429 (limite de consultas), dejar de insistir por un
+// rato en vez de seguir golpeando: ese dia se siguio consultando en vano
+// durante 17 minutos, lo que probablemente estiro el bloqueo.
+const BALANCE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
 // Nota honesta sobre el limite: la Stats API de Chaturbate se refresca sola
 // "una vez cada 5 minutos" (su documentacion oficial), asi que sondear cada 20s
 // no da mas resolucion real — lo que asegura es leer el valor mas fresco que
@@ -827,11 +839,18 @@ async function sbFetchPeriodBaseForUserSince(username, sincePeriodStartStr) {
 // Consulta la Stats API oficial de Chaturbate por el balance actual de
 // tokens de una modelo. null si algo falla (token invalido, API caida, etc.)
 // para que una modelo con problemas no tumbe el sondeo de las demas.
+// Marca hasta cuando no vale la pena volver a consultar la Stats API porque
+// nos esta limitando (403/429). Ver BALANCE_RATE_LIMIT_COOLDOWN_MS.
+let chaturbateRateLimitedUntil = 0;
+
 async function fetchChaturbateBalance(username, statsToken) {
   const url = CHATURBATE_STATS_BASE + '?username=' + encodeURIComponent(username) + '&token=' + encodeURIComponent(statsToken);
   try {
     const resp = await fetch(url);
     if (!resp.ok) {
+      if (resp.status === 403 || resp.status === 429) {
+        chaturbateRateLimitedUntil = Date.now() + BALANCE_RATE_LIMIT_COOLDOWN_MS;
+      }
       console.error('Chaturbate Stats API respondio ' + resp.status + ' para ' + username);
       sbLogApiError('chaturbate_stats', 'HTTP ' + resp.status + ' para ' + username);
       return null;
@@ -863,10 +882,14 @@ async function fetchChaturbateBalance(username, statsToken) {
 let balancePollRunning = false;
 async function pollChaturbateBalances() {
   if (balancePollRunning) return;
+  if (Date.now() < chaturbateRateLimitedUntil) return;
   balancePollRunning = true;
   try {
     const models = await sbFetchModelsWithStatsToken();
     for (const m of models) {
+      // Si a mitad de la vuelta empezo a limitarnos, cortar aca en vez de
+      // pedir el resto de las modelos para nada.
+      if (Date.now() < chaturbateRateLimitedUntil) break;
       const balance = await fetchChaturbateBalance(m.username, m.stats_api_token);
       if (balance == null) continue;
       const nowIso = new Date().toISOString();
@@ -894,7 +917,10 @@ function startChaturbateBalancePolling() {
   pollChaturbateBalances();
   setInterval(() => {
     balanceTickCount++;
-    if (isNearChaturbateCashout(Date.now()) || balanceTickCount % BALANCE_NORMAL_EVERY_TICKS === 0) {
+    const everyTicks = isNearChaturbateCashout(Date.now())
+      ? BALANCE_DENSE_EVERY_TICKS
+      : BALANCE_NORMAL_EVERY_TICKS;
+    if (balanceTickCount % everyTicks === 0) {
       pollChaturbateBalances();
     }
   }, BALANCE_TICK_MS);

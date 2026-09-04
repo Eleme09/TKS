@@ -113,28 +113,26 @@ function resolveChaturbateTokens({ base, ticks, tips, extraTokens }) {
 
 // Chaturbate le vacia el balance a 0 a cada modelo una vez al dia (retiro
 // automatico). El CSV registra el retiro a las ~21:30 hora del servidor de
-// Chaturbate (US Pacific) = 04:30 UTC, y de ahi salio la primera version de
-// esta constante.
+// Chaturbate (US Pacific) = 04:30 UTC, y la web se lo muestra al usuario
+// colombiano como 11:30 p.m. (UTC-5): el mismo instante. De ahi salen estas
+// constantes y sigue siendo la mejor estimacion que hay.
 //
-// MEDIDO CONTRA DATOS REALES (2026-09-04, primer retiro observado desde que
-// existe el sondeo de balance): las 3 modelos con balance ese dia — jax_f00x
-// 1314->24, abigail_f00x 1925->0, pinky_f00x 420->2 — cayeron todas en el
-// MISMO ciclo de sondeo, detectadas a las 04:40:40 UTC. El ciclo anterior
-// fuera de la ventana densa corre 2 min antes (BALANCE_TICK_MS 20s x
-// BALANCE_NORMAL_EVERY_TICKS 6), asi que el vaciado real ocurrio entre
-// 04:38:40 y 04:40:40 UTC — unos 10 minutos DESPUES de las 04:30. No es que
-// el 21:30 del CSV este mal: lo mas probable es que ese sea el momento
-// logico del corte y el balance tarde unos minutos en vaciarse de verdad.
-//
-// Por eso la ventana ahora apunta a las 04:45 y dura 30 min (04:15-04:45):
-// cubre tanto las 04:30 originales como el ~04:40 medido, con margen. Es una
-// sola observacion, no varias — si aparecen mas dias de datos en
-// cb_balance_resets y se concentran en una hora mas precisa, se puede
-// ajustar y angostar. Verificar siempre contra cb_balance_resets.detected_at,
-// nunca adivinar una hora nueva.
+// OJO — FALSA ALARMA DEL 2026-09-04, no repetirla: ese dia los 3 retiros
+// observados (jax_f00x 1314->24, abigail_f00x 1925->0, pinky_f00x 420->2)
+// figuran detectados a las 04:40:40 UTC, y eso parecia probar que el corte
+// real era ~10 min mas tarde de lo asumido. Es mentira. Entre las 04:23:00 y
+// las 04:40:40 la Stats API devolvio HTTP 403 a las 6 modelos, en TODAS las
+// consultas (174 errores en cb_api_errors): el ultimo balance leido con exito
+// antes del corte fue a las 04:21:40 y el siguiente recien a las 04:40:40.
+// O sea que el vaciado ocurrio en algun punto de esa ventana ciega de 19
+// minutos — que incluye las 04:30 — y las 04:40:40 son solo el momento en que
+// la API volvio a responder, no el momento del corte. Antes de "corregir"
+// esta hora con datos de cb_balance_resets, cruzar SIEMPRE contra
+// cb_api_errors: un detected_at solo significa algo si hubo lecturas exitosas
+// continuas antes.
 const CHATURBATE_CASHOUT_UTC_HOUR = 4;
-const CHATURBATE_CASHOUT_UTC_MINUTE = 45;
-const CASHOUT_WINDOW_MINUTES = 30;
+const CHATURBATE_CASHOUT_UTC_MINUTE = 30;
+const CASHOUT_WINDOW_MINUTES = 12;
 
 // Devuelve true si falta poco para el retiro automatico diario: ahi se sondea
 // denso para leer el balance mas alto posible antes de que se vacie a 0.
