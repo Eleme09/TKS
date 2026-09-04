@@ -880,6 +880,80 @@ deliberada (alcance del pulgar) y está correcta. En una captura
 contenido — es un artefacto de cómo Chromium compone `position:fixed`
 al capturar más allá del viewport, no un bug real; no lo persigas.
 
+## Asistencia — entrada/salida, justificaciones y excusas (added 2026-09-04)
+
+Sexta pestaña, visible para los tres roles. Sustituye la idea de una tabla
+suelta donde cada modelo anotaba su hora a mano.
+
+**El flujo de la entrada, que es lo que tiene chiste:**
+1. La modelo pulsa "Reportar mi llegada" → se crea una fila `pendiente` en
+   `cb_attendance_days` con `reported_at` = ese instante. **Todavía no cuenta
+   nada.**
+2. El `administrador` la valida (CEO no: es lectura). Tiene tres salidas, y
+   esto fue una mejora deliberada sobre lo que pidió el usuario, que era
+   "la hora vale desde que yo la valido":
+   - **"Sí llegó a esa hora"** (`source: 'reportada'`) — vale `reported_at`.
+   - **"Llegó ahora"** (`source: 'ahora'`) — vale el instante de la
+     validación. Este es exactamente el caso que planteó el usuario ("Conni
+     reportó a las 4 PM y no estaba").
+   - **"Otra hora…"** (`source: 'manual'`) — el admin escribe la hora real.
+   - o **Rechazar**, con motivo.
+   **Por qué no se implementó tal cual "vale desde que yo valido":** ahí la
+   modelo paga la demora del admin. Si llega puntual a las 4:00 y el admin
+   valida a las 4:40, quedaría con 40 min de retraso que no son suyos — y ese
+   retraso acumulado decide quién paga su seguridad social, así que es plata.
+   Con los tres botones el caso que el usuario quería sigue funcionando igual
+   ("Llegó ahora"), pero el caso normal no castiga a nadie por la latencia del
+   admin. `reported_at` y `official_at` se guardan las dos, siempre, para poder
+   auditar la diferencia. **No lo simplifiques a un solo botón.**
+3. `late_minutes` = `official_at` − hora asignada. Positivo tarde, negativo
+   temprano. Sin horario asignado en `cb_attendance_schedule`, no se calcula
+   retraso (queda `null`, no 0).
+
+**La salida la anota ella y no se valida** (decisión explícita del usuario).
+
+**Zona horaria — ojo con esto.** El estudio es colombiano y las modelos
+trabajan de noche: una jornada que arranca 8 p.m. cae al día siguiente en UTC,
+que es donde corre Render. Todo lo de asistencia usa un offset fijo de UTC-5
+(`STUDIO_UTC_OFFSET_HOURS` en `chaturbate-lib.js`; Colombia no tiene horario de
+verano, así que el offset fijo es exacto). Nunca uses `toDateStr`/hora del
+servidor para asistencia. Además, `pickWorkDate` decide a qué turno pertenece
+una llegada comparando contra el horario de hoy **y el de ayer**, y se queda
+con el más cercano: sin eso, llegar 00:30 a un turno de 8 p.m. contaba como
+"19 h temprano" del día siguiente en vez de "4 h 30 tarde" del turno de anoche.
+
+**Privacidad:** el filtrado es server-side en `buildAttendancePayload` — una
+`modelo` solo recibe sus propias filas, y ni siquiera vienen los campos de
+staff (`pending`, `models`). No mandes todo y escondas en el navegador.
+`GET /api/attendance/excuse?id=N` también valida dueño: una modelo abriendo la
+excusa de otra recibe 403 (verificado con dos cuentas reales).
+
+**Notificaciones** (`administrador` + `ceo`, salvo la primera): llegada
+reportada pendiente de validar; al validar, "X llegó a las HH:MM — N min de
+retraso" / "llegó temprano" / "llegó justo a la hora"; excusa médica subida; y
+si al validar ya entraron todas las que tienen horario y ninguna llegó tarde,
+**"TODAS TUS MODELOS ENTRARON A TIEMPO"**, una sola vez por día
+(`cb_attendance_daily_notice` tiene la fecha como primary key, así que el
+segundo intento choca y no repite).
+
+**Aviso de seguridad social:** aparece solo a quien le aplica. Umbral en
+`cb_attendance_settings.late_threshold_minutes`, configurable desde la UI.
+**Arranca en 300 min (5 h) por quincena, que es un número inventado por mí —
+el usuario nunca dijo cuánto. Confirmarlo antes de tratarlo como real.**
+Llegar temprano NO descuenta retrasos de otros días (`sumLateMinutes` solo
+suma los positivos), si no se podría "compensar" un retraso grande.
+
+**Excusas médicas:** el archivo va en base64 dentro de
+`cb_attendance_excuses` (tope 2.5 MB, solo JPG/PNG/WEBP/PDF, validado en el
+servidor). Es más simple que un bucket aparte para el volumen real; si esa
+tabla crece mucho, esa es la señal para mudarlo a almacenamiento de archivos.
+
+**`SOLO_UI=1`** (nuevo en server.js): levanta el servidor sin ningún sondeo
+externo. Es para probar la interfaz desde una instancia suelta en otro puerto
+sin duplicar el tráfico a Chaturbate — dos instancias sondeando lo mismo es
+exactamente lo que provocó el 403 del 2026-09-04. Nunca en producción: sin
+sondeos no se registra ni una propina.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

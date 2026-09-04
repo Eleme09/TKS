@@ -210,8 +210,106 @@ function sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr) {
   return total;
 }
 
+// ---- Asistencia (hora de entrada/salida de las modelos) ----
+//
+// El estudio es colombiano y las modelos trabajan de noche: una jornada que
+// arranca 8 p.m. hora Colombia cae al DIA SIGUIENTE en UTC, que es la zona en
+// la que corre el servidor de Render. Si el "dia laboral" se calculara con la
+// hora del servidor, media jornada quedaria partida en dos fechas distintas y
+// el conteo de retrasos saldria mal. Por eso todo lo de asistencia se calcula
+// con un offset fijo de UTC-5: Colombia NO tiene horario de verano, asi que el
+// offset fijo es exacto todo el año, sin necesidad de math de zonas horarias.
+const STUDIO_UTC_OFFSET_HOURS = -5;
+
+// "YYYY-MM-DD" del dia laboral segun la hora del estudio, no la del servidor.
+function studioDateStr(ms) {
+  return new Date(ms + STUDIO_UTC_OFFSET_HOURS * 3600000).toISOString().slice(0, 10);
+}
+
+// "HH:MM" en hora del estudio.
+function studioTimeStr(ms) {
+  return new Date(ms + STUDIO_UTC_OFFSET_HOURS * 3600000).toISOString().slice(11, 16);
+}
+
+// Instante real (ms) en que le tocaba entrar: workDate "YYYY-MM-DD" a las
+// entryTime "HH:MM" (o "HH:MM:SS"), interpretado en hora del estudio.
+function studioScheduledMs(workDate, entryTime) {
+  const parts = String(workDate).split('-').map(Number);
+  const clock = String(entryTime).split(':').map(Number);
+  if (parts.length < 3 || clock.length < 2) return null;
+  if (parts.some(isNaN) || clock.slice(0, 2).some(isNaN)) return null;
+  return Date.UTC(parts[0], parts[1] - 1, parts[2], clock[0], clock[1], 0, 0)
+    - STUDIO_UTC_OFFSET_HOURS * 3600000;
+}
+
+// Minutos de retraso: positivo = llego tarde, negativo = llego temprano.
+function computeLateMinutes(officialMs, scheduledMs) {
+  if (officialMs == null || scheduledMs == null) return null;
+  return Math.round((officialMs - scheduledMs) / 60000);
+}
+
+// A que dia laboral pertenece una llegada.
+//
+// Sin horario asignado es simplemente el dia del estudio. Con horario, se elige
+// el dia cuya hora de entrada queda MAS CERCA del momento de la llegada. El
+// caso que esto resuelve: turno que empieza 8 p.m. y la modelo aparece a las
+// 00:30 — para el reloj ya es el dia siguiente, asi que contarlo contra el
+// turno de ese dia nuevo la dejaria "19 horas temprano" en vez de "4 horas
+// tarde". Comparando contra los dos dias, gana el de anoche, que es el turno
+// al que realmente llego.
+//
+// takenDates son los dias que esa modelo ya tiene registrados: si anoche ya
+// habia fichado, no se toca ese registro y la llegada va al dia de hoy.
+function pickWorkDate(nowMs, entryTime, takenDates) {
+  const today = studioDateStr(nowMs);
+  if (!entryTime) return today;
+  const yesterday = studioDateStr(nowMs - 24 * 3600000);
+  if ((takenDates || []).indexOf(yesterday) !== -1) return today;
+  const schedToday = studioScheduledMs(today, entryTime);
+  const schedYesterday = studioScheduledMs(yesterday, entryTime);
+  if (schedToday == null || schedYesterday == null) return today;
+  return Math.abs(nowMs - schedYesterday) < Math.abs(nowMs - schedToday) ? yesterday : today;
+}
+
+// Rango de la quincena actual expresado en fechas "YYYY-MM-DD" del estudio.
+// Se calcula sobre la fecha del estudio (no sobre la del servidor) para que la
+// asistencia use exactamente los mismos limites de quincena que el pago, sin
+// que una jornada de madrugada caiga en la quincena equivocada.
+function studioQuincenaRange(dateStr) {
+  const parts = String(dateStr).split('-').map(Number);
+  if (parts.length < 3 || parts.some(isNaN)) return null;
+  const [year, month, day] = parts;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (day <= 15) {
+    return { start: year + '-' + pad(month) + '-01', end: year + '-' + pad(month) + '-15' };
+  }
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { start: year + '-' + pad(month) + '-16', end: year + '-' + pad(month) + '-' + pad(lastDay) };
+}
+
+// Solo los retrasos suman deuda de horario; llegar temprano NO descuenta
+// retrasos de otros dias (si no, una modelo podria "compensar" un retraso
+// grande llegando temprano varios dias y el control perderia sentido).
+function sumLateMinutes(days) {
+  let total = 0;
+  for (const d of days) {
+    if (d.status === 'validada' && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
+      total += d.late_minutes;
+    }
+  }
+  return total;
+}
+
 module.exports = {
   MESES,
+  STUDIO_UTC_OFFSET_HOURS,
+  studioDateStr,
+  studioTimeStr,
+  studioScheduledMs,
+  studioQuincenaRange,
+  pickWorkDate,
+  computeLateMinutes,
+  sumLateMinutes,
   getQuincena,
   getQuincenaHistory,
   toDateStr,

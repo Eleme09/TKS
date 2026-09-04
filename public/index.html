@@ -74,6 +74,7 @@
   body.theme-desprendibles::after { animation: themeRise 11s ease-in-out infinite; }
   body.theme-cuentas::after { animation: themeSteady 8s ease-in-out infinite; }
   body.theme-noticias::after { animation: themePulse 3.4s ease-in-out infinite; }
+  body.theme-asistencia::after { animation: themeOrbit 18s linear infinite; }
   html { scrollbar-color: #333 transparent; background: var(--bg); overscroll-behavior-y: none; }
   body {
     margin: 0; font-family: var(--font-body); color: var(--text);
@@ -100,7 +101,7 @@
   @media (prefers-reduced-motion: reduce) {
     .spark { display: none; }
     body::after,
-    body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after, body.theme-noticias::after { animation: none !important; }
+    body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after, body.theme-noticias::after, body.theme-asistencia::after { animation: none !important; }
     .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .banner-icon *, .topbar, .tabnav, .badge.online, .brand-cat, .brand-word, .login-bg-cat { animation: none !important; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
@@ -282,6 +283,61 @@
   .quincena-nav .center { text-align: center; }
   .quincena-nav .period-label { font-size: 12.5px; font-weight: 700; font-family: var(--font-mono); }
   .quincena-nav .today-link { background: none; border: none; color: var(--pink); font-size: 10.5px; text-decoration: underline; cursor: pointer; padding: 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+  /* ---- Asistencia ---- */
+  .card-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .icon-asistencia .icon-hand { stroke: var(--pink); stroke-width: 4; animation: clockTick 4s steps(8) infinite; transform-origin: 50% 52%; }
+  @keyframes clockTick { to { transform: rotate(360deg); } }
+  .att-textarea { width: 100%; font-family: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); resize: vertical; }
+  .att-textarea:focus { outline: none; border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+  .att-table-wrap { overflow-x: auto; }
+  .att-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 520px; }
+  .att-table th {
+    text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted-dim); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .att-table td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  .att-table tr:last-child td { border-bottom: none; }
+  .att-table td.num { font-family: var(--font-mono); white-space: nowrap; }
+  .att-table .muted { color: var(--muted-dim); }
+  .att-late { color: var(--bad); font-weight: 700; }
+  .att-early { color: var(--good); font-weight: 700; }
+  .att-ontime { color: var(--muted); font-weight: 700; }
+  .att-pill { font-size: 10px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; display: inline-block; white-space: nowrap; }
+  .att-pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
+  .att-pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
+  .att-pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
+  .att-row {
+    background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px;
+    padding: 12px; margin-bottom: 10px; animation: fadeUp .3s ease both;
+  }
+  .att-row:last-child { margin-bottom: 0; }
+  .att-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .att-row-name { font-family: var(--font-mono); font-weight: 700; font-size: 13.5px; }
+  .att-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .att-actions button { padding: 7px 12px; font-size: 12px; }
+  .att-warning {
+    background: linear-gradient(180deg, rgba(255,107,107,0.14), rgba(255,107,107,0.05));
+    border: 1px solid rgba(255,107,107,0.4); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px;
+    display: flex; gap: 12px; align-items: flex-start; animation: fadeUp .35s ease both;
+  }
+  .att-warning .att-warning-icon { flex: 0 0 auto; color: var(--bad); filter: drop-shadow(0 0 6px rgba(255,107,107,0.5)); }
+  .att-warning .att-warning-title { font-weight: 700; font-size: 13px; color: var(--bad); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .att-warning .att-warning-body { font-size: 12.5px; color: var(--text); line-height: 1.55; }
+  .att-file-link { color: var(--pink); text-decoration: underline; font-size: 12.5px; }
+  /* El input de archivo nativo trae su propio boton gris de sistema, que rompe
+     el tema oscuro. Se le da el mismo tratamiento que al resto de botones. */
+  input[type="file"] { padding: 8px 10px; font-size: 13px; }
+  input[type="file"]::file-selector-button {
+    font-family: var(--font-body); font-weight: 700; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
+    color: var(--pink); border: 1px solid var(--pink-line); border-radius: 8px;
+    padding: 7px 12px; margin-right: 12px; cursor: pointer;
+  }
+  input[type="file"]::file-selector-button:hover {
+    background: linear-gradient(180deg, rgba(255,143,190,0.26), rgba(255,143,190,0.12));
+  }
   .time12 { display: flex; gap: 6px; align-items: center; }
   .time12 select {
     flex: 1; min-width: 0; text-align: center; font-family: var(--font-mono);
@@ -377,6 +433,7 @@
     <div class="tabnav" id="tabnav">
       <button class="tabbtn" data-tab="modelos" id="tabBtnModelos">Modelos</button>
       <button class="tabbtn" data-tab="horas">Extras</button>
+      <button class="tabbtn" data-tab="asistencia">Asistencia</button>
       <button class="tabbtn tabIcon" data-tab="desprendibles" title="Desprendibles">
         <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="9" cy="15" r="6" fill="none" stroke="var(--pink)" stroke-width="1.6"/><circle cx="15" cy="9" r="6" fill="none" stroke="var(--pink)" stroke-width="1.6"/></svg>
         <span class="tablabel">Desprendibles</span>
@@ -526,6 +583,113 @@
         <div id="newsError" class="errbox"></div>
       </div>
       <div id="newsList"></div>
+    </div>
+
+    <div class="tabpanel" id="tab-asistencia" style="display:none;">
+      <div class="section-banner banner-asistencia" aria-hidden="true">
+        <svg class="banner-icon icon-asistencia" viewBox="0 0 120 100">
+          <circle class="icon-main" cx="60" cy="52" r="38"/>
+          <path class="icon-hand" d="M60 30 V52 L76 62"/>
+          <path class="icon-spark" d="M100 8 L102.5 14.5 L109 17 L102.5 19.5 L100 26 L97.5 19.5 L91 17 L97.5 14.5 Z"/>
+        </svg>
+      </div>
+
+      <div id="attWarning" class="att-warning" style="display:none;"></div>
+
+      <!-- Vista de la modelo -->
+      <div id="attModelArea" style="display:none;">
+        <div class="card">
+          <h3 class="card-title">Mi jornada</h3>
+          <div class="meta-small" id="attMyHint" style="margin-bottom:12px;"></div>
+          <div class="model-grid" id="attMyGrid"></div>
+          <div class="row" id="attMyActions"></div>
+          <div id="attMyError" class="errbox"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Justificaciones</h3>
+          <div class="meta-small" style="margin-bottom:12px;">Si llegaste tarde, te conectaste tarde o tuviste un problema con el room, cuéntalo aquí. Si no escribes nada, no pasa nada — es opcional.</div>
+          <label for="attJustKind">Motivo</label>
+          <select id="attJustKind">
+            <option value="retraso">Llegué tarde</option>
+            <option value="conexion">Me conecté tarde</option>
+            <option value="room">Problema con el room</option>
+            <option value="salud">Tema de salud</option>
+            <option value="otro">Otro</option>
+          </select>
+          <label for="attJustBody">Qué pasó</label>
+          <textarea id="attJustBody" rows="3" placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
+          <div class="row" style="margin-top:10px;"><button id="btnAttJust" class="btn-primary" style="flex:1;">Enviar justificación</button></div>
+          <div id="attJustError" class="errbox"></div>
+          <div id="attMyJustList" style="margin-top:14px;"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Excusa médica</h3>
+          <div class="meta-small" style="margin-bottom:12px;">Sube una foto o el PDF de tu incapacidad. Máximo 2.5 MB. Solo la ves tú y la administración.</div>
+          <label for="attExcuseFile">Archivo</label>
+          <input id="attExcuseFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
+          <label for="attExcuseNote">Nota (opcional)</label>
+          <input id="attExcuseNote" placeholder="ej: incapacidad por 2 días" autocomplete="off" maxlength="200">
+          <div class="row" style="margin-top:10px;"><button id="btnAttExcuse" class="btn-primary" style="flex:1;">Subir excusa</button></div>
+          <div id="attExcuseError" class="errbox"></div>
+          <div id="attMyExcuseList" style="margin-top:14px;"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Mi quincena</h3>
+          <div class="meta-small" id="attMyPeriodHint" style="margin-bottom:12px;"></div>
+          <div class="att-table-wrap"><table class="att-table" id="attMyTable"></table></div>
+        </div>
+      </div>
+
+      <!-- Vista de administración -->
+      <div id="attStaffArea" style="display:none;">
+        <div class="card" id="attPendingCard">
+          <h3 class="card-title">Llegadas por validar</h3>
+          <div class="meta-small" style="margin-bottom:12px;">Nada cuenta hasta que tú lo valides. Si la modelo sí estaba a la hora que reportó, confirma esa hora; si reportó pero no había llegado, usa “llegó ahora”.</div>
+          <div id="attPendingList"></div>
+          <div id="attPendingError" class="errbox"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Resumen de la quincena</h3>
+          <div class="meta-small" id="attStaffPeriodHint" style="margin-bottom:12px;"></div>
+          <div id="attTotalsList"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Hojas de todas las modelos</h3>
+          <label for="attStaffFilter">Modelo</label>
+          <select id="attStaffFilter"></select>
+          <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Excusas médicas</h3>
+          <div id="attStaffExcuseList"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Justificaciones</h3>
+          <div id="attStaffJustList"></div>
+        </div>
+
+        <div class="card" id="attConfigCard" style="display:none;">
+          <h3 class="card-title">Horarios y umbral</h3>
+          <div class="meta-small" style="margin-bottom:12px;">La hora de entrada de cada modelo es contra lo que se mide el retraso. El umbral es cuánto retraso acumulado en la quincena hace que la modelo asuma su propia seguridad social.</div>
+          <label for="attSchedUser">Modelo</label>
+          <select id="attSchedUser"></select>
+          <label for="attSchedTime">Hora de entrada</label>
+          <input id="attSchedTime" type="time" step="60">
+          <div class="row" style="margin-top:10px;"><button id="btnAttSched" class="btn-primary" style="flex:1;">Guardar horario</button></div>
+          <label for="attThreshold" style="margin-top:18px;">Umbral de retraso acumulado (horas por quincena)</label>
+          <input id="attThreshold" type="number" min="0.5" max="200" step="0.5">
+          <div class="row" style="margin-top:10px;"><button id="btnAttThreshold" class="btn-primary" style="flex:1;">Guardar umbral</button></div>
+          <div id="attConfigError" class="errbox"></div>
+          <div id="attSchedList" style="margin-top:14px;"></div>
+        </div>
+      </div>
     </div>
 
     <div class="tabpanel" id="tab-cuentas" style="display:none;">
@@ -682,6 +846,42 @@
     btnNewsCreate: document.getElementById('btnNewsCreate'),
     newsError: document.getElementById('newsError'),
     newsList: document.getElementById('newsList'),
+    attWarning: document.getElementById('attWarning'),
+    attModelArea: document.getElementById('attModelArea'),
+    attStaffArea: document.getElementById('attStaffArea'),
+    attMyHint: document.getElementById('attMyHint'),
+    attMyGrid: document.getElementById('attMyGrid'),
+    attMyActions: document.getElementById('attMyActions'),
+    attMyError: document.getElementById('attMyError'),
+    attJustKind: document.getElementById('attJustKind'),
+    attJustBody: document.getElementById('attJustBody'),
+    btnAttJust: document.getElementById('btnAttJust'),
+    attJustError: document.getElementById('attJustError'),
+    attMyJustList: document.getElementById('attMyJustList'),
+    attExcuseFile: document.getElementById('attExcuseFile'),
+    attExcuseNote: document.getElementById('attExcuseNote'),
+    btnAttExcuse: document.getElementById('btnAttExcuse'),
+    attExcuseError: document.getElementById('attExcuseError'),
+    attMyExcuseList: document.getElementById('attMyExcuseList'),
+    attMyPeriodHint: document.getElementById('attMyPeriodHint'),
+    attMyTable: document.getElementById('attMyTable'),
+    attPendingCard: document.getElementById('attPendingCard'),
+    attPendingList: document.getElementById('attPendingList'),
+    attPendingError: document.getElementById('attPendingError'),
+    attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
+    attTotalsList: document.getElementById('attTotalsList'),
+    attStaffFilter: document.getElementById('attStaffFilter'),
+    attStaffTable: document.getElementById('attStaffTable'),
+    attStaffExcuseList: document.getElementById('attStaffExcuseList'),
+    attStaffJustList: document.getElementById('attStaffJustList'),
+    attConfigCard: document.getElementById('attConfigCard'),
+    attSchedUser: document.getElementById('attSchedUser'),
+    attSchedTime: document.getElementById('attSchedTime'),
+    btnAttSched: document.getElementById('btnAttSched'),
+    attThreshold: document.getElementById('attThreshold'),
+    btnAttThreshold: document.getElementById('btnAttThreshold'),
+    attConfigError: document.getElementById('attConfigError'),
+    attSchedList: document.getElementById('attSchedList'),
   };
 
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -744,7 +944,7 @@
   let lastShiftsHtml = null;
 
   const tabButtons = document.querySelectorAll('.tabbtn');
-  const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), noticias: document.getElementById('tab-noticias'), cuentas: document.getElementById('tab-cuentas') };
+  const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), noticias: document.getElementById('tab-noticias'), asistencia: document.getElementById('tab-asistencia'), cuentas: document.getElementById('tab-cuentas') };
   const tabBtnCuentas = document.getElementById('tabBtnCuentas');
   const tabBtnModelos = document.getElementById('tabBtnModelos');
 
@@ -763,12 +963,13 @@
       }
     });
     tabButtons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
-    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias');
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias', 'theme-asistencia');
     document.body.classList.add('theme-' + name);
     if (name === 'desprendibles') {
       refreshPayslips();
     }
     if (name === 'noticias') refreshNews();
+    if (name === 'asistencia') refreshAttendance();
   }
 
   tabButtons.forEach(function (b) {
@@ -1149,6 +1350,395 @@
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
+  // ---- Asistencia ----
+
+  let attData = null;
+
+  function attShowBox(node, msg) { node.style.display = 'block'; node.textContent = msg; }
+  function attClearBox(node) { node.style.display = 'none'; node.textContent = ''; }
+
+  // Las horas se guardan en UTC pero se muestran SIEMPRE en hora del estudio
+  // (Colombia, UTC-5 fijo). No se usa la hora del dispositivo a proposito: una
+  // modelo de viaje, o el navegador con otra zona, verian horas distintas para
+  // el mismo registro y el conteo de retrasos dejaria de cuadrar.
+  function attHora(iso) {
+    if (!iso) return '—';
+    const d = new Date(new Date(iso).getTime() - 5 * 3600000);
+    const hh = d.getUTCHours();
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    const ampm = hh >= 12 ? 'p.m.' : 'a.m.';
+    const h12 = hh % 12 === 0 ? 12 : hh % 12;
+    return h12 + ':' + mm + ' ' + ampm;
+  }
+
+  // "16:00" / "16:00:00" (ya en hora del estudio) a "4:00 p.m.". Distinto de
+  // attHora, que recibe un instante UTC y ademas lo convierte.
+  function attHoraDeReloj(hhmm) {
+    if (!hhmm) return '—';
+    const parts = String(hhmm).split(':');
+    const hh = Number(parts[0]);
+    const mm = parts[1] || '00';
+    if (!isFinite(hh)) return String(hhmm);
+    const ampm = hh >= 12 ? 'p.m.' : 'a.m.';
+    const h12 = hh % 12 === 0 ? 12 : hh % 12;
+    return h12 + ':' + mm + ' ' + ampm;
+  }
+
+  function attFechaCorta(dateStr) {
+    if (!dateStr) return '—';
+    const parts = String(dateStr).split('-');
+    if (parts.length < 3) return dateStr;
+    return Number(parts[2]) + ' ' + (MESES_CORTOS[Number(parts[1]) - 1] || '');
+  }
+
+  const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  function attHorasMin(totalMinutes) {
+    const m = Math.abs(Math.round(totalMinutes || 0));
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    if (!h) return r + ' min';
+    if (!r) return h + ' h';
+    return h + ' h ' + r + ' min';
+  }
+
+  function attRetrasoHtml(lateMinutes) {
+    if (lateMinutes == null) return '<span class="muted">—</span>';
+    if (lateMinutes > 0) return '<span class="att-late">+' + attHorasMin(lateMinutes) + '</span>';
+    if (lateMinutes < 0) return '<span class="att-early">−' + attHorasMin(lateMinutes) + '</span>';
+    return '<span class="att-ontime">a tiempo</span>';
+  }
+
+  function attEstadoHtml(status) {
+    const s = status || 'pendiente';
+    const label = s === 'validada' ? 'validada' : (s === 'rechazada' ? 'rechazada' : 'por validar');
+    return '<span class="att-pill ' + s + '">' + label + '</span>';
+  }
+
+  function attKindLabel(kind) {
+    const map = { retraso: 'Llegué tarde', conexion: 'Me conecté tarde', room: 'Problema con el room', salud: 'Tema de salud', otro: 'Otro' };
+    return map[kind] || 'Otro';
+  }
+
+  async function refreshAttendance() {
+    const r = await fetch('/api/attendance');
+    if (!r.ok) {
+      el.attModelArea.style.display = 'none';
+      el.attStaffArea.style.display = 'none';
+      return;
+    }
+    attData = await r.json();
+    const isStaff = attData.role === 'administrador' || attData.role === 'ceo';
+    el.attModelArea.style.display = isStaff ? 'none' : 'block';
+    el.attStaffArea.style.display = isStaff ? 'block' : 'none';
+    renderAttendanceWarning();
+    if (isStaff) renderAttendanceStaff(); else renderAttendanceModel();
+  }
+
+  // El aviso de seguridad social. Para la modelo habla de ella; para la
+  // administracion lista a quienes les aplica. Si no le aplica a nadie, no se
+  // muestra nada (el usuario pidio que solo aparezca a quien debe pagar).
+  function renderAttendanceWarning() {
+    const threshold = attData.threshold_minutes || 0;
+    const owing = (attData.totals || []).filter(function (t) { return t.owes_social_security; });
+    if (!owing.length) { el.attWarning.style.display = 'none'; el.attWarning.innerHTML = ''; return; }
+    const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
+      + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
+      + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+      + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
+    let body;
+    if (attData.role === 'modelo') {
+      const mine = owing[0];
+      body = '<div class="att-warning-title">Seguridad social a tu cargo esta quincena</div>'
+        + '<div class="att-warning-body">Llevas <b>' + attHorasMin(mine.late_minutes) + '</b> de retraso acumulado en esta quincena y el límite es '
+        + attHorasMin(threshold) + '. Por incumplimiento de horario y acumulación de horas, esta quincena tu seguridad social la asumes tú.</div>';
+    } else {
+      const names = owing.map(function (t) { return '<b>' + escapeHtml(t.username) + '</b> (' + attHorasMin(t.late_minutes) + ')'; }).join(', ');
+      body = '<div class="att-warning-title">Asumen su seguridad social esta quincena</div>'
+        + '<div class="att-warning-body">Pasaron el límite de ' + attHorasMin(threshold) + ' de retraso acumulado: ' + names + '.</div>';
+    }
+    el.attWarning.innerHTML = icon + '<div>' + body + '</div>';
+    el.attWarning.style.display = 'flex';
+  }
+
+  function renderAttendanceModel() {
+    const day = attData.my_day;
+    const total = attData.my_total || { late_minutes: 0 };
+    const entry = (attData.totals[0] && attData.totals[0].entry_time) || null;
+    el.attMyHint.textContent = entry
+      ? 'Hoy es ' + attFechaCorta(attData.today) + '. Tu hora de entrada es ' + attHoraDeReloj(entry) + '.'
+      : 'Hoy es ' + attFechaCorta(attData.today) + '. Todavía no tienes una hora de entrada asignada, así que no se te cuenta retraso.';
+
+    el.attMyGrid.innerHTML =
+      '<div class="stat"><div class="k">Mi llegada (reportada)</div><div class="v">' + (day ? attHora(day.reported_at) : '—') + '</div></div>'
+      + '<div class="stat"><div class="k">Hora válida</div><div class="v">' + (day && day.official_at ? attHora(day.official_at) : '—') + '</div></div>'
+      + '<div class="stat"><div class="k">Salida</div><div class="v">' + (day && day.exit_at ? attHora(day.exit_at) : '—') + '</div></div>'
+      + '<div class="stat"><div class="k">Estado de hoy</div><div class="v small">' + (day ? attEstadoHtml(day.status) : '<span class="muted">sin reportar</span>') + '</div></div>'
+      + '<div class="stat hero"><div class="k">Retraso acumulado en la quincena</div><div class="v">' + attHorasMin(total.late_minutes) + '</div></div>';
+
+    let actions = '';
+    if (!day) {
+      actions = '<button id="btnAttReport" class="btn-primary" style="flex:1;">Reportar mi llegada</button>';
+    } else if (!day.exit_at) {
+      actions = '<button id="btnAttExit" class="btn-primary" style="flex:1;">Anotar mi salida</button>';
+    } else {
+      actions = '<div class="meta-small">Jornada de hoy cerrada. Nos vemos mañana.</div>';
+    }
+    el.attMyActions.innerHTML = actions;
+    const btnReport = document.getElementById('btnAttReport');
+    if (btnReport) btnReport.addEventListener('click', attReportArrival);
+    const btnExit = document.getElementById('btnAttExit');
+    if (btnExit) btnExit.addEventListener('click', attRegisterExit);
+
+    el.attMyPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end) + '.';
+    el.attMyTable.innerHTML = attTableHtml(attData.days, false);
+
+    el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false);
+    el.attMyExcuseList.innerHTML = attExcuseListHtml(attData.excuses, false);
+  }
+
+  function attTableHtml(days, withName) {
+    if (!days || !days.length) return '<tr><td class="muted" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
+    const head = '<tr><th>Día</th>' + (withName ? '<th>Modelo</th>' : '')
+      + '<th>Reportó</th><th>Hora válida</th><th>Salida</th><th>Retraso</th><th>Estado</th></tr>';
+    const rows = days.map(function (d) {
+      return '<tr>'
+        + '<td class="num">' + attFechaCorta(d.work_date) + '</td>'
+        + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
+        + '<td class="num">' + attHora(d.reported_at) + '</td>'
+        + '<td class="num">' + (d.official_at ? attHora(d.official_at) : '<span class="muted">—</span>') + '</td>'
+        + '<td class="num">' + (d.exit_at ? attHora(d.exit_at) : '<span class="muted">—</span>') + '</td>'
+        + '<td class="num">' + attRetrasoHtml(d.late_minutes) + '</td>'
+        + '<td>' + attEstadoHtml(d.status) + '</td>'
+        + '</tr>';
+    }).join('');
+    return head + rows;
+  }
+
+  function attJustListHtml(list, withName) {
+    if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
+    return list.map(function (j) {
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + attKindLabel(j.kind) + '</span>'
+        + '<span class="meta-small">' + attFechaCorta(j.work_date) + '</span>'
+        + '</div>'
+        + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function attExcuseListHtml(list, withName) {
+    if (!list || !list.length) return '<div class="meta-small">Sin excusas subidas.</div>';
+    return list.map(function (e) {
+      const kb = Math.max(1, Math.round((e.size_bytes || 0) / 1024));
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + (withName ? escapeHtml(e.username) + ' · ' : '') + attFechaCorta(e.work_date) + '</span>'
+        + '<span class="meta-small">' + kb + ' KB</span>'
+        + '</div>'
+        + '<a class="att-file-link" href="/api/attendance/excuse?id=' + e.id + '" target="_blank" rel="noopener">' + escapeHtml(e.filename) + '</a>'
+        + (e.note ? '<div class="meta-small" style="margin-top:6px;">' + escapeHtml(e.note) + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+
+  function renderAttendanceStaff() {
+    const isAdmin = attData.role === 'administrador';
+    el.attConfigCard.style.display = isAdmin ? 'block' : 'none';
+    el.attPendingCard.style.display = isAdmin ? 'block' : 'none';
+
+    if (isAdmin) el.attPendingList.innerHTML = attPendingHtml(attData.pending || []);
+    if (isAdmin) {
+      (attData.pending || []).forEach(function (p) {
+        ['reportada', 'ahora', 'manual', 'rechazar'].forEach(function (action) {
+          const btn = document.getElementById('attVal-' + action + '-' + p.id);
+          if (btn) btn.addEventListener('click', function () { attValidate(p.id, action); });
+        });
+      });
+    }
+
+    el.attStaffPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end)
+      + '. Límite de retraso acumulado: ' + attHorasMin(attData.threshold_minutes) + '.';
+    el.attTotalsList.innerHTML = (attData.totals || []).map(function (t) {
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
+        + (t.owes_social_security ? '<span class="att-pill rechazada">asume seguridad social</span>' : '<span class="att-pill validada">al día</span>')
+        + '</div>'
+        + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
+        + ' · Entrada: ' + (t.entry_time ? attHoraDeReloj(t.entry_time) : 'sin asignar') + '</div>'
+        + '</div>';
+    }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
+
+    const prevFilter = el.attStaffFilter.value;
+    el.attStaffFilter.innerHTML = '<option value="">Todas</option>'
+      + (attData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+    if (prevFilter) el.attStaffFilter.value = prevFilter;
+    renderAttendanceStaffTable();
+
+    el.attStaffExcuseList.innerHTML = attExcuseListHtml(attData.excuses, true);
+    el.attStaffJustList.innerHTML = attJustListHtml(attData.justifications, true);
+
+    if (isAdmin) {
+      const prevSched = el.attSchedUser.value;
+      el.attSchedUser.innerHTML = (attData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      if (prevSched) el.attSchedUser.value = prevSched;
+      if (!el.attThreshold.value) el.attThreshold.value = (attData.threshold_minutes / 60).toFixed(1);
+      el.attSchedList.innerHTML = (attData.schedule || []).length
+        ? (attData.schedule || []).map(function (s) {
+            return '<div class="admin-list-row"><span>' + escapeHtml(s.username) + '</span><span class="num">' + attHoraDeReloj(s.entry_time) + '</span></div>';
+          }).join('')
+        : '<div class="meta-small">Ninguna modelo tiene hora de entrada asignada todavía. Sin hora asignada no se calcula retraso.</div>';
+    }
+  }
+
+  function renderAttendanceStaffTable() {
+    const filter = el.attStaffFilter.value;
+    const days = filter ? attData.days.filter(function (d) { return d.username === filter; }) : attData.days;
+    el.attStaffTable.innerHTML = attTableHtml(days, true);
+  }
+
+  function attPendingHtml(pending) {
+    if (!pending.length) return '<div class="meta-small">No hay llegadas esperando validación.</div>';
+    return pending.map(function (p) {
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(p.username) + '</span>'
+        + '<span class="meta-small">' + attFechaCorta(p.work_date) + '</span>'
+        + '</div>'
+        + '<div class="meta-small">Reportó llegada a las <b>' + attHora(p.reported_at) + '</b>'
+        + (p.scheduled_at ? ' · le tocaba ' + attHora(p.scheduled_at) : ' · sin hora asignada')
+        + '</div>'
+        + (p.note ? '<div class="meta-small" style="margin-top:6px;">Nota: ' + escapeHtml(p.note) + '</div>' : '')
+        + '<div class="att-actions">'
+        + '<button id="attVal-reportada-' + p.id + '" class="btn-primary">Sí llegó a esa hora</button>'
+        + '<button id="attVal-ahora-' + p.id + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Llegó ahora</button>'
+        + '<button id="attVal-manual-' + p.id + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Otra hora…</button>'
+        + '<button id="attVal-rechazar-' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Rechazar</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  async function attReportArrival() {
+    attClearBox(el.attMyError);
+    const r = await fetch('/api/attendance/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attMyError, data.error || 'No se pudo registrar tu llegada');
+    await refreshAttendance();
+  }
+
+  async function attRegisterExit() {
+    attClearBox(el.attMyError);
+    const r = await fetch('/api/attendance/exit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attMyError, data.error || 'No se pudo registrar la salida');
+    await refreshAttendance();
+  }
+
+  async function attValidate(id, action) {
+    attClearBox(el.attPendingError);
+    const payload = { id: id };
+    if (action === 'rechazar') {
+      const reason = prompt('¿Por qué rechazas esta llegada? (opcional)');
+      if (reason === null) return;
+      payload.action = 'rechazar';
+      payload.reason = reason;
+    } else if (action === 'manual') {
+      const hhmm = prompt('¿A qué hora llegó de verdad? Formato 24 horas, ej: 16:35');
+      if (hhmm === null) return;
+      if (!/^\d{2}:\d{2}$/.test(hhmm.trim())) return attShowBox(el.attPendingError, 'Hora inválida. Usa el formato HH:MM, ej: 16:35');
+      payload.source = 'manual';
+      payload.time = hhmm.trim();
+    } else {
+      payload.source = action;
+    }
+    const r = await fetch('/api/attendance/validate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attPendingError, data.error || 'No se pudo validar');
+    await refreshAttendance();
+  }
+
+  async function attSendJustification() {
+    attClearBox(el.attJustError);
+    const body = el.attJustBody.value.trim();
+    if (!body) return attShowBox(el.attJustError, 'Escribe qué pasó');
+    const r = await fetch('/api/attendance/justification', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: el.attJustKind.value, body: body }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attJustError, data.error || 'No se pudo guardar');
+    el.attJustBody.value = '';
+    await refreshAttendance();
+  }
+
+  async function attUploadExcuse() {
+    attClearBox(el.attExcuseError);
+    const file = el.attExcuseFile.files && el.attExcuseFile.files[0];
+    if (!file) return attShowBox(el.attExcuseError, 'Elige un archivo primero');
+    if (file.size > 2.5 * 1024 * 1024) return attShowBox(el.attExcuseError, 'El archivo no puede pesar más de 2.5 MB');
+    const base64 = await new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    }).catch(function () { return null; });
+    if (!base64) return attShowBox(el.attExcuseError, 'No se pudo leer el archivo');
+    el.btnAttExcuse.disabled = true;
+    const r = await fetch('/api/attendance/excuse', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, mime_type: file.type, content_base64: base64, note: el.attExcuseNote.value.trim() }),
+    });
+    el.btnAttExcuse.disabled = false;
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attExcuseError, data.error || 'No se pudo subir la excusa');
+    el.attExcuseFile.value = '';
+    el.attExcuseNote.value = '';
+    await refreshAttendance();
+  }
+
+  async function attSaveSchedule() {
+    attClearBox(el.attConfigError);
+    const username = el.attSchedUser.value;
+    const time = el.attSchedTime.value;
+    if (!username) return attShowBox(el.attConfigError, 'Elige una modelo');
+    if (!/^\d{2}:\d{2}$/.test(time)) return attShowBox(el.attConfigError, 'Elige una hora de entrada');
+    const r = await fetch('/api/attendance/schedule', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, entry_time: time }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attConfigError, data.error || 'No se pudo guardar');
+    await refreshAttendance();
+  }
+
+  async function attSaveThreshold() {
+    attClearBox(el.attConfigError);
+    const hours = Number(el.attThreshold.value);
+    if (!isFinite(hours) || hours <= 0) return attShowBox(el.attConfigError, 'Escribe cuántas horas');
+    const r = await fetch('/api/attendance/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold_hours: hours }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attConfigError, data.error || 'No se pudo guardar');
+    await refreshAttendance();
+  }
+
+  el.btnAttJust.addEventListener('click', attSendJustification);
+  el.btnAttExcuse.addEventListener('click', attUploadExcuse);
+  el.btnAttSched.addEventListener('click', attSaveSchedule);
+  el.btnAttThreshold.addEventListener('click', attSaveThreshold);
+  el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
 
   async function refreshNews() {
     const r = await fetch('/api/news');
@@ -1824,7 +2414,7 @@
     el.subtext.style.display = 'block';
     el.loginCard.style.display = 'block';
     el.loginBgCat.style.removeProperty('display');
-    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias');
+    document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias', 'theme-asistencia');
   }
 
   el.btnLogin.addEventListener('click', async function () {

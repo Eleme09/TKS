@@ -15,6 +15,8 @@ const {
   CHATURBATE_CASHOUT_UTC_HOUR, CHATURBATE_CASHOUT_UTC_MINUTE, CASHOUT_WINDOW_MINUTES,
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
+  studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
+  computeLateMinutes, sumLateMinutes,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -82,6 +84,20 @@ const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
 // rato en vez de seguir golpeando: ese dia se siguio consultando en vano
 // durante 17 minutos, lo que probablemente estiro el bloqueo.
 const BALANCE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
+
+// Excusas medicas: el archivo se guarda en base64 dentro de la propia tabla
+// (cb_attendance_excuses) en vez de en un bucket aparte. Para el volumen real
+// de esto — una excusa suelta cada tanto, 6 modelos — es mas simple y no suma
+// infraestructura nueva. El tope de 2.5 MB existe para que la base no se llene
+// con fotos de 12 MP; si alguna vez esto crece mucho, la senal para mudarlo a
+// almacenamiento de archivos es el tamaño de esa tabla.
+const ATTENDANCE_EXCUSE_MAX_BYTES = Math.round(2.5 * 1024 * 1024);
+// base64 infla ~33%, y ademas viaja dentro de un JSON: se deja margen.
+const ATTENDANCE_EXCUSE_BODY_LIMIT = 5 * 1024 * 1024;
+// Hora de reloj real: \d{2}:\d{2} a secas dejaba pasar cosas como "25:99",
+// que Postgres despues rechaza con un 500 poco util para quien la escribio.
+const VALID_HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const ATTENDANCE_EXCUSE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 // Nota honesta sobre el limite: la Stats API de Chaturbate se refresca sola
 // "una vez cada 5 minutos" (su documentacion oficial), asi que sondear cada 20s
 // no da mas resolucion real — lo que asegura es leer el valor mas fresco que
@@ -542,6 +558,256 @@ async function sbFetchShift(id) {
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
+}
+
+// ---- Asistencia (entradas, salidas, justificaciones, excusas) ----
+
+async function sbListAttendanceSchedule() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule?select=*', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbUpsertAttendanceSchedule(username, entryTime) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ username, entry_time: entryTime, updated_at: new Date().toISOString() }),
+  });
+  return r.ok;
+}
+
+async function sbListAttendanceDays(fromDate, toDate, username) {
+  let qs = '?select=*&work_date=gte.' + encodeURIComponent(fromDate) + '&work_date=lte.' + encodeURIComponent(toDate);
+  if (username) qs += '&username=eq.' + encodeURIComponent(username);
+  qs += '&order=work_date.desc';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchAttendanceDay(username, workDate) {
+  const qs = '?select=*&username=eq.' + encodeURIComponent(username) + '&work_date=eq.' + encodeURIComponent(workDate);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days' + qs, { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbFetchAttendanceDayById(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbInsertAttendanceDay(row) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify(row),
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbUpdateAttendanceDay(id, patch) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+// La ultima jornada abierta (sin hora de salida) de las ultimas 36h. Se busca
+// asi y no por "el dia de hoy" porque una jornada que arranca 8 p.m. termina
+// de madrugada, ya en otra fecha: pedirle la salida al dia de hoy dejaria la
+// jornada anterior abierta para siempre.
+async function sbFetchOpenAttendanceDay(username, nowMs) {
+  const from = studioDateStr(nowMs - 36 * 3600000);
+  const to = studioDateStr(nowMs);
+  const qs = '?select=*&username=eq.' + encodeURIComponent(username)
+    + '&work_date=gte.' + encodeURIComponent(from) + '&work_date=lte.' + encodeURIComponent(to)
+    + '&exit_at=is.null&order=work_date.desc&limit=1';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days' + qs, { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbListAttendanceJustifications(fromDate, toDate, username) {
+  let qs = '?select=*&work_date=gte.' + encodeURIComponent(fromDate) + '&work_date=lte.' + encodeURIComponent(toDate);
+  if (username) qs += '&username=eq.' + encodeURIComponent(username);
+  qs += '&order=created_at.desc';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbInsertAttendanceJustification(row) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify(row),
+  });
+  return r.ok;
+}
+
+// El archivo en si (content_base64) NO se pide aca a proposito: la lista de
+// excusas se carga cada vez que se abre la pestaña, y arrastrar los adjuntos
+// completos en cada refresco haria la respuesta enorme. El contenido se pide
+// aparte, solo cuando alguien abre una excusa puntual.
+async function sbListAttendanceExcuses(username, limit) {
+  let qs = '?select=id,username,work_date,filename,mime_type,size_bytes,note,created_at&order=created_at.desc&limit=' + (limit || 60);
+  if (username) qs += '&username=eq.' + encodeURIComponent(username);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchAttendanceExcuse(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbInsertAttendanceExcuse(row) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify(row),
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbFetchAttendanceSettings() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings?id=eq.1&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return { late_threshold_minutes: 300 };
+  const rows = await r.json();
+  return rows.length ? rows[0] : { late_threshold_minutes: 300 };
+}
+
+async function sbUpdateAttendanceSettings(thresholdMinutes) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ id: 1, late_threshold_minutes: thresholdMinutes, updated_at: new Date().toISOString() }),
+  });
+  return r.ok;
+}
+
+// Marca que el aviso de "todas entraron a tiempo" ya salio hoy. Devuelve true
+// solo la primera vez del dia: la fila tiene work_date como primary key, asi
+// que el segundo intento choca y no se manda el aviso repetido.
+async function sbClaimDailyAttendanceNotice(workDate) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_daily_notice', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ work_date: workDate }),
+  });
+  return r.ok;
+}
+
+// Arma todo lo que la pestaña de Asistencia necesita, ya filtrado por rol: una
+// modelo solo ve lo suyo (la lista es privada), administrador y CEO ven todo.
+// El filtrado se hace ACA, en el servidor — nunca mandando todo y escondiendo
+// en el navegador.
+async function buildAttendancePayload(session) {
+  const now = Date.now();
+  const today = studioDateStr(now);
+  const period = studioQuincenaRange(today);
+  const isStaff = session.role === 'administrador' || session.role === 'ceo';
+  const onlyMine = isStaff ? null : session.username;
+
+  const [settings, schedule, days, justifications, excuses, models] = await Promise.all([
+    sbFetchAttendanceSettings(),
+    sbListAttendanceSchedule(),
+    sbListAttendanceDays(period.start, period.end, onlyMine),
+    sbListAttendanceJustifications(period.start, period.end, onlyMine),
+    sbListAttendanceExcuses(onlyMine, 60),
+    isStaff ? sbFetchAllModels() : Promise.resolve([]),
+  ]);
+
+  const threshold = settings.late_threshold_minutes || 300;
+  const scheduleByUser = {};
+  for (const s of schedule) scheduleByUser[s.username] = s.entry_time;
+
+  // Acumulado de retraso de la quincena, por modelo, y quien debe asumir su
+  // seguridad social por pasarse del umbral.
+  const usernames = isStaff
+    ? models.filter((m) => m.role === 'modelo').map((m) => m.username)
+    : [session.username];
+  const totals = usernames.map((username) => {
+    const mine = days.filter((d) => d.username === username);
+    const lateMinutes = sumLateMinutes(mine);
+    return {
+      username,
+      late_minutes: lateMinutes,
+      entry_time: scheduleByUser[username] || null,
+      owes_social_security: lateMinutes >= threshold,
+      days_validated: mine.filter((d) => d.status === 'validada').length,
+    };
+  });
+
+  const payload = {
+    role: session.role,
+    username: session.username,
+    today,
+    now: new Date(now).toISOString(),
+    now_time: studioTimeStr(now),
+    period,
+    threshold_minutes: threshold,
+    schedule,
+    days,
+    justifications,
+    excuses,
+    totals,
+  };
+
+  if (isStaff) {
+    payload.models = usernames;
+    payload.pending = days.filter((d) => d.status === 'pendiente');
+  } else {
+    payload.my_day = days.find((d) => d.work_date === today) || null;
+    payload.my_open_day = days.find((d) => !d.exit_at && d.status !== 'rechazada') || null;
+    payload.my_total = totals[0] || null;
+  }
+  return payload;
+}
+
+// Avisos de llegada para administrador y CEO. Ademas del aviso por modelo, si
+// con esta validacion ya entraron TODAS y ninguna llego tarde, sale el aviso
+// unico del dia. Ese se protege con una fila por fecha en la base
+// (cb_attendance_daily_notice) para que no salga repetido si el admin valida,
+// corrige y vuelve a validar.
+async function notifyAttendanceValidated(username, officialMs, lateMinutes, workDate) {
+  const hora = studioTimeStr(officialMs);
+  let msg;
+  if (lateMinutes == null) {
+    msg = username + ' entró a las ' + hora + '.';
+  } else if (lateMinutes > 0) {
+    msg = username + ' llegó a las ' + hora + ' — ' + lateMinutes + ' min de retraso.';
+  } else if (lateMinutes < 0) {
+    msg = username + ' llegó temprano: ' + hora + ' (' + Math.abs(lateMinutes) + ' min antes).';
+  } else {
+    msg = username + ' llegó justo a la hora: ' + hora + '.';
+  }
+  await sendPushToRole(['administrador', 'ceo'], msg, { tag: 'placer-asistencia-' + username });
+
+  const schedule = await sbListAttendanceSchedule();
+  if (!schedule.length) return;
+  const dayRows = await sbListAttendanceDays(workDate, workDate, null);
+  const validated = dayRows.filter((d) => d.status === 'validada');
+  const allIn = schedule.every((s) => validated.some((d) => d.username === s.username));
+  if (!allIn) return;
+  const anyLate = validated.some((d) => typeof d.late_minutes === 'number' && d.late_minutes > 0);
+  if (anyLate) return;
+  const firstTimeToday = await sbClaimDailyAttendanceNotice(workDate);
+  if (!firstTimeToday) return;
+  await sendPushToRole(['administrador', 'ceo'], 'TODAS TUS MODELOS ENTRARON A TIEMPO', { tag: 'placer-asistencia-todas' });
 }
 
 // Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
@@ -2071,6 +2337,225 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
+  // ---- Asistencia ----
+
+  if (parsed.pathname === '/api/attendance' && req.method === 'GET') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const payload = await buildAttendancePayload(session);
+    return sendJson(res, 200, payload);
+  }
+
+  // La modelo reporta que llego. Esto NO fija todavia la hora que cuenta: crea
+  // una entrada 'pendiente' que el administrador tiene que validar.
+  if (parsed.pathname === '/api/attendance/report' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos reportan su llegada' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 400) : '';
+    const now = Date.now();
+    const schedule = await sbListAttendanceSchedule();
+    const mine = schedule.find((s) => s.username === session.username);
+    // Se miran los dos ultimos dias para saber cuales ya tiene fichados, y con
+    // eso pickWorkDate decide si esta llegada pertenece al turno de hoy o al de
+    // anoche (caso de llegar pasada la medianoche).
+    const recent = await sbListAttendanceDays(studioDateStr(now - 24 * 3600000), studioDateStr(now), session.username);
+    const workDate = pickWorkDate(now, mine ? mine.entry_time : null, recent.map((d) => d.work_date));
+    if (recent.some((d) => d.work_date === workDate)) {
+      return sendJson(res, 400, { error: 'Ya reportaste tu llegada para este turno' });
+    }
+    const scheduledMs = mine ? studioScheduledMs(workDate, mine.entry_time) : null;
+    const row = await sbInsertAttendanceDay({
+      username: session.username,
+      work_date: workDate,
+      scheduled_at: scheduledMs ? new Date(scheduledMs).toISOString() : null,
+      reported_at: new Date(now).toISOString(),
+      status: 'pendiente',
+      note: note || null,
+    });
+    if (!row) return sendJson(res, 500, { error: 'No se pudo registrar tu llegada' });
+    await sbLogAudit(session, 'attendance_report', session.username, { work_date: workDate });
+    sendPushToRole(['administrador', 'ceo'], session.username + ' reportó su llegada — falta validarla.', { tag: 'placer-asistencia-pendiente' }).catch(() => {});
+    return sendJson(res, 200, { ok: true, day: row });
+  }
+
+  // El administrador valida. Aca esta el punto fino del sistema: puede aceptar
+  // la hora que reporto la modelo (caso normal: si llego y el admin confirma
+  // 20 minutos despues, no seria justo cobrarle esos 20 minutos), o marcar que
+  // recien llega AHORA (el caso de "reporto a las 4 pero no estaba"). Las dos
+  // horas quedan guardadas, asi que siempre se puede ver que reporto ella y
+  // que valido el.
+  if (parsed.pathname === '/api/attendance/validate' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const day = await sbFetchAttendanceDayById(id);
+    if (!day) return sendJson(res, 404, { error: 'No existe ese registro' });
+
+    const now = Date.now();
+    if (body.action === 'rechazar') {
+      const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 300) : '';
+      const updated = await sbUpdateAttendanceDay(id, {
+        status: 'rechazada', reject_reason: reason || null,
+        validated_at: new Date(now).toISOString(), validated_by: session.username,
+        official_at: null, official_source: null, late_minutes: null,
+      });
+      await sbLogAudit(session, 'attendance_reject', day.username, { id, reason });
+      return sendJson(res, 200, { ok: true, day: updated });
+    }
+
+    // 'reportada' = vale la hora que ella puso; 'ahora' = vale este instante;
+    // 'manual' = el admin escribe la hora real a mano (HH:MM del estudio).
+    const source = body.source === 'ahora' ? 'ahora' : (body.source === 'manual' ? 'manual' : 'reportada');
+    let officialMs;
+    if (source === 'ahora') {
+      officialMs = now;
+    } else if (source === 'manual') {
+      const hhmm = typeof body.time === 'string' ? body.time.trim() : '';
+      if (!VALID_HHMM.test(hhmm)) return sendJson(res, 400, { error: 'Hora inválida (usa HH:MM, entre 00:00 y 23:59)' });
+      officialMs = studioScheduledMs(day.work_date, hhmm);
+      if (officialMs == null) return sendJson(res, 400, { error: 'Hora inválida' });
+    } else {
+      officialMs = Date.parse(day.reported_at);
+    }
+
+    // La hora que le tocaba se congela cuando ella reporta. Pero si en ese
+    // momento todavia no tenia horario asignado, se vuelve a mirar aca: asi,
+    // asignarle el horario despues de que reporto igual cuenta, en vez de
+    // dejar ese dia sin retraso para siempre.
+    let scheduledMs = day.scheduled_at ? Date.parse(day.scheduled_at) : null;
+    if (scheduledMs == null) {
+      const schedule = await sbListAttendanceSchedule();
+      const hers = schedule.find((s) => s.username === day.username);
+      if (hers) scheduledMs = studioScheduledMs(day.work_date, hers.entry_time);
+    }
+    const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
+    const updated = await sbUpdateAttendanceDay(id, {
+      status: 'validada',
+      scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
+      official_at: new Date(officialMs).toISOString(),
+      official_source: source,
+      validated_at: new Date(now).toISOString(),
+      validated_by: session.username,
+      late_minutes: lateMinutes,
+      reject_reason: null,
+    });
+    if (!updated) return sendJson(res, 500, { error: 'No se pudo validar' });
+    await sbLogAudit(session, 'attendance_validate', day.username, { id, source, late_minutes: lateMinutes });
+    notifyAttendanceValidated(day.username, officialMs, lateMinutes, day.work_date).catch(() => {});
+    return sendJson(res, 200, { ok: true, day: updated });
+  }
+
+  // La salida la anota ella y no necesita validacion (asi lo pidio el usuario).
+  if (parsed.pathname === '/api/attendance/exit' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos anotan su salida' });
+    const now = Date.now();
+    const open = await sbFetchOpenAttendanceDay(session.username, now);
+    if (!open) return sendJson(res, 400, { error: 'No tienes una jornada abierta para cerrar' });
+    const updated = await sbUpdateAttendanceDay(open.id, { exit_at: new Date(now).toISOString() });
+    if (!updated) return sendJson(res, 500, { error: 'No se pudo registrar la salida' });
+    await sbLogAudit(session, 'attendance_exit', session.username, { work_date: open.work_date });
+    return sendJson(res, 200, { ok: true, day: updated });
+  }
+
+  if (parsed.pathname === '/api/attendance/justification' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos escriben justificaciones' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
+    if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
+    const kinds = ['retraso', 'conexion', 'room', 'salud', 'otro'];
+    const kind = kinds.includes(body.kind) ? body.kind : 'otro';
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
+    const ok = await sbInsertAttendanceJustification({ username: session.username, work_date: workDate, kind, body: text });
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar la justificación' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/attendance/excuse' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos suben excusas' });
+    let body;
+    try { body = await readBody(req, ATTENDANCE_EXCUSE_BODY_LIMIT); } catch (e) { return sendJson(res, 400, { error: 'Archivo demasiado grande o inválido' }); }
+    const filename = typeof body.filename === 'string' ? body.filename.trim().slice(0, 200) : '';
+    const mime = typeof body.mime_type === 'string' ? body.mime_type.trim().slice(0, 100) : '';
+    const content = typeof body.content_base64 === 'string' ? body.content_base64 : '';
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+    if (!filename || !content) return sendJson(res, 400, { error: 'Falta el archivo' });
+    if (!ATTENDANCE_EXCUSE_MIMES.includes(mime)) return sendJson(res, 400, { error: 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF' });
+    const sizeBytes = Math.floor(content.length * 3 / 4);
+    if (sizeBytes > ATTENDANCE_EXCUSE_MAX_BYTES) return sendJson(res, 400, { error: 'El archivo no puede pesar más de 2.5 MB' });
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
+    const row = await sbInsertAttendanceExcuse({
+      username: session.username, work_date: workDate, filename, mime_type: mime,
+      size_bytes: sizeBytes, content_base64: content, note: note || null,
+    });
+    if (!row) return sendJson(res, 500, { error: 'No se pudo guardar la excusa' });
+    await sbLogAudit(session, 'attendance_excuse_upload', session.username, { filename, size_bytes: sizeBytes });
+    sendPushToRole(['administrador', 'ceo'], session.username + ' subió una excusa médica.', { tag: 'placer-asistencia-excusa' }).catch(() => {});
+    return sendJson(res, 200, { ok: true, id: row.id });
+  }
+
+  if (parsed.pathname === '/api/attendance/excuse' && req.method === 'GET') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const id = Number(parsed.query.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const excuse = await sbFetchAttendanceExcuse(id);
+    if (!excuse) return sendJson(res, 404, { error: 'No existe' });
+    // Una modelo solo puede abrir sus propias excusas.
+    if (session.role === 'modelo' && excuse.username !== session.username) {
+      return sendJson(res, 403, { error: 'No autorizado' });
+    }
+    const buf = Buffer.from(excuse.content_base64, 'base64');
+    res.writeHead(200, {
+      'Content-Type': excuse.mime_type || 'application/octet-stream',
+      'Content-Length': buf.length,
+      'Content-Disposition': 'inline; filename="' + encodeURIComponent(excuse.filename) + '"',
+      'Cache-Control': 'private, no-store',
+    });
+    return res.end(buf);
+  }
+
+  if (parsed.pathname === '/api/attendance/schedule' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    const entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
+    if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
+    if (!VALID_HHMM.test(entryTime)) return sendJson(res, 400, { error: 'Hora inválida (usa HH:MM, entre 00:00 y 23:59)' });
+    const ok = await sbUpsertAttendanceSchedule(username, entryTime);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar el horario' });
+    await sbLogAudit(session, 'attendance_schedule_set', username, { entry_time: entryTime });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (parsed.pathname === '/api/attendance/settings' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const hours = Number(body.threshold_hours);
+    if (!isFinite(hours) || hours <= 0 || hours > 200) return sendJson(res, 400, { error: 'Umbral inválido' });
+    const minutes = Math.round(hours * 60);
+    const ok = await sbUpdateAttendanceSettings(minutes);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes });
+    return sendJson(res, 200, { ok: true });
+  }
+
   return serveStatic(req, res, parsed.pathname);
 });
 
@@ -2088,8 +2573,21 @@ server.on('error', (err) => {
   }
 });
 
+// SOLO_UI=1 levanta el servidor sin ninguno de los sondeos externos
+// (Chaturbate Events, balances, Stripchat). Es para probar la interfaz contra
+// la base real desde una instancia suelta en otro puerto sin duplicar el
+// trafico que ya genera produccion: dos instancias sondeando las mismas
+// cuentas fue exactamente lo que hizo que Chaturbate nos devolviera 403 a todo
+// (ver el incidente del 2026-09-04 en CLAUDE.md). Nunca ponerlo en produccion:
+// sin los sondeos no se registra ni una propina.
+const UI_ONLY = process.env.SOLO_UI === '1';
+
 server.listen(PORT, () => {
   console.log('Chaturbate token tracker corriendo en http://localhost:' + PORT);
+  if (UI_ONLY) {
+    console.log('SOLO_UI=1 — sondeos externos apagados (modo prueba de interfaz, no registra propinas).');
+    return;
+  }
   reconnectAllModels();
   if (STRIPCHAT_ENABLED) {
     console.log('Integración con Stripchat activada (estudio: ' + STRIPCHAT_STUDIO_USERNAME + ') — se sincroniza sola cada ' + (STRIPCHAT_POLL_INTERVAL_MS / 60000) + ' min.');

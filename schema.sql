@@ -295,6 +295,86 @@ create table public.cb_api_errors (
 -- servidor (nunca llega al browser), así que "abierta a anon" en la práctica
 -- significa "solo server.js puede tocar esto". Ver CLAUDE.md.
 
+
+-- ============================================================================
+-- Asistencia: hora de entrada (validada por el admin), hora de salida,
+-- justificaciones y excusas medicas. Ver la seccion "Asistencia" de CLAUDE.md.
+-- ============================================================================
+
+-- Hora a la que le toca entrar a cada modelo. Sin fila aca, esa modelo no
+-- acumula retraso (no hay contra que medirlo).
+create table if not exists public.cb_attendance_schedule (
+  username   text primary key,
+  entry_time time        not null default '16:00',
+  updated_at timestamptz not null default now()
+);
+
+-- Un registro por modelo por dia laboral. reported_at es lo que dice ella;
+-- official_at es la hora que realmente cuenta, y solo existe cuando el
+-- administrador valida. Las dos se guardan a proposito: sin las dos no hay
+-- forma de auditar despues una diferencia entre lo reportado y lo aprobado.
+create table if not exists public.cb_attendance_days (
+  id              bigserial primary key,
+  username        text not null,
+  work_date       date not null,
+  scheduled_at    timestamptz,
+  reported_at     timestamptz not null default now(),
+  status          text not null default 'pendiente',  -- pendiente | validada | rechazada
+  official_at     timestamptz,
+  official_source text,                                -- reportada | ahora | manual
+  validated_at    timestamptz,
+  validated_by    text,
+  reject_reason   text,
+  late_minutes    int,                                 -- positivo = tarde, negativo = temprano
+  exit_at         timestamptz,                         -- la anota ella, no se valida
+  note            text,
+  created_at      timestamptz not null default now(),
+  unique (username, work_date)
+);
+create index if not exists cb_attendance_days_user_date on public.cb_attendance_days (username, work_date desc);
+
+create table if not exists public.cb_attendance_justifications (
+  id         bigserial primary key,
+  username   text not null,
+  work_date  date not null,
+  kind       text not null default 'otro',   -- retraso | conexion | room | salud | otro
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists cb_attendance_just_user_date on public.cb_attendance_justifications (username, work_date desc);
+
+-- El archivo va en base64 en la propia fila (tope 2.5 MB por archivo, validado
+-- en el servidor). Para el volumen real de esto es mas simple que montar un
+-- bucket aparte; si la tabla crece mucho, esa es la señal para mudarlo.
+create table if not exists public.cb_attendance_excuses (
+  id             bigserial primary key,
+  username       text not null,
+  work_date      date,
+  filename       text not null,
+  mime_type      text not null,
+  size_bytes     int  not null,
+  content_base64 text not null,
+  note           text,
+  created_at     timestamptz not null default now()
+);
+create index if not exists cb_attendance_excuses_user on public.cb_attendance_excuses (username, created_at desc);
+
+-- Fila unica (id = 1). El umbral es cuanto retraso acumulado en la quincena
+-- hace que la modelo asuma su propia seguridad social.
+create table if not exists public.cb_attendance_settings (
+  id                     int primary key default 1,
+  late_threshold_minutes int not null default 300,
+  updated_at             timestamptz not null default now()
+);
+insert into public.cb_attendance_settings (id, late_threshold_minutes) values (1, 300) on conflict (id) do nothing;
+
+-- Evita que el aviso de "todas entraron a tiempo" salga repetido: la fecha es
+-- la primary key, asi que el segundo intento del dia choca y no manda nada.
+create table if not exists public.cb_attendance_daily_notice (
+  work_date date primary key,
+  sent_at   timestamptz not null default now()
+);
+
 alter table public.cb_models                      enable row level security;
 alter table public.cb_admins                       enable row level security;
 alter table public.cb_tips                         enable row level security;
@@ -312,6 +392,12 @@ alter table public.cb_balance_ticks                enable row level security;
 alter table public.cb_balance_resets               enable row level security;
 alter table public.cb_chaturbate_period_base       enable row level security;
 alter table public.cb_api_errors                   enable row level security;
+alter table public.cb_attendance_schedule          enable row level security;
+alter table public.cb_attendance_days              enable row level security;
+alter table public.cb_attendance_justifications    enable row level security;
+alter table public.cb_attendance_excuses           enable row level security;
+alter table public.cb_attendance_settings          enable row level security;
+alter table public.cb_attendance_daily_notice      enable row level security;
 
 create policy cb_tracker_server_access_models       on public.cb_models                   for all to anon using (true) with check (true);
 create policy cb_tracker_server_access_admins       on public.cb_admins                   for all to anon using (true) with check (true);
@@ -330,6 +416,12 @@ create policy cb_balance_ticks_anon_all             on public.cb_balance_ticks  
 create policy cb_balance_resets_anon_all            on public.cb_balance_resets           for all to anon using (true) with check (true);
 create policy cb_chaturbate_period_base_anon_all    on public.cb_chaturbate_period_base   for all to anon using (true) with check (true);
 create policy cb_api_errors_anon_all                on public.cb_api_errors               for all to anon using (true) with check (true);
+create policy cb_attendance_schedule_anon_all       on public.cb_attendance_schedule       for all to anon using (true) with check (true);
+create policy cb_attendance_days_anon_all           on public.cb_attendance_days           for all to anon using (true) with check (true);
+create policy cb_attendance_just_anon_all           on public.cb_attendance_justifications for all to anon using (true) with check (true);
+create policy cb_attendance_excuses_anon_all        on public.cb_attendance_excuses        for all to anon using (true) with check (true);
+create policy cb_attendance_settings_anon_all       on public.cb_attendance_settings       for all to anon using (true) with check (true);
+create policy cb_attendance_daily_notice_anon_all   on public.cb_attendance_daily_notice   for all to anon using (true) with check (true);
 
 
 -- ============================================================================

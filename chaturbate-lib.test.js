@@ -243,3 +243,105 @@ describe('resolveChaturbateTokens — reconciliación de las 3 fuentes (sin dupl
     assert.equal(lib.resolveChaturbateTokens({ base, ticks, tips: [], extraTokens: 0 }), 304);
   });
 });
+
+describe('asistencia — dia laboral en hora del estudio (Colombia, UTC-5 fijo)', () => {
+  test('8 p.m. Colombia sigue siendo el mismo día laboral aunque en UTC ya sea el siguiente', () => {
+    // 2026-09-05T01:00Z = 2026-09-04 20:00 en Colombia
+    assert.equal(lib.studioDateStr(Date.parse('2026-09-05T01:00:00Z')), '2026-09-04');
+  });
+  test('2 a.m. Colombia (madrugada) todavía cuenta como la jornada del día anterior en UTC', () => {
+    // 2026-09-05T07:00Z = 2026-09-05 02:00 en Colombia
+    assert.equal(lib.studioDateStr(Date.parse('2026-09-05T07:00:00Z')), '2026-09-05');
+  });
+  test('studioTimeStr devuelve la hora de Colombia, no la del servidor', () => {
+    assert.equal(lib.studioTimeStr(Date.parse('2026-09-04T21:00:00Z')), '16:00');
+  });
+  test('studioScheduledMs: 16:00 del estudio son las 21:00 UTC', () => {
+    assert.equal(lib.studioScheduledMs('2026-09-04', '16:00'), Date.parse('2026-09-04T21:00:00Z'));
+  });
+  test('studioScheduledMs acepta "HH:MM:SS" (formato que devuelve Postgres para time)', () => {
+    assert.equal(lib.studioScheduledMs('2026-09-04', '16:00:00'), Date.parse('2026-09-04T21:00:00Z'));
+  });
+  test('studioScheduledMs con basura devuelve null en vez de NaN', () => {
+    assert.equal(lib.studioScheduledMs('', ''), null);
+    assert.equal(lib.studioScheduledMs('2026-09-04', 'xx:yy'), null);
+  });
+});
+
+describe('asistencia — cálculo de retraso y acumulado', () => {
+  test('llegó 23 minutos tarde', () => {
+    const scheduled = lib.studioScheduledMs('2026-09-04', '16:00');
+    assert.equal(lib.computeLateMinutes(Date.parse('2026-09-04T21:23:00Z'), scheduled), 23);
+  });
+  test('llegó 10 minutos temprano: negativo', () => {
+    const scheduled = lib.studioScheduledMs('2026-09-04', '16:00');
+    assert.equal(lib.computeLateMinutes(Date.parse('2026-09-04T20:50:00Z'), scheduled), -10);
+  });
+  test('sin hora oficial todavía: null, no 0 (0 sería "llegó puntual", que es distinto)', () => {
+    assert.equal(lib.computeLateMinutes(null, 123), null);
+  });
+  test('el acumulado solo suma retrasos; llegar temprano no borra un retraso anterior', () => {
+    const days = [
+      { status: 'validada', late_minutes: 30 },
+      { status: 'validada', late_minutes: -45 },
+      { status: 'validada', late_minutes: 12 },
+    ];
+    assert.equal(lib.sumLateMinutes(days), 42);
+  });
+  test('un día pendiente o rechazado no suma al acumulado', () => {
+    const days = [
+      { status: 'pendiente', late_minutes: 60 },
+      { status: 'rechazada', late_minutes: 90 },
+      { status: 'validada', late_minutes: 15 },
+    ];
+    assert.equal(lib.sumLateMinutes(days), 15);
+  });
+});
+
+describe('asistencia — quincena en fechas del estudio', () => {
+  test('día 4 cae en la primera quincena del mes', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2026-09-04'), { start: '2026-09-01', end: '2026-09-15' });
+  });
+  test('día 15 sigue en la primera quincena (límite inclusivo)', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2026-09-15'), { start: '2026-09-01', end: '2026-09-15' });
+  });
+  test('día 16 abre la segunda quincena, que llega al último día real del mes', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2026-09-16'), { start: '2026-09-16', end: '2026-09-30' });
+  });
+  test('febrero no bisiesto termina el 28', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2026-02-20'), { start: '2026-02-16', end: '2026-02-28' });
+  });
+  test('febrero bisiesto termina el 29', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2028-02-20'), { start: '2028-02-16', end: '2028-02-29' });
+  });
+  test('enero: mes de un solo dígito queda con cero a la izquierda', () => {
+    assert.deepEqual(lib.studioQuincenaRange('2026-01-03'), { start: '2026-01-01', end: '2026-01-15' });
+  });
+  test('fecha inválida devuelve null', () => {
+    assert.equal(lib.studioQuincenaRange('basura'), null);
+  });
+});
+
+describe('asistencia — a qué turno pertenece una llegada (pickWorkDate)', () => {
+  const at = (iso) => Date.parse(iso);
+  test('llegada normal al turno del día: se queda en ese día', () => {
+    // 2026-09-04T20:10 Colombia = 2026-09-05T01:10Z, turno 20:00
+    assert.equal(lib.pickWorkDate(at('2026-09-05T01:10:00Z'), '20:00', []), '2026-09-04');
+  });
+  test('llegada pasada la medianoche cuenta contra el turno de anoche, no contra el de mañana', () => {
+    // 2026-09-05T00:30 Colombia = 2026-09-05T05:30Z. El turno de las 20:00 más
+    // cercano es el del 4, al que llegó 4h30 tarde — no el del 5, que sería
+    // 19h30 "temprano".
+    assert.equal(lib.pickWorkDate(at('2026-09-05T05:30:00Z'), '20:00', []), '2026-09-04');
+  });
+  test('si anoche ya había fichado, la llegada va al día de hoy y no pisa el registro anterior', () => {
+    assert.equal(lib.pickWorkDate(at('2026-09-05T05:30:00Z'), '20:00', ['2026-09-04']), '2026-09-05');
+  });
+  test('llegar temprano al turno de hoy no se confunde con el de ayer', () => {
+    // 2026-09-04T15:50 Colombia = 2026-09-04T20:50Z, turno 16:00
+    assert.equal(lib.pickWorkDate(at('2026-09-04T20:50:00Z'), '16:00', []), '2026-09-04');
+  });
+  test('sin horario asignado es simplemente el día del estudio', () => {
+    assert.equal(lib.pickWorkDate(at('2026-09-05T05:30:00Z'), null, []), '2026-09-05');
+  });
+});
