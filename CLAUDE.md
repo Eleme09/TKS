@@ -641,16 +641,31 @@ evidence):**
      seeds `last_balance` with no tick (no way to know how much of a
      pre-existing balance was already counted elsewhere).
    - **Dense polling before the daily cashout**: `isNearChaturbateCashout`
-     triggers ~20s polling in the 12 minutes before the reset instead of
-     the normal ~2min cadence, to catch the highest possible balance
-     right before it's zeroed. **The cashout hour is 04:30 UTC, not
-     21:30 or 23:30** — worked out from real data: the CSV logs the
-     cashout at `21:30` (Chaturbate's own US-Pacific server clock) and
-     the web UI shows the *same instant* to the Colombian user as
-     `11:30 p.m.` (UTC-5) — both point to `04:30 UTC`. If this ever
-     looks wrong, `cb_balance_resets.detected_at` has the real
-     observed timestamps to re-derive it from, don't just guess a new
-     hour.
+     triggers ~20s polling instead of the normal ~2min cadence, to catch
+     the highest possible balance right before it's zeroed. **La ventana
+     es 04:15–04:45 UTC** (`CHATURBATE_CASHOUT_UTC_HOUR/MINUTE` = 4:45,
+     `CASHOUT_WINDOW_MINUTES` = 30, en `chaturbate-lib.js`).
+     **Corregido 2026-09-04 contra datos reales — la versión anterior
+     (04:30, ventana de 12 min → 04:18–04:30) estaba mal.** El 21:30 del
+     CSV (reloj US-Pacific de Chaturbate) = 04:30 UTC es de donde salió
+     esa primera hipótesis, pero el primer retiro realmente observado
+     desde que existe el sondeo de balance cayó **entre 04:38:40 y
+     04:40:40 UTC**: las 3 modelos con saldo ese día (jax_f00x 1314→24,
+     abigail_f00x 1925→0, pinky_f00x 420→2) se detectaron todas en el
+     mismo ciclo, a las 04:40:40, y el ciclo anterior fuera de ventana
+     corre 2 min antes. O sea ~10 min **después** de las 04:30 — con la
+     ventana vieja, el sondeo denso ya estaba cerrado justo cuando el
+     balance se vaciaba de verdad. Lo más probable es que el 21:30 del
+     CSV sea el momento *lógico* del corte y el vaciado real tarde unos
+     minutos. La ventana nueva cubre las dos cosas, con margen.
+     **Es una sola observación**: si se acumulan más días en
+     `cb_balance_resets` y se concentran en una hora más precisa, se
+     puede angostar. Verificar siempre contra
+     `cb_balance_resets.detected_at`, nunca adivinar una hora nueva.
+     Ojo también: los `to_balance` de ese retiro fueron 24, 0 y 2 — no
+     todos exactamente 0 como decía la nota vieja del CSV; son propinas
+     que entraron entre el vaciado y el momento en que el sondeo lo
+     detectó.
    - `pollChaturbateBalances` has a `balancePollRunning` reentrancy
      guard (added in the 2026-09-03 code-review pass) — without it, a
      slow poll cycle during the dense 20s window could overlap the next

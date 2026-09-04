@@ -159,22 +159,32 @@ describe('sumChaturbateCsvEarningsForPeriod', () => {
   });
 });
 
-describe('isNearChaturbateCashout (ventana pre-retiro, 04:30 UTC)', () => {
+describe('isNearChaturbateCashout (ventana pre-retiro, 04:15-04:45 UTC)', () => {
   const at = (iso) => new Date(iso).getTime();
-  test('12 minutos antes del corte: true (límite inicial de la ventana)', () => {
-    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:18:00Z')), true);
+  test('30 minutos antes del corte: true (límite inicial de la ventana)', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:15:00Z')), true);
   });
-  test('13 minutos antes del corte: false (justo fuera de la ventana)', () => {
-    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:17:00Z')), false);
+  test('31 minutos antes del corte: false (justo fuera de la ventana)', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:14:00Z')), false);
   });
   test('en el minuto exacto del corte: true', () => {
-    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:30:00Z')), true);
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:45:00Z')), true);
   });
   test('un minuto después del corte: false (ya no hay nada que rescatar)', () => {
-    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:31:00Z')), false);
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:46:00Z')), false);
   });
   test('mediodía, lejos de la ventana: false', () => {
     assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T12:00:00Z')), false);
+  });
+  // Regresion del hallazgo real del 2026-09-04: las 04:30 originales dejaban
+  // la ventana cerrada cuando el balance se vacia de verdad (~04:39-04:41 UTC,
+  // medido en cb_balance_resets). La ventana nueva tiene que cubrir tanto las
+  // 04:30 asumidas como el momento realmente observado.
+  test('04:30 (hipótesis vieja) sigue dentro de la ventana', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:30:00Z')), true);
+  });
+  test('04:40 (vaciado real observado) está dentro de la ventana', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:40:00Z')), true);
   });
 });
 
