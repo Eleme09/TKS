@@ -919,6 +919,26 @@ en `chaturbate_stats` — no es "una API que cambió", es Chaturbate
 limitándonos por consultar de más, y el síntoma es una ventana ciega en
 el balance justo cuando más importa.
 
+**Segundo patrón distinto, mismo día, tarde (2026-09-04, ~18:00-22:00
+UTC):** un HTTP 403 aislado en `chaturbate_stats`, **uno por hora, cada
+~62 minutos, siempre en el minuto ~42-50**, rotando de modelo (pinky_f00x
+tres veces seguidas, luego kitty_f00x) — no es el mismo bloqueo masivo del
+incidente de la madrugada (ese fue 17 min seguidos a las 6 modelos a la
+vez). Verificado con SQL real (`select date_trunc('hour', created_at),
+message, count(*) from cb_api_errors where source='chaturbate_stats' and
+created_at > '2026-09-04 04:41:00+00' group by 1,2 order by 1`): exactamente
+un error por hora, ninguna hora con más de uno, ninguna hora sin ninguno.
+Esa regularidad tan exacta no encaja con "flakiness" random ni con nada
+propio del proyecto (nada nuestro corre cada 62 min — el sondeo normal es
+cada 2 min, el vigía es una vez al día) — apunta a algo del lado de
+Chaturbate que se repite cada hora y golpea la consulta que le toque en
+ese instante, sea de quien sea. **No confirmado, no inventar una causa
+más allá de esto.** Cada vez se recuperó solo en la siguiente consulta
+(nunca quedó pegado ni escaló a bloqueo largo). Si esto sigue apareciendo
+día tras día a este ritmo, es la pista a seguir; si el vigía diario llega
+a ver esto, que lo reporte como patrón horario distinto del incidente de
+madrugada, no como el mismo bug.
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia
