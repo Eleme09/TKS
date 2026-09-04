@@ -351,6 +351,17 @@
     background: var(--pink-soft); padding: 6px 11px; border-radius: 8px;
   }
   .att-sheet-link:hover { background: rgba(255,143,190,0.18); }
+  .att-shift-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .att-shift-btn {
+    display: flex; align-items: center; gap: 10px; text-align: left;
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; font-size: 12px; font-weight: 600; line-height: 1.4;
+  }
+  .att-shift-btn b { font-size: 13px; }
+  .att-shift-btn svg { flex: 0 0 auto; color: var(--pink); }
+  .att-shift-btn:hover { border-color: var(--pink-line); }
+  .att-shift-btn.active { border-color: var(--pink); background: var(--pink-soft); color: var(--pink); }
+  @media (max-width: 640px) { .att-shift-picker { grid-template-columns: 1fr; } }
   .att-open-sheet {
     display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px;
     font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
@@ -413,11 +424,13 @@
     .att-table th { padding: 10px 8px; text-align: center; }
     .th-txt { display: none; }
     .th-ico { display: inline-flex; color: var(--muted); }
-    .att-table { min-width: 0; font-size: 12px; }
+    /* Sin min-width el navegador aplasta las columnas dentro de los 375px del
+       teléfono y el justificante queda de una palabra por renglón. Con él, la
+       tabla se desplaza de lado como una planilla. */
+    .att-table { min-width: 660px; font-size: 12px; }
     .att-table td { padding: 9px 8px; }
-    .att-just-col { max-width: 150px; }
-    .att-table td:first-child { position: sticky; left: 0; background: var(--surface); }
-    .att-table th:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+    .att-table td, .att-table th { white-space: nowrap; }
+    .att-just-col { min-width: 220px; max-width: 220px; white-space: normal; }
     /* filas de cuentas: nombre arriba, botones abajo, en vez de apretarse a la derecha */
     .admin-list-row { flex-direction: column; align-items: stretch; gap: 8px; }
     .admin-list-row > span:last-child { justify-content: flex-start; }
@@ -768,9 +781,23 @@
           <div class="meta-small" style="margin-bottom:12px;">La hora de entrada de cada modelo es contra lo que se mide el retraso. El umbral es cuánto retraso acumulado en la quincena hace que la modelo asuma su propia seguridad social.</div>
           <label for="attSchedUser">Modelo</label>
           <select id="attSchedUser"></select>
-          <label for="attSchedTime">Hora de entrada</label>
+          <label>Turno</label>
+          <div class="att-shift-picker">
+            <button type="button" class="att-shift-btn" data-shift="manana">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+              <span><b>Mañana</b><br>7:30 am – 3:30 pm</span>
+            </button>
+            <button type="button" class="att-shift-btn" data-shift="tarde">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+              <span><b>Tarde</b><br>4:00 pm – 12:00 am</span>
+            </button>
+          </div>
+          <div class="meta-small" style="margin-top:10px;">O escribe un horario distinto para esa modelo:</div>
+          <label for="attSchedTime">Entrada (personalizado)</label>
           <input id="attSchedTime" type="time" step="60">
-          <div class="row" style="margin-top:10px;"><button id="btnAttSched" class="btn-primary" style="flex:1;">Guardar horario</button></div>
+          <label for="attSchedExit">Salida (personalizado)</label>
+          <input id="attSchedExit" type="time" step="60">
+          <div class="row" style="margin-top:10px;"><button id="btnAttSched" class="btn-primary" style="flex:1;">Guardar horario personalizado</button></div>
           <label for="attThreshold" style="margin-top:18px;">Umbral de retraso acumulado (horas por quincena)</label>
           <input id="attThreshold" type="number" min="0.5" max="200" step="0.5">
           <label for="attFee">Cobro por cada hora completa de retraso (COP)</label>
@@ -967,6 +994,7 @@
     attConfigCard: document.getElementById('attConfigCard'),
     attSchedUser: document.getElementById('attSchedUser'),
     attSchedTime: document.getElementById('attSchedTime'),
+    attSchedExit: document.getElementById('attSchedExit'),
     btnAttSched: document.getElementById('btnAttSched'),
     attThreshold: document.getElementById('attThreshold'),
     attFee: document.getElementById('attFee'),
@@ -1742,7 +1770,7 @@
         + (t.owes_social_security ? '<span class="att-pill rechazada">asume seguridad social</span>' : '<span class="att-pill validada">al día</span>')
         + '</div>'
         + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
-        + ' · Entrada: ' + (t.entry_time ? attHoraDeReloj(t.entry_time) : 'sin asignar') + '</div>'
+        + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
         + (t.debt_cop > 0
             ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
               + t.debt_hours + ' hora(s) completa(s))</div>'
@@ -1768,9 +1796,12 @@
       if (prevSched) el.attSchedUser.value = prevSched;
       if (!el.attThreshold.value) el.attThreshold.value = (attData.threshold_minutes / 60).toFixed(1);
       if (!el.attFee.value) el.attFee.value = attData.late_hour_fee_cop;
+      attMarcarTurnoActivo();
       el.attSchedList.innerHTML = (attData.schedule || []).length
         ? (attData.schedule || []).map(function (s) {
-            return '<div class="admin-list-row"><span>' + escapeHtml(s.username) + '</span><span class="num">' + attHoraDeReloj(s.entry_time) + '</span></div>';
+            const t = (attData.totals || []).find(function (x) { return x.username === s.username; });
+            return '<div class="admin-list-row"><span>' + escapeHtml(s.username) + '</span>'
+              + '<span class="num">' + escapeHtml(t ? t.shift_label : attHoraDeReloj(s.entry_time)) + '</span></div>';
           }).join('')
         : '<div class="meta-small">Ninguna modelo tiene hora de entrada asignada todavía. Sin hora asignada no se calcula retraso.</div>';
     }
@@ -1897,12 +1928,43 @@
     if (!/^\d{2}:\d{2}$/.test(time)) return attShowBox(el.attConfigError, 'Elige una hora de entrada');
     const r = await fetch('/api/attendance/schedule', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, entry_time: time }),
+      body: JSON.stringify({ username: username, entry_time: time, exit_time: el.attSchedExit.value || '' }),
     });
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) return attShowBox(el.attConfigError, data.error || 'No se pudo guardar');
     await refreshAttendance();
   }
+
+  // Marca cuál de los dos turnos tiene ya la modelo seleccionada, para que se
+  // vea de un vistazo qué está asignado antes de tocar nada.
+  function attMarcarTurnoActivo() {
+    const username = el.attSchedUser.value;
+    const t = (attData && attData.totals || []).find(function (x) { return x.username === username; });
+    const actual = t ? t.shift : null;
+    document.querySelectorAll('.att-shift-btn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-shift') === actual);
+    });
+  }
+
+  // Asignar turno de un botón: manda solo el id del turno y el servidor pone
+  // las horas, para que el botón no dependa de que el navegador mande bien las
+  // horas del turno.
+  async function attAsignarTurno(shift) {
+    attClearBox(el.attConfigError);
+    const username = el.attSchedUser.value;
+    if (!username) return attShowBox(el.attConfigError, 'Elige una modelo primero');
+    const r = await fetch('/api/attendance/schedule', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, shift: shift }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attConfigError, data.error || 'No se pudo asignar el turno');
+    await refreshAttendance();
+  }
+
+  document.querySelectorAll('.att-shift-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { attAsignarTurno(btn.getAttribute('data-shift')); });
+  });
 
   async function attSaveThreshold() {
     attClearBox(el.attConfigError);
@@ -1924,6 +1986,7 @@
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);
   el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
+  el.attSchedUser.addEventListener('change', attMarcarTurnoActivo);
   // Un justificante largo se muestra recortado a dos líneas; tocarlo lo abre.
   document.addEventListener('click', function (e) {
     const cell = e.target.closest && e.target.closest('.att-just-cell');

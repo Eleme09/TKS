@@ -930,9 +930,41 @@ suelta donde cada modelo anotaba su hora a mano.
    ("Llegó ahora"), pero el caso normal no castiga a nadie por la latencia del
    admin. `reported_at` y `official_at` se guardan las dos, siempre, para poder
    auditar la diferencia. **No lo simplifiques a un solo botón.**
-3. `late_minutes` = `official_at` − hora asignada. Positivo tarde, negativo
-   temprano. Sin horario asignado en `cb_attendance_schedule`, no se calcula
-   retraso (queda `null`, no 0).
+3. `late_minutes` = `official_at` − hora del turno, **ya con el margen de
+   tolerancia aplicado** (ver abajo). Positivo tarde, negativo temprano. Sin
+   horario asignado en `cb_attendance_schedule`, no se calcula retraso (queda
+   `null`, no 0).
+
+**Turnos (definidos por el usuario 2026-09-04).** Dos turnos con nombre en
+`ATTENDANCE_SHIFTS` (`chaturbate-lib.js`): **Mañana 07:30–15:30** y **Tarde
+16:00–00:00**. Se asignan de un botón en Asistencia → Horarios y umbral;
+`POST /api/attendance/schedule` acepta `{username, shift}` (el servidor pone
+las horas, para que el botón no dependa de que el navegador las mande bien) o
+`{username, entry_time, exit_time}` para un horario distinto. Si las horas
+escritas a mano coinciden con un turno, se guarda como ese turno. El turno de
+la tarde **cruza medianoche**, que es justo el caso que `pickWorkDate` cubre.
+
+### ⚠ CONFIDENCIAL — margen de tolerancia de entrada
+
+`ATTENDANCE_GRACE_MINUTES = 12` en `chaturbate-lib.js`. Los primeros 12
+minutos de cada turno no cuentan como retraso; pasado ese margen el retraso
+cuenta desde ahí (llegar 20 tarde cuenta como 8, no como 20).
+
+**Esto NO puede aparecer en ningún texto de la web.** El usuario lo pidió así
+explícitamente: si las modelos supieran del margen, llegarían tarde a
+propósito esos 12 minutos. No lo pongas en la interfaz, ni en mensajes de
+error, ni lo mandes en la respuesta de la API — se aplica en `server.js` al
+validar y lo que viaja al navegador es únicamente el número ya ajustado.
+Verificado que no aparece en `public/` ni en ninguna respuesta.
+
+**Límite honesto que el usuario debe saber:** una modelo que sepa su hora de
+turno y vea su propio retraso puede restar y deducir el margen (llega 4:20,
+la app le muestra 8 minutos → dedujo los 12). No hay forma de mostrar un
+número consistente y a la vez esconder del todo la resta. Lo que sí está
+garantizado es que en ningún lado se lo decimos.
+
+El dato crudo no se pierde: `scheduled_at` y `official_at` quedan guardados
+en `cb_attendance_days`, así que el retraso real siempre se recalcula.
 
 **La salida la anota ella y no se valida** (decisión explícita del usuario).
 

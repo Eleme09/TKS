@@ -271,6 +271,78 @@ function pickWorkDate(nowMs, entryTime, takenDates) {
   return Math.abs(nowMs - schedYesterday) < Math.abs(nowMs - schedToday) ? yesterday : today;
 }
 
+// Los dos turnos del estudio (definidos por el usuario 2026-09-04). El
+// retraso siempre se mide contra `entry` del turno que tenga asignado la
+// modelo. `exit` es informativo: la salida la anota ella y no se valida.
+// El turno de la tarde termina a medianoche, o sea que cruza de dia — por eso
+// pickWorkDate compara contra el turno de hoy y el de ayer.
+const ATTENDANCE_SHIFTS = {
+  manana: { id: 'manana', label: 'Mañana', entry: '07:30', exit: '15:30' },
+  tarde: { id: 'tarde', label: 'Tarde', entry: '16:00', exit: '00:00' },
+};
+
+// Postgres devuelve las columnas `time` como "HH:MM:SS"; adentro se comparan
+// siempre como "HH:MM".
+function normalizeClock(t) {
+  if (!t) return null;
+  const parts = String(t).split(':');
+  if (parts.length < 2) return null;
+  return parts[0].padStart(2, '0') + ':' + parts[1].padStart(2, '0');
+}
+
+function shiftById(id) {
+  return ATTENDANCE_SHIFTS[id] || null;
+}
+
+// A que turno corresponde un horario guardado. Si no coincide con ninguno de
+// los dos, es un horario personalizado y se dice asi en vez de forzarlo a
+// alguno de los turnos.
+function shiftFromTimes(entryTime, exitTime) {
+  const entry = normalizeClock(entryTime);
+  if (!entry) return null;
+  const exit = normalizeClock(exitTime);
+  for (const key of Object.keys(ATTENDANCE_SHIFTS)) {
+    const s = ATTENDANCE_SHIFTS[key];
+    if (s.entry === entry && (exit == null || exit === s.exit)) return s.id;
+  }
+  return 'personalizado';
+}
+
+function shiftLabel(id, entryTime, exitTime) {
+  const s = shiftById(id);
+  if (s) return s.label + ' (' + s.entry + '–' + s.exit + ')';
+  const entry = normalizeClock(entryTime);
+  if (!entry) return 'sin asignar';
+  const exit = normalizeClock(exitTime);
+  return exit ? 'Personalizado (' + entry + '–' + exit + ')' : 'Personalizado (' + entry + ')';
+}
+
+// ---------------------------------------------------------------------------
+// CONFIDENCIAL — margen de tolerancia al entrar.
+//
+// Los primeros 12 minutos de cada turno no cuentan como retraso: nadie llega
+// al minuto exacto. Pasado ese margen, el retraso empieza a contar desde ahi
+// (llegar 20 minutos tarde cuenta como 8, no como 20).
+//
+// **Esto no puede aparecer en NINGUN texto de la web.** El usuario lo pidio
+// asi explicitamente: si las modelos supieran del margen, llegarian tarde a
+// proposito los 12 minutos. No lo pongas en la interfaz, ni en mensajes de
+// error, ni lo mandes en la respuesta de la API — se aplica en el servidor y
+// lo que viaja al navegador es unicamente el numero ya ajustado.
+//
+// El dato crudo no se pierde: `scheduled_at` y `official_at` quedan guardados
+// en cb_attendance_days, asi que el retraso real siempre se puede recalcular.
+// ---------------------------------------------------------------------------
+const ATTENDANCE_GRACE_MINUTES = 12;
+
+function applyLateGrace(rawLateMinutes, graceMinutes) {
+  if (rawLateMinutes == null) return null;
+  // Llegar temprano o justo se conserva tal cual; el margen solo perdona
+  // retraso, no convierte un adelanto en otra cosa.
+  if (rawLateMinutes <= 0) return rawLateMinutes;
+  return Math.max(0, rawLateMinutes - (graceMinutes || 0));
+}
+
 // Deuda por retraso: se cobra por HORA ALCANZADA, no proporcional. 59 minutos
 // de retraso acumulado no deben nada; a los 60 se debe una hora completa.
 // Regla del estudio (confirmada por el usuario 2026-09-04): $10.000 COP por
@@ -325,6 +397,13 @@ module.exports = {
   pickWorkDate,
   lateDebtHours,
   lateDebtCop,
+  ATTENDANCE_SHIFTS,
+  ATTENDANCE_GRACE_MINUTES,
+  applyLateGrace,
+  normalizeClock,
+  shiftById,
+  shiftFromTimes,
+  shiftLabel,
   computeLateMinutes,
   sumLateMinutes,
   getQuincena,

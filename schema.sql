@@ -303,9 +303,15 @@ create table public.cb_api_errors (
 
 -- Hora a la que le toca entrar a cada modelo. Sin fila aca, esa modelo no
 -- acumula retraso (no hay contra que medirlo).
+-- Turno de cada modelo. entry_time es lo que manda para calcular el retraso;
+-- shift ('manana' | 'tarde' | null si es personalizado) y exit_time existen
+-- para poder asignar el turno de un boton y mostrar el rango completo.
+-- Turnos del estudio: manana 07:30-15:30, tarde 16:00-00:00.
 create table if not exists public.cb_attendance_schedule (
   username   text primary key,
   entry_time time        not null default '16:00',
+  exit_time  time,
+  shift      text,
   updated_at timestamptz not null default now()
 );
 

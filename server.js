@@ -17,6 +17,8 @@ const {
   sumChaturbateCsvEarningsForPeriod,
   studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
   computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop,
+  ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
+  ATTENDANCE_GRACE_MINUTES, applyLateGrace,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -567,11 +569,17 @@ async function sbListAttendanceSchedule() {
   return r.ok ? r.json() : [];
 }
 
-async function sbUpsertAttendanceSchedule(username, entryTime) {
+async function sbUpsertAttendanceSchedule(username, entryTime, exitTime, shift) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ username, entry_time: entryTime, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({
+      username,
+      entry_time: entryTime,
+      exit_time: exitTime || null,
+      shift: shift || null,
+      updated_at: new Date().toISOString(),
+    }),
   });
   return r.ok;
 }
@@ -741,7 +749,7 @@ async function buildAttendancePayload(session) {
   const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
   const feeCop = settings.late_hour_fee_cop != null ? settings.late_hour_fee_cop : ATTENDANCE_DEFAULTS.late_hour_fee_cop;
   const scheduleByUser = {};
-  for (const s of schedule) scheduleByUser[s.username] = s.entry_time;
+  for (const s of schedule) scheduleByUser[s.username] = s;
 
   // Acumulado de retraso de la quincena, por modelo, y quien debe asumir su
   // seguridad social por pasarse del umbral.
@@ -754,7 +762,19 @@ async function buildAttendancePayload(session) {
     return {
       username,
       late_minutes: lateMinutes,
-      entry_time: scheduleByUser[username] || null,
+      entry_time: (scheduleByUser[username] && scheduleByUser[username].entry_time) || null,
+      exit_time: (scheduleByUser[username] && scheduleByUser[username].exit_time) || null,
+      shift: scheduleByUser[username]
+        ? (scheduleByUser[username].shift
+            || shiftFromTimes(scheduleByUser[username].entry_time, scheduleByUser[username].exit_time))
+        : null,
+      shift_label: scheduleByUser[username]
+        ? shiftLabel(
+            scheduleByUser[username].shift
+              || shiftFromTimes(scheduleByUser[username].entry_time, scheduleByUser[username].exit_time),
+            scheduleByUser[username].entry_time,
+            scheduleByUser[username].exit_time)
+        : 'sin asignar',
       owes_social_security: lateMinutes >= threshold,
       // La deuda se cobra por hora alcanzada, no proporcional (ver lateDebtCop).
       debt_hours: lateDebtHours(lateMinutes),
@@ -772,6 +792,7 @@ async function buildAttendancePayload(session) {
     period,
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
+    shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
     justifications,
@@ -2446,7 +2467,13 @@ const server = http.createServer(async (req, res) => {
       const hers = schedule.find((s) => s.username === day.username);
       if (hers) scheduledMs = studioScheduledMs(day.work_date, hers.entry_time);
     }
-    const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
+    // El margen de tolerancia se aplica ACA, en el servidor: lo que se guarda
+    // y lo que viaja al navegador es el retraso ya ajustado. El margen en si
+    // nunca sale de aca (ver la nota en chaturbate-lib.js). El dato crudo se
+    // puede recalcular siempre con scheduled_at y official_at, que quedan
+    // guardados los dos.
+    const rawLateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
+    const lateMinutes = applyLateGrace(rawLateMinutes, ATTENDANCE_GRACE_MINUTES);
     const updated = await sbUpdateAttendanceDay(id, {
       status: 'validada',
       scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
@@ -2545,12 +2572,34 @@ const server = http.createServer(async (req, res) => {
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
-    const entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
     if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
-    if (!VALID_HHMM.test(entryTime)) return sendJson(res, 400, { error: 'Hora inválida (usa HH:MM, entre 00:00 y 23:59)' });
-    const ok = await sbUpsertAttendanceSchedule(username, entryTime);
+
+    // Dos formas de asignar: por turno con nombre (un botón) o escribiendo las
+    // horas a mano. El turno gana si viene, para que el botón no dependa de
+    // que el cliente mande también las horas correctas.
+    let entryTime;
+    let exitTime = null;
+    let shift = null;
+    const named = shiftById(body.shift);
+    if (named) {
+      entryTime = named.entry;
+      exitTime = named.exit;
+      shift = named.id;
+    } else {
+      entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
+      const rawExit = typeof body.exit_time === 'string' ? body.exit_time.trim() : '';
+      if (!VALID_HHMM.test(entryTime)) return sendJson(res, 400, { error: 'Hora inválida (usa HH:MM, entre 00:00 y 23:59)' });
+      if (rawExit && !VALID_HHMM.test(rawExit)) return sendJson(res, 400, { error: 'Hora de salida inválida (usa HH:MM)' });
+      exitTime = rawExit || null;
+      // Si las horas escritas a mano coinciden con un turno, se guarda como
+      // ese turno en vez de como "personalizado".
+      const detected = shiftFromTimes(entryTime, exitTime);
+      shift = detected === 'personalizado' ? null : detected;
+    }
+
+    const ok = await sbUpsertAttendanceSchedule(username, entryTime, exitTime, shift);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar el horario' });
-    await sbLogAudit(session, 'attendance_schedule_set', username, { entry_time: entryTime });
+    await sbLogAudit(session, 'attendance_schedule_set', username, { entry_time: entryTime, exit_time: exitTime, shift });
     return sendJson(res, 200, { ok: true });
   }
 

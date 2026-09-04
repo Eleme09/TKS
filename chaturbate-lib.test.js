@@ -370,3 +370,73 @@ describe('asistencia — deuda por retraso (se cobra por hora alcanzada)', () =>
     assert.equal(lib.lateDebtCop(180, 25000), 75000);
   });
 });
+
+describe('asistencia — turnos con nombre', () => {
+  test('los dos turnos del estudio tienen las horas que definió el usuario', () => {
+    assert.equal(lib.ATTENDANCE_SHIFTS.manana.entry, '07:30');
+    assert.equal(lib.ATTENDANCE_SHIFTS.manana.exit, '15:30');
+    assert.equal(lib.ATTENDANCE_SHIFTS.tarde.entry, '16:00');
+    assert.equal(lib.ATTENDANCE_SHIFTS.tarde.exit, '00:00');
+  });
+  test('normalizeClock acepta el "HH:MM:SS" que devuelve Postgres', () => {
+    assert.equal(lib.normalizeClock('07:30:00'), '07:30');
+    assert.equal(lib.normalizeClock('7:5'), '07:05');
+    assert.equal(lib.normalizeClock(null), null);
+    assert.equal(lib.normalizeClock('basura'), null);
+  });
+  test('reconoce el turno a partir de las horas guardadas', () => {
+    assert.equal(lib.shiftFromTimes('07:30:00', '15:30:00'), 'manana');
+    assert.equal(lib.shiftFromTimes('16:00:00', '00:00:00'), 'tarde');
+  });
+  test('un horario que no es ninguno de los dos queda como personalizado, no forzado a un turno', () => {
+    assert.equal(lib.shiftFromTimes('09:00:00', '17:00:00'), 'personalizado');
+  });
+  test('sin horario no hay turno', () => {
+    assert.equal(lib.shiftFromTimes(null, null), null);
+  });
+  test('la etiqueta muestra el rango completo del turno', () => {
+    assert.equal(lib.shiftLabel('manana'), 'Mañana (07:30–15:30)');
+    assert.equal(lib.shiftLabel('tarde'), 'Tarde (16:00–00:00)');
+    assert.equal(lib.shiftLabel('personalizado', '09:00:00', '17:00:00'), 'Personalizado (09:00–17:00)');
+    assert.equal(lib.shiftLabel(null, null, null), 'sin asignar');
+  });
+});
+
+describe('asistencia — el turno de la tarde cruza medianoche', () => {
+  test('llegar 00:20 se cuenta contra el turno de la tarde de anoche, no contra el de mañana', () => {
+    // 2026-09-05T05:20Z = 2026-09-05 00:20 en Colombia; turno tarde 16:00
+    assert.equal(lib.pickWorkDate(Date.parse('2026-09-05T05:20:00Z'), '16:00', []), '2026-09-04');
+  });
+  test('el turno de la mañana no se confunde con el del día anterior', () => {
+    // 2026-09-04T12:40Z = 2026-09-04 07:40 en Colombia; turno manana 07:30
+    assert.equal(lib.pickWorkDate(Date.parse('2026-09-04T12:40:00Z'), '07:30', []), '2026-09-04');
+  });
+});
+
+describe('asistencia — margen de tolerancia al entrar (confidencial, ver chaturbate-lib.js)', () => {
+  const G = lib.ATTENDANCE_GRACE_MINUTES;
+  test('llegar dentro del margen no cuenta como retraso', () => {
+    assert.equal(lib.applyLateGrace(5, G), 0);
+    assert.equal(lib.applyLateGrace(G, G), 0);
+  });
+  test('pasado el margen, el retraso cuenta desde ahí, no desde la hora del turno', () => {
+    assert.equal(lib.applyLateGrace(20, G), 8);
+    assert.equal(lib.applyLateGrace(75, G), 63);
+  });
+  test('llegar temprano se conserva tal cual: el margen solo perdona retraso', () => {
+    assert.equal(lib.applyLateGrace(-30, G), -30);
+    assert.equal(lib.applyLateGrace(0, G), 0);
+  });
+  test('sin dato de retraso sigue sin haberlo', () => {
+    assert.equal(lib.applyLateGrace(null, G), null);
+  });
+  test('el margen es un parámetro: con 0 el retraso queda crudo', () => {
+    assert.equal(lib.applyLateGrace(20, 0), 20);
+  });
+  test('una hora de deuda recién se alcanza pasado el margen', () => {
+    // 71 min de retraso real -> 59 efectivos -> todavía no hay hora cobrada
+    assert.equal(lib.lateDebtCop(lib.applyLateGrace(71, G), 10000), 0);
+    // 72 min de retraso real -> 60 efectivos -> una hora
+    assert.equal(lib.lateDebtCop(lib.applyLateGrace(72, G), 10000), 10000);
+  });
+});

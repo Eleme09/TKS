@@ -109,11 +109,18 @@
     th { padding: 10px 8px; text-align: center; }
     .th-txt { display: none; }
     .th-ico { display: inline-flex; color: var(--muted); }
-    table { font-size: 12px; }
+    table {
+      font-size: 12px;
+      /* Sin este min-width el navegador aplasta las 7 columnas dentro de los
+         375px del teléfono y el justificante queda de una palabra por renglón.
+         Con él, la tabla se desplaza de lado como una planilla de verdad. */
+      min-width: 660px;
+    }
     td { padding: 9px 8px; }
-    .just-col { max-width: 170px; }
-    td:first-child, th:first-child { position: sticky; left: 0; background: var(--surface); }
-    th:first-child { z-index: 1; }
+    /* Cada columna con su ancho mínimo: si no, las cortas ceden y la de texto
+       se queda con todo, o al revés. */
+    td, th { white-space: nowrap; }
+    .just-col { min-width: 220px; max-width: 220px; white-space: normal; }
   }
 
   @media print {
@@ -164,6 +171,11 @@
   </div>
 
   <div class="card">
+    <h2>Justificantes escritos</h2>
+    <div id="justificantes"></div>
+  </div>
+
+  <div class="card">
     <h2>Excusas médicas</h2>
     <div id="excusas"></div>
   </div>
@@ -186,6 +198,7 @@
     deudaRegla: document.getElementById('deudaRegla'),
     tablaDeuda: document.getElementById('tablaDeuda'),
     deudaTotal: document.getElementById('deudaTotal'),
+    justificantes: document.getElementById('justificantes'),
   };
 
   var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -302,6 +315,21 @@
     return head + rows;
   }
 
+  // En la tabla el justificante va recortado a dos líneas para no estirar la
+  // fila; acá va completo y legible, que es como se leen de verdad.
+  function justificantesHtml(list, withName) {
+    if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
+    return list.map(function (j) {
+      return '<div class="row-item">'
+        + '<div class="row-head">'
+        + '<span class="row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + '<span class="tag">' + kindShort(j.kind) + '</span></span>'
+        + '<span class="meta">' + fecha(j.work_date) + '</span>'
+        + '</div>'
+        + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
   function excusasHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin excusas subidas.</div>';
     return list.map(function (e) {
@@ -374,7 +402,8 @@
         return '<div class="row-item"><div class="row-head">'
           + '<span class="row-name">' + escapeHtml(t.username) + '</span>'
           + (t.owes_social_security ? '<span class="pill rechazada">asume seguridad social</span>' : '<span class="pill validada">al día</span>')
-          + '</div><div class="meta">Retraso acumulado: <b>' + horasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated + '</div></div>';
+          + '</div><div class="meta">Retraso acumulado: <b>' + horasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
+          + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div></div>';
       }).join('') || '<div class="meta">Sin modelos registradas.</div>';
   }
 
@@ -440,6 +469,7 @@
     var excusas = f ? (data.excuses || []).filter(function (e) { return e.username === f; }) : data.excuses;
     el.tabla.innerHTML = tablaHtml(days, staff, justs);
     el.excusas.innerHTML = excusasHtml(excusas, staff && !f);
+    el.justificantes.innerHTML = justificantesHtml(justs, staff && !f);
     pintarDeuda();
     if (staff) pintarTotales();
   }
