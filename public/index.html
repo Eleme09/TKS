@@ -1456,8 +1456,8 @@
     const csv = rows.map(function (row) {
       return row.map(function (cell) {
         const s = String(cell);
-        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-      }).join(',');
+        return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(';');
     }).join('\r\n');
     const blob = new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
