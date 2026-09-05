@@ -939,6 +939,20 @@ día tras día a este ritmo, es la pista a seguir; si el vigía diario llega
 a ver esto, que lo reporte como patrón horario distinto del incidente de
 madrugada, no como el mismo bug.
 
+**Confirmado día 2 (vigía del 2026-09-05, 12:01 UTC):** siguió toda la
+noche exactamente igual — 18 errores en 24h, ~1 por hora, rotando entre
+pinky_f00x/kitty_f00x/abigail_f00x/conni_f00x/amaranta_f00x/jax_f00x, cada
+vez recuperado en la siguiente consulta. Ni escaló a bloqueo largo ni bajó
+de frecuencia. El vigía de ese día **no avisó por chat ni correo** —
+deliberado, no un fallo del trigger: es la continuación exacta de un
+patrón ya diagnosticado el día anterior (arriba), sin nada nuevo que
+justifique repetir la misma alerta. Balance (`last_balance_at`) y sync de
+Stripchat (`cb_stripchat_earnings.updated_at`) seguían al día en el mismo
+chequeo — el 403 horario sigue sin tocar la plata. Si en algún chequeo
+futuro este patrón escala (dos errores en la misma hora, deja de
+recuperarse solo, o pasa a las 6 modelos a la vez), eso sí es una alerta
+nueva y real — reportarla entonces, no antes.
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia
