@@ -211,6 +211,8 @@
   .stat .k { font-size: 10px; color: var(--muted-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
   .stat .v { font-size: 16px; font-weight: 700; font-family: var(--font-mono); }
   .stat .v.small { font-size: 12.5px; font-weight: 600; font-family: var(--font-body); }
+  .gainer-name { display: block; font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--pink); letter-spacing: 0.01em; line-height: 1.35; overflow-wrap: anywhere; }
+  .gainer-tokens { display: block; font-size: 11px; font-weight: 500; color: var(--muted); font-family: var(--font-body); margin-top: 2px; }
   .stat.hero { grid-column: 1 / -1; border-color: var(--pink-line); background: linear-gradient(180deg, var(--pink-soft), var(--surface-2) 65%); }
   .stat.hero .v { font-size: 19px; color: var(--pink); }
   .stat.hero .k { color: var(--pink); opacity: 0.85; }
@@ -279,6 +281,13 @@
   .shift-pill.taken { background: rgba(255,255,255,0.05); color: var(--muted-dim); cursor: default; border: 1px solid var(--border-soft); }
   .shift-pill.mine { background: var(--pink-soft); color: var(--pink); cursor: pointer; border: 1px solid var(--pink-line); }
   .shift-pill:not(.taken):hover { filter: brightness(1.3); transform: scale(1.03); }
+  .shift-pill.no-cumplio { border-color: var(--bad); }
+  .shift-pill.cumplio { border-color: var(--good); }
+  .shift-pill-kind { opacity: 0.7; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.02em; }
+  .shift-mark-row { display: flex; gap: 4px; margin-top: 2px; }
+  .shift-mark-btn { font-size: 9.5px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.04); cursor: pointer; font-family: var(--font-mono); }
+  .shift-mark-btn.is-active.ok { background: var(--good-soft); color: var(--good); border-color: rgba(111,231,184,0.3); }
+  .shift-mark-btn.is-active.bad { background: rgba(224,90,90,0.15); color: var(--bad); border-color: rgba(224,90,90,0.3); }
   .shift-addday { font-size: 15px; color: var(--muted-dim); cursor: pointer; text-align: center; padding: 2px; border-radius: 7px; }
   .shift-addday:hover { background: rgba(255,255,255,0.05); color: var(--text); }
   .quincena-nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -606,7 +615,7 @@
           <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(185px,1fr)); gap:10px;">
             <div><label for="shiftDate">Fecha</label><input id="shiftDate" type="date"></div>
             <div>
-              <label for="shiftHour">Horario</label>
+              <label for="shiftHour">Hora de entrada</label>
               <div class="time12">
                 <select id="shiftHour"></select>
                 <span class="colon">:</span>
@@ -614,11 +623,27 @@
                 <select id="shiftAmpm"><option value="AM">AM</option><option value="PM">PM</option></select>
               </div>
             </div>
+            <div>
+              <label for="shiftEndHour">Hora de salida</label>
+              <div class="time12">
+                <select id="shiftEndHour"></select>
+                <span class="colon">:</span>
+                <select id="shiftEndMinute"></select>
+                <select id="shiftEndAmpm"><option value="AM">AM</option><option value="PM">PM</option></select>
+              </div>
+            </div>
+            <div>
+              <label for="shiftKind">Tipo</label>
+              <select id="shiftKind"><option value="extra">Extra</option><option value="recuperacion">Recuperación</option></select>
+            </div>
           </div>
-          <label for="shiftNote">Nota (opcional)</label>
-          <input id="shiftNote" placeholder="ej: turno de madrugada">
           <div class="row"><button id="btnCreateShift" class="btn-primary" style="flex:1;">Publicar horario</button></div>
           <div id="shiftError" class="errbox"></div>
+        </div>
+
+        <div id="shiftsBlocksCard" style="display:none; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--border-soft);">
+          <div class="meta-small" style="margin-bottom:8px;">Incumplimientos de extras/recuperaciones esta quincena. A la 3ra vez sin permiso, la modelo queda bloqueada para agendar nuevas.</div>
+          <div id="shiftsBlocksList"></div>
         </div>
 
         <div class="quincena-nav">
@@ -948,7 +973,12 @@
     shiftHour: document.getElementById('shiftHour'),
     shiftMinute: document.getElementById('shiftMinute'),
     shiftAmpm: document.getElementById('shiftAmpm'),
-    shiftNote: document.getElementById('shiftNote'),
+    shiftEndHour: document.getElementById('shiftEndHour'),
+    shiftEndMinute: document.getElementById('shiftEndMinute'),
+    shiftEndAmpm: document.getElementById('shiftEndAmpm'),
+    shiftKind: document.getElementById('shiftKind'),
+    shiftsBlocksCard: document.getElementById('shiftsBlocksCard'),
+    shiftsBlocksList: document.getElementById('shiftsBlocksList'),
     btnCreateShift: document.getElementById('btnCreateShift'),
     shiftError: document.getElementById('shiftError'),
     shiftsList: document.getElementById('shiftsList'),
@@ -1012,16 +1042,20 @@
 
   // ---- Selector de hora en formato 12h (reemplaza el <input type="time"> nativo) ----
   (function buildTimeSelects() {
-    for (let h = 1; h <= 12; h++) {
-      const opt = document.createElement('option');
-      opt.value = String(h); opt.textContent = String(h);
-      el.shiftHour.appendChild(opt);
-    }
-    for (let m = 0; m < 60; m++) {
-      const opt = document.createElement('option');
-      opt.value = String(m).padStart(2, '0'); opt.textContent = String(m).padStart(2, '0');
-      el.shiftMinute.appendChild(opt);
-    }
+    [el.shiftHour, el.shiftEndHour].forEach(function (sel) {
+      for (let h = 1; h <= 12; h++) {
+        const opt = document.createElement('option');
+        opt.value = String(h); opt.textContent = String(h);
+        sel.appendChild(opt);
+      }
+    });
+    [el.shiftMinute, el.shiftEndMinute].forEach(function (sel) {
+      for (let m = 0; m < 60; m++) {
+        const opt = document.createElement('option');
+        opt.value = String(m).padStart(2, '0'); opt.textContent = String(m).padStart(2, '0');
+        sel.appendChild(opt);
+      }
+    });
   })();
 
   function to24h(hour12, minute, ampm) {
@@ -1187,7 +1221,8 @@
       el.sumTop.textContent = '—';
     } else {
       const top = models.reduce(function (best, m) { return (!best || m.totalTokensPeriod > best.totalTokensPeriod) ? m : best; }, null);
-      el.sumTop.textContent = top.account + ' (' + top.totalTokensPeriod.toLocaleString('es-ES') + ' tok.)';
+      el.sumTop.innerHTML = '<span class="gainer-name">' + escapeHtml(top.account) + '</span>'
+        + '<span class="gainer-tokens">' + top.totalTokensPeriod.toLocaleString('es-ES') + ' tokens</span>';
     }
   }
 
@@ -2405,10 +2440,36 @@
     const shifts = data.shifts || [];
     const canManage = currentRole === 'administrador' || currentRole === 'ceo';
     const isModel = currentRole === 'modelo';
+    const myBlock = data.my_block || null;
+    const shiftBlocks = data.shift_blocks || [];
 
-    el.shiftsHint.textContent = canManage
+    let hint = canManage
       ? 'Publica horarios disponibles para que las modelos se apunten. Clic en "+" en un día para agregar ahí.'
       : (isModel ? 'Elige el horario que más te acomode.' : 'Horarios de hora extra publicados.');
+    if (isModel && myBlock && myBlock.blocked) {
+      hint = 'No puedes agendar extras ni recuperaciones esta quincena: te faltó a ' + myBlock.no_show_count + ' a las que te apuntaste. Habla con administración si necesitas una excepción.';
+    }
+    el.shiftsHint.textContent = hint;
+    el.shiftsHint.style.color = (isModel && myBlock && myBlock.blocked) ? 'var(--bad)' : '';
+
+    el.shiftsBlocksCard.style.display = (canManage && shiftBlocks.length) ? 'block' : 'none';
+    if (canManage && shiftBlocks.length) {
+      el.shiftsBlocksList.innerHTML = shiftBlocks.map(function (b) {
+        const pillCls = b.blocked ? 'rechazada' : 'validada';
+        const pillTxt = b.blocked ? 'bloqueada' : (b.has_override ? 'permiso otorgado' : 'al día');
+        return '<div class="att-row"><div class="att-row-head">'
+          + '<span class="att-row-name">' + escapeHtml(b.username) + '</span>'
+          + '<span class="att-pill ' + pillCls + '">' + pillTxt + '</span></div>'
+          + '<div class="meta-small">Incumplimientos esta quincena: <b>' + b.no_show_count + '</b> de ' + (data.shift_no_show_limit || 3) + '</div>'
+          + (b.blocked && !b.has_override
+              ? '<button class="btn-primary shift-override-btn" data-user="' + escapeHtml(b.username) + '" style="margin-top:6px; font-size:11px; padding:5px 10px;">Permitir agendar de nuevo</button>'
+              : '')
+          + '</div>';
+      }).join('');
+      el.shiftsBlocksList.querySelectorAll('.shift-override-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () { grantShiftOverride(btn.getAttribute('data-user')); });
+      });
+    }
 
     el.shiftsPeriodLabel.textContent = quincenaLabel(shiftsViewDate) + (isCurrentQuincena(shiftsViewDate) ? ' (actual)' : '');
     el.btnTodayQuincena.style.display = isCurrentQuincena(shiftsViewDate) ? 'none' : 'inline-block';
@@ -2416,18 +2477,28 @@
     const byDate = {};
     shifts.forEach(function (s) { (byDate[s.shift_date] = byDate[s.shift_date] || []).push(s); });
 
+    const kindLabel = function (k) { return k === 'recuperacion' ? 'Recuperación' : 'Extra'; };
+
     const days = getQuincenaDays(shiftsViewDate).days;
     const shiftsHtml = '<div class="shift-calendar">' + days.map(function (d, idx) {
       const dayShifts = (byDate[d.iso] || []).slice().sort(function (a, b) { return a.start_time.localeCompare(b.start_time); });
       const pills = dayShifts.map(function (s) {
-        const horario = fmt12h(s.start_time);
+        const horario = fmt12h(s.start_time) + (s.end_time ? ' – ' + fmt12h(s.end_time) : '');
+        const kindTag = '<div class="shift-pill-kind">' + kindLabel(s.kind) + '</div>';
+        const markRow = (canManage && s.claimed_by)
+          ? '<div class="shift-mark-row">'
+            + '<span class="shift-mark-btn shift-mark-ok' + (s.attendance_status === 'cumplio' ? ' is-active ok' : '') + '" data-id="' + s.id + '" data-status="cumplio" title="Marcar que sí llegó">✓</span>'
+            + '<span class="shift-mark-btn shift-mark-bad' + (s.attendance_status === 'no_cumplio' ? ' is-active bad' : '') + '" data-id="' + s.id + '" data-status="no_cumplio" title="Marcar que no llegó">✗</span>'
+            + '</div>'
+          : '';
         if (s.claimed_by) {
           const mine = isModel && s.claimed_by === currentUsername;
           const cls = mine ? 'mine' : 'taken';
+          const statusCls = s.attendance_status === 'no_cumplio' ? ' no-cumplio' : (s.attendance_status === 'cumplio' ? ' cumplio' : '');
           const label = mine ? (horario + ' · tú') : (horario + ' · ' + s.claimed_by);
-          return '<span class="shift-pill ' + cls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '" title="' + (s.note || '') + '">' + label + '</span>';
+          return '<span class="shift-pill ' + cls + statusCls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '">' + label + kindTag + '</span>' + markRow;
         }
-        return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open" title="' + (s.note || '') + '">' + horario + '</span>';
+        return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open">' + horario + kindTag + '</span>';
       }).join('');
       const addCell = canManage ? '<div class="shift-addday" data-date="' + d.iso + '">+</div>' : '';
       return '<div class="shift-day" style="animation-delay:' + (idx * 12) + 'ms;"><div class="daylabel">' + d.weekday + ' ' + d.day + '</div>' + pills + addCell + '</div>';
@@ -2451,6 +2522,16 @@
       });
     });
 
+    el.shiftsList.querySelectorAll('.shift-mark-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        const id = btn.getAttribute('data-id');
+        const status = btn.getAttribute('data-status');
+        const alreadyActive = btn.classList.contains('is-active');
+        markShiftAttendance(id, alreadyActive ? 'pendiente' : status);
+      });
+    });
+
     el.shiftsList.querySelectorAll('.shift-addday').forEach(function (btn) {
       btn.addEventListener('click', function () {
         el.shiftDate.value = btn.getAttribute('data-date');
@@ -2459,10 +2540,32 @@
     });
   }
 
+  async function markShiftAttendance(id, status) {
+    const r = await fetch('/api/shifts/mark-attendance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(id), status: status }),
+    });
+    if (!r.ok) { const err = await r.json().catch(() => ({})); alert(err.error || 'No se pudo guardar'); }
+    lastShiftsHtml = null;
+    refreshShifts();
+  }
+
+  async function grantShiftOverride(username) {
+    if (!confirm('¿Permitir que ' + username + ' agende extras/recuperaciones de nuevo esta quincena?')) return;
+    const r = await fetch('/api/shifts/override', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username }),
+    });
+    if (!r.ok) { const err = await r.json().catch(() => ({})); alert(err.error || 'No se pudo otorgar el permiso'); }
+    lastShiftsHtml = null;
+    refreshShifts();
+  }
+
   el.btnCreateShift.addEventListener('click', async function () {
     const shift_date = el.shiftDate.value;
     const start_time = to24h(el.shiftHour.value, el.shiftMinute.value, el.shiftAmpm.value);
-    const note = el.shiftNote.value.trim();
+    const end_time = to24h(el.shiftEndHour.value, el.shiftEndMinute.value, el.shiftEndAmpm.value);
+    const kind = el.shiftKind.value;
     if (!shift_date) {
       el.shiftError.style.display = 'block';
       el.shiftError.textContent = 'Completa la fecha.';
@@ -2471,7 +2574,7 @@
     el.shiftError.style.display = 'none';
     const r = await fetch('/api/shifts/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shift_date, start_time, note }),
+      body: JSON.stringify({ shift_date, start_time, end_time, kind }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -2483,7 +2586,10 @@
     el.shiftHour.selectedIndex = 0;
     el.shiftMinute.selectedIndex = 0;
     el.shiftAmpm.selectedIndex = 0;
-    el.shiftNote.value = '';
+    el.shiftEndHour.selectedIndex = 0;
+    el.shiftEndMinute.selectedIndex = 0;
+    el.shiftEndAmpm.selectedIndex = 0;
+    el.shiftKind.selectedIndex = 0;
     refreshShifts();
   });
 

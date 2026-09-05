@@ -358,6 +358,36 @@ function lateDebtCop(lateMinutes, feePerHourCop) {
   return lateDebtHours(lateMinutes) * (feePerHourCop || 0);
 }
 
+// Tope de la multa por retrasos (regla confirmada por el usuario 2026-09-05):
+// la deuda en plata solo se cobra hasta que la modelo llega al umbral de
+// seguridad social (por defecto 6h/360min, ver ATTENDANCE_DEFAULTS en
+// server.js) — hasta ahi el tope natural ya es 5 horas completas (300-359 min
+// siguen en la hora 5), o sea $50.000 con la tarifa de $10.000/hora. Cruzado
+// el umbral, la deuda en plata pasa a ser CERO (no se sigue cobrando ni se
+// queda "pegada" en el ultimo valor) y en su lugar corresponde solo el aviso
+// de que la modelo asume su propia seguridad social esa quincena
+// (owes_social_security, calculado aparte). `lateDebtHours` sigue devolviendo
+// las horas reales de retraso sin tope — el conteo de horas nunca se detiene,
+// solo el cobro en pesos.
+function lateDebtCopCapped(lateMinutes, feePerHourCop, thresholdMinutes) {
+  if (thresholdMinutes != null && lateMinutes >= thresholdMinutes) return 0;
+  return lateDebtCop(lateMinutes, feePerHourCop);
+}
+
+// Bloqueo de agendamiento de extras/recuperaciones por incumplimiento
+// (regla confirmada por el usuario 2026-09-05): estas horas NO se cobran, es
+// un sistema de cumplimiento si/no. A la 3ra vez que una modelo se apunta a
+// una extra o recuperacion y no llega (`attendance_status: 'no_cumplio'`) en
+// la quincena actual, queda bloqueada para agendar nuevas hasta la proxima
+// quincena — o antes, si admin/CEO le otorga un permiso explicito
+// (`cb_shift_overrides`, ver server.js) para esa misma quincena.
+const SHIFT_NO_SHOW_LIMIT = 3;
+
+function isShiftClaimBlocked(noShowCount, hasOverride) {
+  if (hasOverride) return false;
+  return (noShowCount || 0) >= SHIFT_NO_SHOW_LIMIT;
+}
+
 // Rango de la quincena actual expresado en fechas "YYYY-MM-DD" del estudio.
 // Se calcula sobre la fecha del estudio (no sobre la del servidor) para que la
 // asistencia use exactamente los mismos limites de quincena que el pago, sin
@@ -397,6 +427,9 @@ module.exports = {
   pickWorkDate,
   lateDebtHours,
   lateDebtCop,
+  lateDebtCopCapped,
+  SHIFT_NO_SHOW_LIMIT,
+  isShiftClaimBlocked,
   ATTENDANCE_SHIFTS,
   ATTENDANCE_GRACE_MINUTES,
   applyLateGrace,

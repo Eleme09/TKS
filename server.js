@@ -17,9 +17,10 @@ const {
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
   studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
-  computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop,
+  computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   ATTENDANCE_GRACE_MINUTES, applyLateGrace,
+  SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -561,11 +562,16 @@ async function sbListShifts() {
   return r.ok ? r.json() : [];
 }
 
-async function sbCreateShift(shiftDate, startTime, note) {
+async function sbCreateShift(shiftDate, startTime, endTime, kind) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ shift_date: shiftDate, start_time: startTime, note: note || null }),
+    body: JSON.stringify({
+      shift_date: shiftDate,
+      start_time: startTime,
+      end_time: endTime || null,
+      kind: kind || 'extra',
+    }),
   });
   return resp.ok;
 }
@@ -602,6 +608,81 @@ async function sbFetchShift(id) {
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
+}
+
+// Marca si la modelo cumplió o no una extra/recuperación a la que se apuntó.
+// Solo tiene sentido sobre un turno ya reclamado (claimed_by no nulo) — el
+// filtro por claimed_by=not.is.null evita marcar cumplimiento de un turno
+// abierto que nadie tomó.
+async function sbSetShiftAttendance(id, status) {
+  const resp = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&claimed_by=not.is.null',
+    {
+      method: 'PATCH',
+      headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+      body: JSON.stringify({ attendance_status: status }),
+    }
+  );
+  if (!resp.ok) return false;
+  const rows = await resp.json();
+  return rows.length > 0;
+}
+
+// Permisos de admin/CEO para levantar el bloqueo de 3 incumplimientos antes
+// de que termine la quincena — ver isShiftClaimBlocked en chaturbate-lib.js.
+async function sbListShiftOverrides(periodStart) {
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_shift_overrides?select=username&period_start=eq.' + encodeURIComponent(periodStart),
+    { headers: SB_HEADERS }
+  );
+  return r.ok ? r.json() : [];
+}
+
+async function sbGrantShiftOverride(username, periodStart, grantedBy) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shift_overrides', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ username, period_start: periodStart, granted_by: grantedBy, granted_at: new Date().toISOString() }),
+  });
+  return resp.ok;
+}
+
+// Cuenta incumplimientos de extras/recuperaciones en la quincena ACTUAL del
+// estudio (no la del calendario que la persona esté mirando) y arma el
+// bloqueo de agendar: 3 no-shows sin un permiso vigente de admin/CEO para
+// esta misma quincena. Reusa la lista completa de sbListShifts() en vez de
+// pedirle otra consulta a Supabase — esa lista ya trae todo.
+async function computeShiftBlockInfo(shifts, session) {
+  const period = studioQuincenaRange(studioDateStr(Date.now()));
+  const inPeriod = (shifts || []).filter((s) => s.shift_date >= period.start && s.shift_date <= period.end);
+  const noShowsByUser = {};
+  for (const s of inPeriod) {
+    if (s.claimed_by && s.attendance_status === 'no_cumplio') {
+      noShowsByUser[s.claimed_by] = (noShowsByUser[s.claimed_by] || 0) + 1;
+    }
+  }
+  const overrides = await sbListShiftOverrides(period.start);
+  const overrideSet = new Set(overrides.map((o) => o.username));
+
+  if (session.role === 'modelo') {
+    const noShowCount = noShowsByUser[session.username] || 0;
+    const hasOverride = overrideSet.has(session.username);
+    return { my_block: { no_show_count: noShowCount, blocked: isShiftClaimBlocked(noShowCount, hasOverride) } };
+  }
+
+  // Para admin/CEO: solo modelos con al menos un incumplimiento en la
+  // quincena actual, para no listar a todo el estudio con "0" sin motivo.
+  const blocks = Object.keys(noShowsByUser).map((username) => {
+    const noShowCount = noShowsByUser[username];
+    const hasOverride = overrideSet.has(username);
+    return {
+      username,
+      no_show_count: noShowCount,
+      has_override: hasOverride,
+      blocked: isShiftClaimBlocked(noShowCount, hasOverride),
+    };
+  });
+  return { shift_blocks: blocks, shift_no_show_limit: SHIFT_NO_SHOW_LIMIT };
 }
 
 // ---- Asistencia (entradas, salidas, justificaciones, excusas) ----
@@ -846,9 +927,21 @@ async function buildAttendancePayload(session) {
             scheduleByUser[username].exit_time)
         : 'sin asignar',
       owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
-      // La deuda se cobra por hora alcanzada, no proporcional (ver lateDebtCop).
+      // La deuda en plata se cobra por hora alcanzada, no proporcional (ver
+      // lateDebtCop). Con socialSecurityEnabled=true (Placer Studios) tiene
+      // tope: pasado el umbral (`threshold`, 6h por defecto) la deuda pasa a
+      // CERO en vez de seguir subiendo — ahí la modelo ya asume su propia
+      // seguridad social esa quincena, no una multa en pesos (regla
+      // confirmada 2026-09-05). Con el flag en false (código de venta a un
+      // cliente nuevo, sin ese concepto laboral) NO hay tope: la multa sigue
+      // creciendo normal como cualquier otro estudio esperaría — ver la
+      // sección "Aviso de seguridad social" en CLAUDE.md. `debt_hours` NUNCA
+      // tiene tope en ninguno de los dos casos: las horas reales de retraso
+      // se siguen contando siempre, solo el cobro en COP cambia.
       debt_hours: lateDebtHours(lateMinutes),
-      debt_cop: lateDebtCop(lateMinutes, feeCop),
+      debt_cop: socialSecurityEnabled
+        ? lateDebtCopCapped(lateMinutes, feeCop, threshold)
+        : lateDebtCop(lateMinutes, feeCop),
       days_validated: mine.filter((d) => d.status === 'validada').length,
     };
   });
@@ -2385,7 +2478,8 @@ const server = http.createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     const shifts = await sbListShifts();
-    return sendJson(res, 200, { shifts });
+    const blockInfo = await computeShiftBlockInfo(shifts, session);
+    return sendJson(res, 200, { shifts, ...blockInfo });
   }
 
   if (parsed.pathname === '/api/shifts/create' && req.method === 'POST') {
@@ -2394,11 +2488,45 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const shiftDate = typeof body.shift_date === 'string' ? body.shift_date.trim() : '';
     const startTime = typeof body.start_time === 'string' ? body.start_time.trim() : '';
-    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '';
+    const endTime = typeof body.end_time === 'string' ? body.end_time.trim() : '';
+    const kind = body.kind === 'recuperacion' ? 'recuperacion' : 'extra';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return sendJson(res, 400, { error: 'Fecha inválida' });
-    if (!/^\d{2}:\d{2}$/.test(startTime)) return sendJson(res, 400, { error: 'Hora inválida' });
-    const ok = await sbCreateShift(shiftDate, startTime, note);
+    if (!/^\d{2}:\d{2}$/.test(startTime)) return sendJson(res, 400, { error: 'Hora de entrada inválida' });
+    if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) return sendJson(res, 400, { error: 'Hora de salida inválida' });
+    const ok = await sbCreateShift(shiftDate, startTime, endTime, kind);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo crear el horario' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Admin/CEO marca si la modelo cumplió o no la extra/recuperación a la que
+  // se apuntó. No mueve plata (ver isShiftClaimBlocked): solo alimenta el
+  // conteo de incumplimientos que bloquea agendar nuevas a la 3ra vez.
+  if (parsed.pathname === '/api/shifts/mark-attendance' && req.method === 'POST') {
+    if (!(await requireAdminOrCeo(req, res))) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    const status = body.status;
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    if (!['pendiente', 'cumplio', 'no_cumplio'].includes(status)) return sendJson(res, 400, { error: 'Estado inválido' });
+    const ok = await sbSetShiftAttendance(id, status);
+    if (!ok) return sendJson(res, 400, { error: 'Ese horario no existe o nadie se apuntó' });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Admin/CEO levanta el bloqueo de 3 incumplimientos antes de que termine la
+  // quincena actual, para esa modelo puntual.
+  if (parsed.pathname === '/api/shifts/override' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    if (!username) return sendJson(res, 400, { error: 'Falta la modelo' });
+    const period = studioQuincenaRange(studioDateStr(Date.now()));
+    const ok = await sbGrantShiftOverride(username, period.start, session.username);
+    if (!ok) return sendJson(res, 400, { error: 'No se pudo otorgar el permiso' });
+    await sbLogAudit(session, 'shift_override_grant', username, { period_start: period.start });
     return sendJson(res, 200, { ok: true });
   }
 
@@ -2420,6 +2548,15 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const id = Number(body.id);
     if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    // No mueve plata: es un bloqueo de disciplina por 3 incumplimientos de
+    // extras/recuperaciones en la quincena actual (ver isShiftClaimBlocked).
+    const allShifts = await sbListShifts();
+    const blockInfo = await computeShiftBlockInfo(allShifts, session);
+    if (blockInfo.my_block && blockInfo.my_block.blocked) {
+      return sendJson(res, 403, {
+        error: 'No puedes agendar extras ni recuperaciones esta quincena: te faltó a 3 o más a las que te apuntaste. Habla con administración si necesitas una excepción.',
+      });
+    }
     const claimed = await sbClaimShift(id, session.username);
     if (!claimed) return sendJson(res, 400, { error: 'Ese horario ya no está disponible' });
     return sendJson(res, 200, { ok: true });

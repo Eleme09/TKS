@@ -371,6 +371,42 @@ describe('asistencia — deuda por retraso (se cobra por hora alcanzada)', () =>
   });
 });
 
+describe('asistencia — tope de la multa en $50.000 (5 horas) y aviso de seguridad social', () => {
+  test('por debajo del umbral cobra normal, sin tope explícito porque 5h ya es el máximo natural', () => {
+    assert.equal(lib.lateDebtCopCapped(299, 10000, 360), 40000); // 4h
+    assert.equal(lib.lateDebtCopCapped(300, 10000, 360), 50000); // 5h — el tope
+    assert.equal(lib.lateDebtCopCapped(359, 10000, 360), 50000); // sigue en 5h
+  });
+  test('al llegar al umbral (6h) la deuda en plata pasa a CERO, no sigue subiendo', () => {
+    assert.equal(lib.lateDebtCopCapped(360, 10000, 360), 0);
+    assert.equal(lib.lateDebtCopCapped(500, 10000, 360), 0);
+  });
+  test('lateDebtHours no tiene tope: las horas reales se siguen contando siempre', () => {
+    assert.equal(lib.lateDebtHours(500), 8);
+  });
+  test('sin threshold (undefined) se comporta como el lateDebtCop de siempre, sin tope', () => {
+    assert.equal(lib.lateDebtCopCapped(500, 10000), 80000);
+  });
+});
+
+describe('extras/recuperaciones — bloqueo por 3 incumplimientos', () => {
+  test('menos de 3 no-shows no bloquea', () => {
+    assert.equal(lib.isShiftClaimBlocked(0, false), false);
+    assert.equal(lib.isShiftClaimBlocked(2, false), false);
+  });
+  test('a la 3ra vez queda bloqueada', () => {
+    assert.equal(lib.isShiftClaimBlocked(3, false), true);
+    assert.equal(lib.isShiftClaimBlocked(5, false), true);
+  });
+  test('un permiso explícito de admin/CEO levanta el bloqueo aunque el conteo siga en 3+', () => {
+    assert.equal(lib.isShiftClaimBlocked(3, true), false);
+    assert.equal(lib.isShiftClaimBlocked(9, true), false);
+  });
+  test('SHIFT_NO_SHOW_LIMIT es 3, tal como lo pidió el usuario', () => {
+    assert.equal(lib.SHIFT_NO_SHOW_LIMIT, 3);
+  });
+});
+
 describe('asistencia — turnos con nombre', () => {
   test('los dos turnos del estudio tienen las horas que definió el usuario', () => {
     assert.equal(lib.ATTENDANCE_SHIFTS.manana.entry, '07:30');
