@@ -2627,7 +2627,9 @@
       if (!r.ok) alert('No se pudo activar la notificacion, intenta de nuevo.');
       await updatePushButtonState();
     } catch (e) {
-      alert('No se pudieron activar las notificaciones en este dispositivo o navegador.');
+      console.error('Push subscribe falló:', e);
+      const detail = (e && e.message) ? ' (' + e.message + ')' : '';
+      alert('No se pudieron activar las notificaciones en este dispositivo o navegador' + detail + '.');
     } finally {
       el.btnEnablePush.disabled = false;
     }
