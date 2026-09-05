@@ -1153,6 +1153,41 @@ a pagar por retraso" grande y debajo, en chico, "N h × $10.000 COP por hora"
 (o la hoja filtrada por una) ve **solo su total**; la lista comparativa de
 quién debe qué es únicamente para administración sin filtro.
 
+**Aviso de seguridad social — ahora configurable por cliente (2026-09-05).**
+`cb_attendance_settings.social_security_enabled` (boolean, default `true` en
+la fila real de Placer Studios, default `false` en `schema.sql` para un
+cliente nuevo). Motivo: "asume su propia seguridad social al pasar el
+umbral" es un concepto laboral colombiano específico de este estudio, no
+algo que deba salir por defecto en el sistema que se vende a otros — un
+pedido explícito del usuario para separar la plantilla de venta del cliente
+actual. Administrador lo prende/apaga desde Asistencia → Horarios y umbral
+(checkbox nuevo junto al umbral/tarifa). Server-side, `buildAttendancePayload`
+calcula `owes_social_security: socialSecurityEnabled && lateMinutes >=
+threshold` — con el flag en `false`, esa expresión es siempre `false` para
+todos, así que el banner (`renderAttendanceWarning` en `index.html`) nunca
+aparece y el pill de cada modelo (`index.html`/`asistencia.html`) siempre
+muestra "al día", sin tocar ni un solo lugar del frontend aparte de agregar
+el checkbox — toda la lógica de ocultamiento vive en el servidor.
+**La multa por hora (`debt_hours`/`debt_cop`, `lateDebtHours`/`lateDebtCop`
+en `chaturbate-lib.js`) es completamente independiente de este flag y de
+este umbral: nunca tuvo techo ni se resetea a 0 en ningún monto — crece
+`$fee_cop × horas completas`, sin límite, prendido o apagado el aviso.**
+Esto corrige una idea equivocada que circuló en chat: no existe ni existió
+un "techo de $50.000 que resetea la multa a 0" en este código — se verificó
+línea por línea en `chaturbate-lib.js` y `server.js` antes de tocar nada.
+**Permisos, corregido también:** `/api/attendance/settings` sigue siendo
+`requireAdmin` (solo `administrador`, NO `ceo`) — otra idea que circuló en
+chat y que el código no respalda; si en algún momento se quiere que `ceo`
+también pueda cambiar la tarifa/umbral, es un cambio de permisos deliberado
+que hay que pedir explícitamente, no algo que ya esté así.
+Probado en vivo contra la base real: cuenta admin temporal (`qa_temp_admin`,
+creada y borrada en la misma sesión), instancia `SOLO_UI=1` en otro puerto,
+apagado → verificado `owes_social_security` se cae solo en la respuesta →
+restaurado a `true` (estado real de Placer Studios) antes de cerrar. Como el
+código ya desplegado en producción no lee esta columna todavía, alternar su
+valor en la base real durante la prueba no tuvo ningún efecto en el sitio
+en vivo.
+
 **Al probar contra la base real, filtra por tus propias cuentas de prueba.**
 El 2026-09-04 se tomó `days[0]` de la respuesta para probar el borrado y esa
 fila resultó ser del usuario, no de la cuenta de prueba: se borró una jornada

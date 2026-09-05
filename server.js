@@ -754,7 +754,7 @@ async function sbInsertAttendanceExcuse(row) {
   return rows.length ? rows[0] : null;
 }
 
-const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000 };
+const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true };
 
 async function sbFetchAttendanceSettings() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings?id=eq.1&select=*', { headers: SB_HEADERS });
@@ -763,7 +763,7 @@ async function sbFetchAttendanceSettings() {
   return rows.length ? { ...ATTENDANCE_DEFAULTS, ...rows[0] } : { ...ATTENDANCE_DEFAULTS };
 }
 
-async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop) {
+async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop, socialSecurityEnabled) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -771,6 +771,7 @@ async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop) {
       id: 1,
       late_threshold_minutes: thresholdMinutes,
       late_hour_fee_cop: feeCop,
+      social_security_enabled: socialSecurityEnabled,
       updated_at: new Date().toISOString(),
     }),
   });
@@ -811,6 +812,12 @@ async function buildAttendancePayload(session) {
 
   const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
   const feeCop = settings.late_hour_fee_cop != null ? settings.late_hour_fee_cop : ATTENDANCE_DEFAULTS.late_hour_fee_cop;
+  // Configurable por cliente: el aviso de "asume su propia seguridad social"
+  // es un concepto laboral colombiano especifico de Placer Studios, no algo
+  // que aplique por defecto a cualquier estudio que compre el sistema. La
+  // multa por hora (debt_hours/debt_cop, mas abajo) nunca depende de esto y
+  // siempre sigue activa y sin techo.
+  const socialSecurityEnabled = settings.social_security_enabled !== false;
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s;
 
@@ -838,7 +845,7 @@ async function buildAttendancePayload(session) {
             scheduleByUser[username].entry_time,
             scheduleByUser[username].exit_time)
         : 'sin asignar',
-      owes_social_security: lateMinutes >= threshold,
+      owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
       // La deuda se cobra por hora alcanzada, no proporcional (ver lateDebtCop).
       debt_hours: lateDebtHours(lateMinutes),
       debt_cop: lateDebtCop(lateMinutes, feeCop),
@@ -855,6 +862,7 @@ async function buildAttendancePayload(session) {
     period,
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
+    social_security_enabled: socialSecurityEnabled,
     shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
@@ -2738,9 +2746,10 @@ const server = http.createServer(async (req, res) => {
     if (!isFinite(fee) || fee < 0 || fee > 10000000) return sendJson(res, 400, { error: 'Tarifa por hora inválida' });
     const minutes = Math.round(hours * 60);
     const feeCop = Math.round(fee);
-    const ok = await sbUpdateAttendanceSettings(minutes, feeCop);
+    const socialSecurityEnabled = body.social_security_enabled !== false;
+    const ok = await sbUpdateAttendanceSettings(minutes, feeCop, socialSecurityEnabled);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
-    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes, fee_cop: feeCop });
+    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes, fee_cop: feeCop, social_security_enabled: socialSecurityEnabled });
     return sendJson(res, 200, { ok: true });
   }
 
