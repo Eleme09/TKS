@@ -561,8 +561,8 @@
     var csv = filas.map(function (row) {
       return row.map(function (cell) {
         var v = String(cell == null ? '' : cell);
-        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-      }).join(',');
+        return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(';');
     }).join('\r\n');
 
     var blob = new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8;' });

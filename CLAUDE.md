@@ -92,7 +92,8 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
   `SESSION_SECRET`; check server.js top-of-file for any others that may
   have been added since (e.g. `VAPID_*` for push notifications,
   `STRIPCHAT_API_KEY`/`STRIPCHAT_STUDIO_USERNAME` for the Stripchat
-  auto-sync — those two are optional, not required to start). Never
+  auto-sync, `GMAIL_USER`/`GMAIL_APP_PASSWORD` for the critical-alert
+  email backup below — all optional, not required to start). Never
   hardcode secret values in source — the server intentionally refuses to
   start without them as env vars. Locally they live in `env.bat` (in
   .gitignore, not in the repo — if missing, regenerate values from the
@@ -505,6 +506,69 @@ FK in Postgres, so these columns are deliberately left unconstrained at
 the DB level and trusted at the application level instead, matching
 existing pattern for author_username across cb_news_*.
 
+## Email backup for critical alerts (added 2026-09-04)
+
+Push-only alerts have a real gap, found via a real case: the user (role
+`administrador`) got a `chaturbate_stats` HTTP 403 push on his PC (Edge)
+but the same push never showed on his iPhone, even though his Apple Web
+Push subscription for that device was still present and valid in
+`cb_push_subscriptions` (no 404/410 came back, so `sendPushToRole` never
+auto-deleted it — the failure is device-side: iOS silently stops
+delivering to a PWA that's not on the home screen anymore, or has
+notifications toggled off in Settings, without ever telling the server).
+Root cause is unfixable from this codebase — it's an iOS platform
+behavior, not a bug here. The user's actual worry: if a *genuinely*
+serious one lands exactly when his phone's push is silently broken, he
+finds out late or not at all.
+
+**Fix: the two alerts worth waking up for now also go out by email**,
+independent of push and independent of any device's subscription state
+— `sendConnectionAlert` (a model's tracker actually dropped — we stop
+seeing her live tips) and `sbLogApiError` (Chaturbate/Stripchat API
+broken or changed shape). Both still push as before; email is pure
+redundancy, not a replacement. `sendOnlineNotifications` and
+`sendNewsNotification` deliberately do NOT get this — they're not
+"wake up for this" material.
+
+- `sendAlertEmail(subject, body)` in server.js, right after the VAPID
+  setup block. Uses `nodemailer` (new dependency,
+  `npm install nodemailer`) with Gmail SMTP
+  (`nodemailer.createTransport({ service: 'gmail', auth: {...} })`).
+  Destination is hardcoded `ALERT_EMAIL_TO = 'menajeiner@gmail.com'`
+  (the user's own address, not a secret — same address the vigía
+  triggers already email, see below).
+- **Optional, same pattern as VAPID/Stripchat**: needs `GMAIL_USER` +
+  `GMAIL_APP_PASSWORD` env vars (a Gmail *app password* — generated at
+  myaccount.google.com/apppasswords, requires 2-Step Verification on
+  that Google account; NOT the account's normal login password). Without
+  both, `EMAIL_ALERT_ENABLED` is false and the server runs exactly as
+  before, just without this backup — verified by booting a scratch
+  instance both with and without these two vars set (`SOLO_UI=1`, dummy
+  Supabase creds) and confirming a clean boot log either way. Fire-and-
+  forget, no retries, wrapped in try/catch — this is a diagnostic
+  redundancy channel, not money, so it must never throw or block the
+  caller (`sendConnectionAlert`/`sbLogApiError` both already run
+  fire-and-forget themselves).
+- **As of 2026-09-04 these env vars are not yet set anywhere** (not in
+  Render, not local) — the user asked for this to be built, but hadn't
+  generated the app password yet. A future session: check
+  `GMAIL_USER`/`GMAIL_APP_PASSWORD` are actually in Render's Environment
+  tab before assuming this is live; if missing, the feature is dormant
+  by design (see "optional" above), not broken.
+- **Don't confuse this with the vigía's emails** (daily system-health
+  check + the one-shot cashout-hour check, both described further down)
+  — those are sent from *this Claude Code session's own* Gmail MCP
+  access, which only exists while a session is actively running/
+  scheduled. This new mechanism sends straight from the running
+  server.js process on Render, so it fires the instant the real event
+  happens, with no dependency on any Claude session being alive.
+- If a third alert type ever earns "wake up for this" status, wire it
+  the same way: one `sendAlertEmail(...)` call alongside its existing
+  `sendPushToRole(...)` call, fire-and-forget. Don't build a generic
+  every-push-also-emails switch — that would just spam the inbox with
+  low-stakes stuff (online status, news posts) the user explicitly
+  doesn't want waking him up.
+
 ## Chaturbate income beyond public tips — resolved (2026-09-03)
 
 **The problem, found by the user comparing real numbers:** the Events API
@@ -855,6 +919,40 @@ en `chaturbate_stats` — no es "una API que cambió", es Chaturbate
 limitándonos por consultar de más, y el síntoma es una ventana ciega en
 el balance justo cuando más importa.
 
+**Segundo patrón distinto, mismo día, tarde (2026-09-04, ~18:00-22:00
+UTC):** un HTTP 403 aislado en `chaturbate_stats`, **uno por hora, cada
+~62 minutos, siempre en el minuto ~42-50**, rotando de modelo (pinky_f00x
+tres veces seguidas, luego kitty_f00x) — no es el mismo bloqueo masivo del
+incidente de la madrugada (ese fue 17 min seguidos a las 6 modelos a la
+vez). Verificado con SQL real (`select date_trunc('hour', created_at),
+message, count(*) from cb_api_errors where source='chaturbate_stats' and
+created_at > '2026-09-04 04:41:00+00' group by 1,2 order by 1`): exactamente
+un error por hora, ninguna hora con más de uno, ninguna hora sin ninguno.
+Esa regularidad tan exacta no encaja con "flakiness" random ni con nada
+propio del proyecto (nada nuestro corre cada 62 min — el sondeo normal es
+cada 2 min, el vigía es una vez al día) — apunta a algo del lado de
+Chaturbate que se repite cada hora y golpea la consulta que le toque en
+ese instante, sea de quien sea. **No confirmado, no inventar una causa
+más allá de esto.** Cada vez se recuperó solo en la siguiente consulta
+(nunca quedó pegado ni escaló a bloqueo largo). Si esto sigue apareciendo
+día tras día a este ritmo, es la pista a seguir; si el vigía diario llega
+a ver esto, que lo reporte como patrón horario distinto del incidente de
+madrugada, no como el mismo bug.
+
+**Confirmado día 2 (vigía del 2026-09-05, 12:01 UTC):** siguió toda la
+noche exactamente igual — 18 errores en 24h, ~1 por hora, rotando entre
+pinky_f00x/kitty_f00x/abigail_f00x/conni_f00x/amaranta_f00x/jax_f00x, cada
+vez recuperado en la siguiente consulta. Ni escaló a bloqueo largo ni bajó
+de frecuencia. El vigía de ese día **no avisó por chat ni correo** —
+deliberado, no un fallo del trigger: es la continuación exacta de un
+patrón ya diagnosticado el día anterior (arriba), sin nada nuevo que
+justifique repetir la misma alerta. Balance (`last_balance_at`) y sync de
+Stripchat (`cb_stripchat_earnings.updated_at`) seguían al día en el mismo
+chequeo — el 403 horario sigue sin tocar la plata. Si en algún chequeo
+futuro este patrón escala (dos errores en la misma hora, deja de
+recuperarse solo, o pasa a las 6 modelos a la vez), eso sí es una alerta
+nueva y real — reportarla entonces, no antes.
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia
@@ -1054,6 +1152,65 @@ a pagar por retraso" grande y debajo, en chico, "N h × $10.000 COP por hora"
 — el mismo tratamiento que la tasa del dólar en los desprendibles. Una modelo
 (o la hoja filtrada por una) ve **solo su total**; la lista comparativa de
 quién debe qué es únicamente para administración sin filtro.
+
+**Aviso de seguridad social — ahora configurable por cliente (2026-09-05).**
+`cb_attendance_settings.social_security_enabled` (boolean, default `true` en
+la fila real de Placer Studios, default `false` en `schema.sql` para un
+cliente nuevo). Motivo: "asume su propia seguridad social al pasar el
+umbral" es un concepto laboral colombiano específico de este estudio, no
+algo que deba salir por defecto en el sistema que se vende a otros — un
+pedido explícito del usuario para separar la plantilla de venta del cliente
+actual. Administrador lo prende/apaga desde Asistencia → Horarios y umbral
+(checkbox nuevo junto al umbral/tarifa). Server-side, `buildAttendancePayload`
+calcula `owes_social_security: socialSecurityEnabled && lateMinutes >=
+threshold` — con el flag en `false`, esa expresión es siempre `false` para
+todos, así que el banner (`renderAttendanceWarning` en `index.html`) nunca
+aparece y el pill de cada modelo (`index.html`/`asistencia.html`) siempre
+muestra "al día", sin tocar ni un solo lugar del frontend aparte de agregar
+el checkbox — toda la lógica de ocultamiento vive en el servidor.
+**Corrección sobre el propio flag (2026-09-05, misma tarde):** cuando este
+flag se escribió arriba, esta sesión afirmó con seguridad que "no existe ni
+existió un techo de $50.000 que resetea la multa a 0" — **eso era falso**, y
+el error fue metodológico: se verificó contra un checkout local desactualizado
+sin volver a traer `origin/master` primero, justo lo que la sección "Antes de
+tocar nada" de este archivo pide no hacer. Otra sesión, en paralelo el mismo
+día, había confirmado con el usuario y ya mergeado a `master`
+`lateDebtCopCapped(lateMinutes, feeCop, thresholdMinutes)` en
+`chaturbate-lib.js`: pasado el umbral (6h/360min por defecto) la deuda en
+plata SÍ pasa a `$0` en vez de seguir subiendo — con la tarifa de $10.000/h,
+el tope natural bajo el umbral son 5 horas completas, exactamente los
+$50.000 que el usuario había descrito. `debt_hours` (las horas reales) nunca
+tuvo tope, solo el cobro en COP se detiene.
+**Cómo queda reconciliado con `social_security_enabled`:** `debt_cop` en
+`buildAttendancePayload` ahora es `socialSecurityEnabled ?
+lateDebtCopCapped(lateMinutes, feeCop, threshold) : lateDebtCop(lateMinutes,
+feeCop)` — con el flag en `true` (Placer Studios) se comporta como la otra
+sesión lo confirmó: tope a `$0` al pasar el umbral. Con el flag en `false`
+(código de venta a un cliente nuevo, sin ese concepto laboral) la multa
+crece sin tope, tal como el usuario pidió explícitamente en esta misma
+conversación ("este no tendrá ese tope... debería seguir normal para el
+código de venta") — el tope siempre estuvo atado al mismo concepto que el
+aviso de seguridad social, así que gatearlos con el mismo flag es correcto,
+no una coincidencia. Ver la sección "Tope de multas y bloqueo de extras/
+recuperaciones por incumplimiento" más abajo para el resto de lo que trajo
+esa sesión paralela (Extras con tipo/hora de salida, bloqueo por 3
+incumplimientos) — no relacionado con este flag, se mergeó sin conflicto.
+**Lección para la próxima sesión:** `git fetch origin master` y comparar
+antes de afirmar categóricamente "esto no existe en el código", sobre todo
+en un proyecto que este mismo archivo ya advierte que se edita desde varios
+dispositivos en paralelo.
+**Permisos, corregido también:** `/api/attendance/settings` sigue siendo
+`requireAdmin` (solo `administrador`, NO `ceo`) — otra idea que circuló en
+chat y que el código no respalda; si en algún momento se quiere que `ceo`
+también pueda cambiar la tarifa/umbral, es un cambio de permisos deliberado
+que hay que pedir explícitamente, no algo que ya esté así.
+Probado en vivo contra la base real: cuenta admin temporal (`qa_temp_admin`,
+creada y borrada en la misma sesión), instancia `SOLO_UI=1` en otro puerto,
+apagado → verificado `owes_social_security` se cae solo en la respuesta →
+restaurado a `true` (estado real de Placer Studios) antes de cerrar. Como el
+código ya desplegado en producción no lee esta columna todavía, alternar su
+valor en la base real durante la prueba no tuvo ningún efecto en el sitio
+en vivo.
 
 **Al probar contra la base real, filtra por tus propias cuentas de prueba.**
 El 2026-09-04 se tomó `days[0]` de la respuesta para probar el borrado y esa

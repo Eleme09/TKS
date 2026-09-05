@@ -827,6 +827,10 @@
           <input id="attThreshold" type="number" min="0.5" max="200" step="0.5">
           <label for="attFee">Cobro por cada hora completa de retraso (COP)</label>
           <input id="attFee" type="number" min="0" step="1000">
+          <label style="display:flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer;">
+            <input id="attSocialSecurity" type="checkbox" style="width:auto;">
+            <span>Avisar cuando alguien pasa el umbral (aviso de seguridad social)</span>
+          </label>
           <div class="row" style="margin-top:10px;"><button id="btnAttThreshold" class="btn-primary" style="flex:1;">Guardar umbral y tarifa</button></div>
           <div id="attConfigError" class="errbox"></div>
           <div id="attSchedList" style="margin-top:14px;"></div>
@@ -1028,6 +1032,7 @@
     btnAttSched: document.getElementById('btnAttSched'),
     attThreshold: document.getElementById('attThreshold'),
     attFee: document.getElementById('attFee'),
+    attSocialSecurity: document.getElementById('attSocialSecurity'),
     btnAttThreshold: document.getElementById('btnAttThreshold'),
     attConfigError: document.getElementById('attConfigError'),
     attSchedList: document.getElementById('attSchedList'),
@@ -1491,8 +1496,8 @@
     const csv = rows.map(function (row) {
       return row.map(function (cell) {
         const s = String(cell);
-        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-      }).join(',');
+        return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(';');
     }).join('\r\n');
     const blob = new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1835,6 +1840,7 @@
       if (prevSched) el.attSchedUser.value = prevSched;
       if (!el.attThreshold.value) el.attThreshold.value = (attData.threshold_minutes / 60).toFixed(1);
       if (!el.attFee.value) el.attFee.value = attData.late_hour_fee_cop;
+      el.attSocialSecurity.checked = attData.social_security_enabled !== false;
       attMarcarTurnoActivo();
       el.attSchedList.innerHTML = (attData.schedule || []).length
         ? (attData.schedule || []).map(function (s) {
@@ -2013,7 +2019,7 @@
     if (!isFinite(fee) || fee < 0) return attShowBox(el.attConfigError, 'Escribe el cobro por hora en pesos');
     const r = await fetch('/api/attendance/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threshold_hours: hours, fee_cop: fee }),
+      body: JSON.stringify({ threshold_hours: hours, fee_cop: fee, social_security_enabled: el.attSocialSecurity.checked }),
     });
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) return attShowBox(el.attConfigError, data.error || 'No se pudo guardar');
@@ -2727,7 +2733,9 @@
       if (!r.ok) alert('No se pudo activar la notificacion, intenta de nuevo.');
       await updatePushButtonState();
     } catch (e) {
-      alert('No se pudieron activar las notificaciones en este dispositivo o navegador.');
+      console.error('Push subscribe falló:', e);
+      const detail = (e && e.message) ? ' (' + e.message + ')' : '';
+      alert('No se pudieron activar las notificaciones en este dispositivo o navegador' + detail + '.');
     } finally {
       el.btnEnablePush.disabled = false;
     }

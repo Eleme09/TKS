@@ -370,13 +370,21 @@ create index if not exists cb_attendance_excuses_user on public.cb_attendance_ex
 -- usuario 2026-09-04). La tarifa se cobra por cada HORA COMPLETA de retraso
 -- acumulado, no proporcional: 59 minutos no deben nada.
 create table if not exists public.cb_attendance_settings (
-  id                     int primary key default 1,
-  late_threshold_minutes int not null default 360,
-  late_hour_fee_cop      int not null default 10000,
-  updated_at             timestamptz not null default now()
+  id                       int primary key default 1,
+  late_threshold_minutes   int not null default 360,
+  late_hour_fee_cop        int not null default 10000,
+  -- Aviso de "asume su propia seguridad social" al pasar el umbral: es un
+  -- concepto laboral colombiano especifico de Placer Studios (donde esta
+  -- columna vive en true), no algo que aplique por defecto a un estudio
+  -- nuevo. Para un cliente nuevo arranca en false -- solo la multa por hora
+  -- (siempre activa, sin techo) aplica hasta que ese cliente pida algo
+  -- parecido. Administrador lo prende/apaga desde Asistencia -> Horarios y
+  -- umbral.
+  social_security_enabled boolean not null default false,
+  updated_at               timestamptz not null default now()
 );
-insert into public.cb_attendance_settings (id, late_threshold_minutes, late_hour_fee_cop)
-values (1, 360, 10000) on conflict (id) do nothing;
+insert into public.cb_attendance_settings (id, late_threshold_minutes, late_hour_fee_cop, social_security_enabled)
+values (1, 360, 10000, false) on conflict (id) do nothing;
 
 -- Evita que el aviso de "todas entraron a tiempo" salga repetido: la fecha es
 -- la primary key, asi que el segundo intento del dia choca y no manda nada.

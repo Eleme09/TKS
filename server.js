@@ -9,6 +9,7 @@ const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
 const webpush = require('web-push');
+const nodemailer = require('nodemailer');
 const {
   getQuincena, getQuincenaHistory, toDateStr, sanitizeUsername,
   hashPassword, verifyPassword, resolveChaturbateTokens,
@@ -44,6 +45,45 @@ if (PUSH_ENABLED) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 } else {
   console.log('Notificaciones push desactivadas (faltan VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT).');
+}
+
+// Respaldo por correo para las alertas realmente graves (caida de conexion,
+// error de API), independiente de si el push llega o no al celular del
+// administrador — el push por si solo puede fallar en silencio (ej. iOS
+// revoca la suscripcion sin avisar), y ese es justo el caso donde mas
+// importa enterarse. Opcional: sin GMAIL_USER/GMAIL_APP_PASSWORD el
+// servidor sigue funcionando normal, solo sin este respaldo (mismo patron
+// que VAPID/STRIPCHAT). GMAIL_APP_PASSWORD es una "contraseña de
+// aplicacion" generada en myaccount.google.com/apppasswords, no la
+// contraseña normal de la cuenta.
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const EMAIL_ALERT_ENABLED = !!(GMAIL_USER && GMAIL_APP_PASSWORD);
+const ALERT_EMAIL_TO = 'menajeiner@gmail.com';
+let emailTransporter = null;
+if (EMAIL_ALERT_ENABLED) {
+  emailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  });
+} else {
+  console.log('Respaldo de alertas por correo desactivado (faltan GMAIL_USER o GMAIL_APP_PASSWORD).');
+}
+
+// Fire-and-forget, sin reintentos — es un respaldo de aviso, no dinero. No
+// debe frenar ni tumbar al llamador si Gmail falla o no esta configurado.
+async function sendAlertEmail(subject, body) {
+  if (!EMAIL_ALERT_ENABLED) return;
+  try {
+    await emailTransporter.sendMail({
+      from: GMAIL_USER,
+      to: ALERT_EMAIL_TO,
+      subject: 'Placer Studios — ' + subject,
+      text: body,
+    });
+  } catch (e) {
+    console.error('No se pudo mandar el correo de respaldo:', e.message);
+  }
 }
 // Integracion con la Studio API oficial de Stripchat: opcional. Si faltan las
 // dos variables, el servidor sigue funcionando normal, solo que sin traer los
@@ -379,7 +419,9 @@ async function sendOnlineNotifications(modelUsername) {
 // resolver, y ahora que las modelos tambien pueden suscribirse (para
 // Noticias) hay que ser explicito aqui en vez de mandarla a todos.
 async function sendConnectionAlert(modelUsername, reason) {
-  await sendPushToRole(['administrador', 'ceo'], 'Se cayó la conexión de ' + modelUsername + ': ' + reason, { tag: 'placer-conn-alert' });
+  const msg = 'Se cayó la conexión de ' + modelUsername + ': ' + reason;
+  await sendPushToRole(['administrador', 'ceo'], msg, { tag: 'placer-conn-alert' });
+  sendAlertEmail('Se cayó la conexión de ' + modelUsername, msg).catch(() => {});
 }
 
 // Avisa a los demas suscritos (admin/CEO) cuando se publica una noticia nueva,
@@ -793,7 +835,7 @@ async function sbInsertAttendanceExcuse(row) {
   return rows.length ? rows[0] : null;
 }
 
-const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000 };
+const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true };
 
 async function sbFetchAttendanceSettings() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings?id=eq.1&select=*', { headers: SB_HEADERS });
@@ -802,7 +844,7 @@ async function sbFetchAttendanceSettings() {
   return rows.length ? { ...ATTENDANCE_DEFAULTS, ...rows[0] } : { ...ATTENDANCE_DEFAULTS };
 }
 
-async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop) {
+async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop, socialSecurityEnabled) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -810,6 +852,7 @@ async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop) {
       id: 1,
       late_threshold_minutes: thresholdMinutes,
       late_hour_fee_cop: feeCop,
+      social_security_enabled: socialSecurityEnabled,
       updated_at: new Date().toISOString(),
     }),
   });
@@ -850,6 +893,12 @@ async function buildAttendancePayload(session) {
 
   const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
   const feeCop = settings.late_hour_fee_cop != null ? settings.late_hour_fee_cop : ATTENDANCE_DEFAULTS.late_hour_fee_cop;
+  // Configurable por cliente: el aviso de "asume su propia seguridad social"
+  // es un concepto laboral colombiano especifico de Placer Studios, no algo
+  // que aplique por defecto a cualquier estudio que compre el sistema. La
+  // multa por hora (debt_hours/debt_cop, mas abajo) nunca depende de esto y
+  // siempre sigue activa y sin techo.
+  const socialSecurityEnabled = settings.social_security_enabled !== false;
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s;
 
@@ -877,16 +926,22 @@ async function buildAttendancePayload(session) {
             scheduleByUser[username].entry_time,
             scheduleByUser[username].exit_time)
         : 'sin asignar',
-      owes_social_security: lateMinutes >= threshold,
+      owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
       // La deuda en plata se cobra por hora alcanzada, no proporcional (ver
-      // lateDebtCop), PERO tiene un tope: pasado el umbral de seguridad social
-      // (`threshold`, 6h por defecto) la deuda pasa a CERO en vez de seguir
-      // subiendo — ahí la modelo ya asume su propia seguridad social esa
-      // quincena, no una multa en pesos (regla confirmada 2026-09-05).
-      // `debt_hours` NO tiene tope: las horas reales de retraso se siguen
-      // contando siempre, solo el cobro en COP se detiene.
+      // lateDebtCop). Con socialSecurityEnabled=true (Placer Studios) tiene
+      // tope: pasado el umbral (`threshold`, 6h por defecto) la deuda pasa a
+      // CERO en vez de seguir subiendo — ahí la modelo ya asume su propia
+      // seguridad social esa quincena, no una multa en pesos (regla
+      // confirmada 2026-09-05). Con el flag en false (código de venta a un
+      // cliente nuevo, sin ese concepto laboral) NO hay tope: la multa sigue
+      // creciendo normal como cualquier otro estudio esperaría — ver la
+      // sección "Aviso de seguridad social" en CLAUDE.md. `debt_hours` NUNCA
+      // tiene tope en ninguno de los dos casos: las horas reales de retraso
+      // se siguen contando siempre, solo el cobro en COP cambia.
       debt_hours: lateDebtHours(lateMinutes),
-      debt_cop: lateDebtCopCapped(lateMinutes, feeCop, threshold),
+      debt_cop: socialSecurityEnabled
+        ? lateDebtCopCapped(lateMinutes, feeCop, threshold)
+        : lateDebtCop(lateMinutes, feeCop),
       days_validated: mine.filter((d) => d.status === 'validada').length,
     };
   });
@@ -900,6 +955,7 @@ async function buildAttendancePayload(session) {
     period,
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
+    social_security_enabled: socialSecurityEnabled,
     shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
@@ -1035,6 +1091,7 @@ async function sbLogApiError(source, message) {
     body: JSON.stringify({ source, message }),
   }).catch(() => {});
   sendPushToRole('administrador', 'Error en ' + source + ': ' + message, { tag: 'placer-api-error' }).catch(() => {});
+  sendAlertEmail('Error en ' + source, message).catch(() => {});
 }
 
 async function sbFetchLastBroadcastEvent(username) {
@@ -2826,9 +2883,10 @@ const server = http.createServer(async (req, res) => {
     if (!isFinite(fee) || fee < 0 || fee > 10000000) return sendJson(res, 400, { error: 'Tarifa por hora inválida' });
     const minutes = Math.round(hours * 60);
     const feeCop = Math.round(fee);
-    const ok = await sbUpdateAttendanceSettings(minutes, feeCop);
+    const socialSecurityEnabled = body.social_security_enabled !== false;
+    const ok = await sbUpdateAttendanceSettings(minutes, feeCop, socialSecurityEnabled);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
-    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes, fee_cop: feeCop });
+    await sbLogAudit(session, 'attendance_settings_set', null, { threshold_minutes: minutes, fee_cop: feeCop, social_security_enabled: socialSecurityEnabled });
     return sendJson(res, 200, { ok: true });
   }
 

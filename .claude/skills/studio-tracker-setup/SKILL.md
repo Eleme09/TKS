@@ -107,6 +107,7 @@ asumas que son los mismos que este estudio:
 | Nombre del estudio (badge de rol CEO) | `public/index.html`, buscar literal `PLACER` (dos apariciones más, líneas ~533 y ~764) | `CEO PLACER STUDIO` |
 | Logo en pantalla (fondo transparente) | `public/logo-placer-studios.svg` | — |
 | Logo de favicon/ícono (mismo logo + fondo opaco) | `public/logo-icon.svg` | — |
+| Aviso de seguridad social en Asistencia | `cb_attendance_settings.social_security_enabled` | `true` (Placer Studios) |
 
 **La tarifa de pago (`PAYOUT_RATE_USD_PER_TOKEN`) es el dato más sensible de
 toda esta lista: es dinero real que le pagan a personas reales.** Nunca la
@@ -123,6 +124,15 @@ de la página; `logo-icon.svg` necesita fondo opaco porque un favicon sobre
 transparencia se ve mal en la mayoría de navegadores. (Este proyecto ya tuvo
 un bug real por editar el archivo compartido sin pensar en los dos usos —
 ver `CLAUDE.md`, sección de logos.)
+
+**El aviso de seguridad social ya arranca apagado en `schema.sql` para un
+estudio nuevo** (default `false` en la fila de `cb_attendance_settings`,
+distinto del `true` real de Placer Studios) — es un concepto laboral
+colombiano específico de este estudio, no algo que deba salir por defecto
+en la web de otro cliente. La multa por hora (siempre activa, sin techo)
+no depende de este flag y sigue funcionando igual esté prendido o apagado.
+Si el cliente nuevo pide algo parecido, el administrador lo prende desde
+Asistencia → Horarios y umbral — no hace falta tocar código para eso.
 
 Después de este paso, busca "PLACER" en todo el repo (`grep -rn PLACER`)
 para confirmar que no quedó ningún rastro del nombre del estudio anterior.
