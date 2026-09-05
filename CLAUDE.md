@@ -1168,13 +1168,37 @@ todos, así que el banner (`renderAttendanceWarning` en `index.html`) nunca
 aparece y el pill de cada modelo (`index.html`/`asistencia.html`) siempre
 muestra "al día", sin tocar ni un solo lugar del frontend aparte de agregar
 el checkbox — toda la lógica de ocultamiento vive en el servidor.
-**La multa por hora (`debt_hours`/`debt_cop`, `lateDebtHours`/`lateDebtCop`
-en `chaturbate-lib.js`) es completamente independiente de este flag y de
-este umbral: nunca tuvo techo ni se resetea a 0 en ningún monto — crece
-`$fee_cop × horas completas`, sin límite, prendido o apagado el aviso.**
-Esto corrige una idea equivocada que circuló en chat: no existe ni existió
-un "techo de $50.000 que resetea la multa a 0" en este código — se verificó
-línea por línea en `chaturbate-lib.js` y `server.js` antes de tocar nada.
+**Corrección sobre el propio flag (2026-09-05, misma tarde):** cuando este
+flag se escribió arriba, esta sesión afirmó con seguridad que "no existe ni
+existió un techo de $50.000 que resetea la multa a 0" — **eso era falso**, y
+el error fue metodológico: se verificó contra un checkout local desactualizado
+sin volver a traer `origin/master` primero, justo lo que la sección "Antes de
+tocar nada" de este archivo pide no hacer. Otra sesión, en paralelo el mismo
+día, había confirmado con el usuario y ya mergeado a `master`
+`lateDebtCopCapped(lateMinutes, feeCop, thresholdMinutes)` en
+`chaturbate-lib.js`: pasado el umbral (6h/360min por defecto) la deuda en
+plata SÍ pasa a `$0` en vez de seguir subiendo — con la tarifa de $10.000/h,
+el tope natural bajo el umbral son 5 horas completas, exactamente los
+$50.000 que el usuario había descrito. `debt_hours` (las horas reales) nunca
+tuvo tope, solo el cobro en COP se detiene.
+**Cómo queda reconciliado con `social_security_enabled`:** `debt_cop` en
+`buildAttendancePayload` ahora es `socialSecurityEnabled ?
+lateDebtCopCapped(lateMinutes, feeCop, threshold) : lateDebtCop(lateMinutes,
+feeCop)` — con el flag en `true` (Placer Studios) se comporta como la otra
+sesión lo confirmó: tope a `$0` al pasar el umbral. Con el flag en `false`
+(código de venta a un cliente nuevo, sin ese concepto laboral) la multa
+crece sin tope, tal como el usuario pidió explícitamente en esta misma
+conversación ("este no tendrá ese tope... debería seguir normal para el
+código de venta") — el tope siempre estuvo atado al mismo concepto que el
+aviso de seguridad social, así que gatearlos con el mismo flag es correcto,
+no una coincidencia. Ver la sección "Tope de multas y bloqueo de extras/
+recuperaciones por incumplimiento" más abajo para el resto de lo que trajo
+esa sesión paralela (Extras con tipo/hora de salida, bloqueo por 3
+incumplimientos) — no relacionado con este flag, se mergeó sin conflicto.
+**Lección para la próxima sesión:** `git fetch origin master` y comparar
+antes de afirmar categóricamente "esto no existe en el código", sobre todo
+en un proyecto que este mismo archivo ya advierte que se edita desde varios
+dispositivos en paralelo.
 **Permisos, corregido también:** `/api/attendance/settings` sigue siendo
 `requireAdmin` (solo `administrador`, NO `ceo`) — otra idea que circuló en
 chat y que el código no respalda; si en algún momento se quiere que `ceo`
