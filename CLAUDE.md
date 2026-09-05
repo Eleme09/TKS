@@ -1122,6 +1122,52 @@ sin duplicar el tráfico a Chaturbate — dos instancias sondeando lo mismo es
 exactamente lo que provocó el 403 del 2026-09-04. Nunca en producción: sin
 sondeos no se registra ni una propina.
 
+## Tope de multas y bloqueo de extras/recuperaciones por incumplimiento (2026-09-05)
+
+- **Tope de la deuda por retrasos**: la deuda en plata (`debt_cop`) ya NO crece
+  sin límite pasado el umbral de seguridad social. `lateDebtCopCapped(lateMinutes,
+  feeCop, thresholdMinutes)` en `chaturbate-lib.js` devuelve 0 si
+  `lateMinutes >= thresholdMinutes` (6h por defecto); por debajo del umbral el
+  tope natural ya es 5 horas completas ($50.000 con la tarifa de $10.000/h,
+  porque 6h es exactamente el punto de corte). `debt_hours` (las horas reales)
+  NUNCA tiene tope — se sigue contando siempre, solo el cobro en COP se
+  detiene. `buildAttendancePayload` en `server.js` es el único call site; no
+  reintroduzcas el cálculo viejo (`lateDebtCop` sin capar) ahí.
+- **Extras/recuperaciones — `cb_shifts` tiene ahora `kind` (`'extra'` |
+  `'recuperacion'`, elegido por admin/CEO al publicar) y `attendance_status`
+  (`'pendiente'` | `'cumplio'` | `'no_cumplio'`, marcado por admin/CEO en el
+  calendario con los botones ✓/✗ sobre cada pastilla reclamada).** `end_time`
+  ya existía en el schema sin usarse — ahora se pide junto con la hora de
+  entrada y se muestra como rango en la pastilla. El campo "Nota (opcional)"
+  se quitó del formulario a pedido del usuario (la columna `note` sigue en la
+  tabla, solo no se llena más).
+- **Bloqueo por 3 incumplimientos**: `isShiftClaimBlocked(noShowCount,
+  hasOverride)` en `chaturbate-lib.js` — a la 3ra vez que una modelo se apunta
+  a una extra/recuperación y queda marcada `no_cumplio` **en la quincena
+  actual**, `/api/shifts/claim` la rechaza (403) hasta que empiece la próxima
+  quincena o admin/CEO le otorgue un permiso puntual vía
+  `POST /api/shifts/override` (tabla `cb_shift_overrides`, clave
+  `username + period_start` — por eso expira solo, sin cron: al cambiar de
+  quincena el `period_start` ya no coincide). **Esto NO mueve plata, es
+  puramente un sistema de cumplimiento sí/no** — no lo conectes al cálculo de
+  deuda ni de pago. `computeShiftBlockInfo` en `server.js` calcula todo esto
+  reusando `sbListShifts()` (ya trae todo el historial), sin queries nuevas
+  por request salvo `sbListShiftOverrides`.
+- **Modelos**: el dato "Va ganando más" ahora separa el nombre (línea propia,
+  rosa, mono) de los tokens (línea propia, chico, muted) — antes era un solo
+  string corrido tipo `abigail_f00x (9689 tok.)` en una fuente uniforme,
+  reportado como difícil de leer.
+- Migración aplicada directo en Supabase (`apply_migration`, no vive como
+  archivo `.sql` en el repo — `schema.sql` documenta el estado base, no cada
+  migración incremental): `alter table cb_shifts add column kind ... ,
+  add column attendance_status ...` + `create table cb_shift_overrides`.
+- Probado end-to-end contra el Supabase real (instancia `SOLO_UI=1` en el
+  puerto 3001, cuentas `qa_shift_admin`/`qa_shift_model` borradas al terminar
+  junto con los turnos de prueba) y visualmente con Claude in Chrome antes de
+  hacer push. `npm test`: 84/84. Push directo a `master` (sin pasar por `dev`/
+  `tks-staging`) dado el nivel de verificación ya hecho — si el próximo cambio
+  es más riesgoso, volver al flujo normal de la sección "Where things live".
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
