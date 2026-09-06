@@ -953,6 +953,21 @@ futuro este patrón escala (dos errores en la misma hora, deja de
 recuperarse solo, o pasa a las 6 modelos a la vez), eso sí es una alerta
 nueva y real — reportarla entonces, no antes.
 
+**Día 3 (vigía del 2026-09-06, 12:01 UTC): primera variación real, todavía
+menor.** 24 errores en 24h, mismo patrón rotando entre modelos, pero por
+primera vez dos cayeron separados solo 7 min en vez de los ~62 min
+habituales (04:25:32 tamar4_f00x, 04:32:32 jax_f00x — verificado con los
+timestamps exactos, no solo el conteo por hora). Técnicamente cumple el
+criterio de "dos errores en la misma hora" de la nota de arriba, pero en
+sustancia sigue siendo el mismo tipo de fallo: aislado a una consulta por
+vez, autorecuperado de inmediato, nunca los 6 modelos a la vez, sin tocar
+`last_balance_at` ni el sync de Stripchat. **No se avisó por chat ni
+correo** — un solo blip de 7 min no es la escalada sostenida que la nota
+de arriba busca detectar; se documenta para no perder el dato, no porque
+haya ameritado una alerta. Si esto se repite (varios pares seguidos, o el
+espaciado sigue encogiéndose noche tras noche), ahí sí es la señal real de
+que algo cambió y toca investigar en serio.
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia
