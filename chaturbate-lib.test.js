@@ -476,3 +476,64 @@ describe('asistencia — margen de tolerancia al entrar (confidencial, ver chatu
     assert.equal(lib.lateDebtCop(lib.applyLateGrace(72, G), 10000), 10000);
   });
 });
+
+describe('isHttpStatusApiError — distingue blip de red de un cambio real de API', () => {
+  test('un HTTP contra una modelo puntual es un blip de red', () => {
+    assert.equal(lib.isHttpStatusApiError('HTTP 403 para pinky_f00x'), true);
+    assert.equal(lib.isHttpStatusApiError('HTTP 429 para amaranta_f00x'), true);
+    assert.equal(lib.isHttpStatusApiError('HTTP 503 para tamar4_f00x'), true);
+  });
+  test('un mensaje de forma-de-respuesta-cambio NUNCA es un blip de red', () => {
+    assert.equal(lib.isHttpStatusApiError('Falta el campo token_balance en la respuesta'), false);
+    assert.equal(lib.isHttpStatusApiError('totalEarnings no es un número'), false);
+  });
+});
+
+describe('evaluateApiErrorBurst — blip horario vs racha real (regla del 2026-09-09)', () => {
+  const WINDOW = lib.API_ERROR_BURST_WINDOW_MS;
+  const THRESHOLD = lib.API_ERROR_BURST_THRESHOLD;
+  test('un solo error no es racha', () => {
+    const r = lib.evaluateApiErrorBurst([], 1000, WINDOW, THRESHOLD);
+    assert.equal(r.count, 1);
+    assert.equal(r.isBurst, false);
+  });
+  test('el patrón horario ya diagnosticado (uno cada ~62 min) nunca junta 3 en la ventana', () => {
+    let timestamps = [];
+    let now = 0;
+    for (let i = 0; i < 5; i++) {
+      const r = lib.evaluateApiErrorBurst(timestamps, now, WINDOW, THRESHOLD);
+      timestamps = r.timestamps;
+      assert.equal(r.isBurst, false, 'no debería marcarse racha en el iteración ' + i);
+      now += 62 * 60 * 1000;
+    }
+  });
+  test('3 o más HTTP-status dentro de la ventana sí es una racha real', () => {
+    let timestamps = [];
+    let now = 0;
+    let last;
+    for (let i = 0; i < THRESHOLD; i++) {
+      last = lib.evaluateApiErrorBurst(timestamps, now, WINDOW, THRESHOLD);
+      timestamps = last.timestamps;
+      now += 60 * 1000; // 1 min de diferencia entre cada uno, bien dentro de la ventana
+    }
+    assert.equal(last.isBurst, true);
+    assert.equal(last.count, THRESHOLD);
+  });
+  test('errores fuera de la ventana se descartan, no acumulan para siempre', () => {
+    const timestamps = [0, 1000, 2000]; // ya pasaron THRESHOLD-1 hace mucho
+    const r = lib.evaluateApiErrorBurst(timestamps, WINDOW * 10, WINDOW, THRESHOLD);
+    assert.equal(r.count, 1); // los 3 viejos se descartaron, solo queda el nuevo
+    assert.equal(r.isBurst, false);
+  });
+  test('reproduce el incidente real del 2026-09-04 (174 errores en 17 min) como racha', () => {
+    let timestamps = [];
+    let now = 0;
+    let last;
+    for (let i = 0; i < 174; i++) {
+      last = lib.evaluateApiErrorBurst(timestamps, now, WINDOW, THRESHOLD);
+      timestamps = last.timestamps;
+      now += (17 * 60 * 1000) / 174;
+    }
+    assert.equal(last.isBurst, true);
+  });
+});

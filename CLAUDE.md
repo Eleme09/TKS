@@ -968,6 +968,31 @@ haya ameritado una alerta. Si esto se repite (varios pares seguidos, o el
 espaciado sigue encogiéndose noche tras noche), ahí sí es la señal real de
 que algo cambió y toca investigar en serio.
 
+**Filtro de racha en `sbLogApiError` — dejó de avisar por cada blip aislado
+(2026-09-09).** Después de 5 días seguidos del mismo patrón horario
+benigno (arriba), `sbLogApiError` estaba mandando push+correo cada ~62 min
+sin aportar nada nuevo — el usuario pidió explícitamente reducir ese ruido.
+Ahora `sbLogApiError` sigue escribiendo TODO en `cb_api_errors` sin
+excepción (el vigía diario sigue viendo el conteo completo, esto no cambió),
+pero solo dispara push+correo cuando de verdad amerita:
+- Un mensaje que **no** tenga la forma `HTTP <código> para <modelo>` (ej.
+  "cambió la forma de la respuesta, falta el campo `token_balance`") avisa
+  siempre, al toque — eso es justo lo que este registro existe para agarrar,
+  nunca se filtra.
+- Un HTTP 4xx/5xx contra una modelo puntual solo avisa si se juntan
+  `API_ERROR_BURST_THRESHOLD` (3) o más dentro de `API_ERROR_BURST_WINDOW_MS`
+  (15 min) — eso es una racha real (ej. el bloqueo masivo del 2026-09-04,
+  174 en 17 min), no el blip aislado de una vez por hora.
+`isHttpStatusApiError`/`evaluateApiErrorBurst` viven en `chaturbate-lib.js`
+(puras, con tests que reproducen tanto el patrón horario de 5 días como el
+incidente real del 2026-09-04 — `npm test`: 91/91) porque server.js no debe
+llevar lógica sin probar; server.js solo guarda `recentHttpStatusApiErrors`
+(un array en memoria, se resetea en cada redeploy — aceptable, es
+diagnóstico, no dinero) entre llamadas y llama a las funciones puras.
+**Si algún día una fuente nueva de error empieza a mandar mensajes que
+por casualidad calzan con `HTTP <código> para <algo>` sin ser un fallo de
+red real, revisar este regex antes de asumir que el filtro está roto.**
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia

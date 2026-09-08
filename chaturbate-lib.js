@@ -417,6 +417,33 @@ function sumLateMinutes(days) {
   return total;
 }
 
+// Un fallo de API externo con forma "HTTP <codigo> para <modelo>" es un
+// blip de red/rate-limit contra una cuenta puntual; cualquier otro mensaje
+// (ej. "cambio la forma de la respuesta, falta el campo token_balance") es
+// un diagnostico real que siempre debe avisar, nunca pasar por el filtro de
+// racha de abajo.
+const API_ERROR_HTTP_STATUS_RE = /^HTTP \d+ para /;
+function isHttpStatusApiError(message) {
+  return API_ERROR_HTTP_STATUS_RE.test(message);
+}
+
+// Ventana y umbral para distinguir el blip horario ya diagnosticado (un
+// HTTP 4xx/5xx aislado, se recupera solo, nunca mas de 1 cada ~62 min) de
+// una racha real como el bloqueo masivo del 2026-09-04 (174 errores en 17
+// min). Confirmado con datos reales de 5 dias seguidos: el patron benigno
+// nunca junta 3 en 15 minutos, la racha real sí.
+const API_ERROR_BURST_WINDOW_MS = 15 * 60 * 1000;
+const API_ERROR_BURST_THRESHOLD = 3;
+
+// Pura: recibe la lista de timestamps (ms) de errores HTTP-status recientes
+// y el instante actual, descarta lo que ya salió de la ventana, agrega el
+// nuevo, y dice si el conteo resultante ya cuenta como racha (no blip).
+function evaluateApiErrorBurst(recentTimestamps, now, windowMs, threshold) {
+  const pruned = (recentTimestamps || []).filter((t) => now - t < windowMs);
+  pruned.push(now);
+  return { timestamps: pruned, count: pruned.length, isBurst: pruned.length >= threshold };
+}
+
 module.exports = {
   MESES,
   STUDIO_UTC_OFFSET_HOURS,
@@ -453,4 +480,8 @@ module.exports = {
   parseCsvLine,
   parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
+  isHttpStatusApiError,
+  API_ERROR_BURST_WINDOW_MS,
+  API_ERROR_BURST_THRESHOLD,
+  evaluateApiErrorBurst,
 };

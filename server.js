@@ -21,6 +21,7 @@ const {
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   ATTENDANCE_GRACE_MINUTES, applyLateGrace,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
+  isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1077,21 +1078,51 @@ async function sbInsertUnhandledEvent(username, method, payload) {
   }).catch(() => {});
 }
 
+// Un HTTP 4xx/5xx aislado contra una sola modelo (ej. "HTTP 403 para
+// pinky_f00x") es la firma del blip horario ya diagnosticado y documentado en
+// CLAUDE.md (cada ~62 min, se recupera solo en la siguiente consulta, nunca
+// afecta el dinero) — llevaba 5 dias mandando push+correo cada vez, sin
+// aportar nada nuevo despues del primer par de dias. Este filtro NO cambia
+// que TODO error siga quedando en cb_api_errors (el chequeo diario del vigia
+// sigue viendo el conteo completo); solo decide si amerita despertar al
+// administrador ahora mismo. isHttpStatusApiError/evaluateApiErrorBurst viven
+// en chaturbate-lib.js (son puras, con tests) — server.js solo guarda el
+// estado (la lista de timestamps recientes) entre llamadas.
+let recentHttpStatusApiErrors = [];
+
 // Registro liviano de fallos de APIs externas (Chaturbate Stats, Stripchat)
 // para poder detectar un cambio de API sin acceso a los logs de Render — un
 // chequeo automatico programado revisa esta tabla y avisa si hay un salto de
-// errores. Puro diagnostico, sin reintentos. Ademas empuja un push inmediato
-// solo al rol administrador (mismo criterio que sendConnectionAlert: es un
-// aviso tecnico que solo quien opera el sistema puede accionar), en vez de
-// esperar al chequeo diario para enterarse de un error real.
+// errores. Puro diagnostico, sin reintentos. Ademas empuja un push+correo
+// inmediato al administrador, pero SOLO cuando de verdad amerita: un mensaje
+// que no sea "HTTP <codigo> para <modelo>" (ej. la forma de la respuesta
+// cambio) siempre avisa al toque, porque eso es justo lo que este registro
+// existe para agarrar; un HTTP 4xx/5xx aislado se guarda pero no despierta a
+// nadie a menos que se junten API_ERROR_BURST_THRESHOLD o mas en
+// API_ERROR_BURST_WINDOW_MS — eso ya no es el blip conocido, es una racha
+// real (mismo criterio que distingue el incidente del 2026-09-04 del patron
+// horario benigno documentado despues).
 async function sbLogApiError(source, message) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_api_errors', {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ source, message }),
   }).catch(() => {});
-  sendPushToRole('administrador', 'Error en ' + source + ': ' + message, { tag: 'placer-api-error' }).catch(() => {});
-  sendAlertEmail('Error en ' + source, message).catch(() => {});
+
+  let shouldAlert = true;
+  let alertMessage = message;
+  if (isHttpStatusApiError(message)) {
+    const evalResult = evaluateApiErrorBurst(recentHttpStatusApiErrors, Date.now(), API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD);
+    recentHttpStatusApiErrors = evalResult.timestamps;
+    shouldAlert = evalResult.isBurst;
+    if (shouldAlert) {
+      alertMessage = message + ' (van ' + evalResult.count + ' HTTP 4xx/5xx en los últimos 15 min — ya no es un blip aislado)';
+    }
+  }
+  if (!shouldAlert) return;
+
+  sendPushToRole('administrador', 'Error en ' + source + ': ' + alertMessage, { tag: 'placer-api-error' }).catch(() => {});
+  sendAlertEmail('Error en ' + source, alertMessage).catch(() => {});
 }
 
 async function sbFetchLastBroadcastEvent(username) {
