@@ -1773,8 +1773,6 @@
         salida = '<span class="muted">—</span>';
       } else if (d.exit_source === 'auto') {
         salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
-      } else if (d.exit_source === 'manual') {
-        salida = attHora(d.exit_at) + '<div class="att-sub">editado por admin</div>';
       } else {
         salida = attHora(d.exit_at);
       }
@@ -2084,17 +2082,25 @@
     el.newsList.innerHTML = posts.map(function (p, idx) {
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
       const isAviso = p.post_type === 'aviso';
-      // El color (rosa=aviso, gris=hilo) lo ve cualquier rol siempre. Solo
-      // administrador puede además CAMBIAR el tipo despues de publicado —
-      // ahi el badge se vuelve un <select> funcional en vez de solo texto.
+      // El color (rosa=aviso, gris=hilo) lo ve cualquier rol siempre, y ahora
+      // ademas toda la CARD (no solo el badge) lleva el tinte — un badge
+      // solo resultaba demasiado parecido entre los dos tipos a simple
+      // vista (reportado 2026-09-09). Solo administrador puede además
+      // CAMBIAR el tipo despues de publicado — ahi el badge se vuelve un
+      // <select> funcional en vez de solo texto. `width:auto` es necesario
+      // porque el `select { width:100% }` global de la hoja de estilos
+      // estiraba este select al ancho completo de la card, tapando el resto
+      // de la fila (mismo bug reportado).
       const typeBadge = isAdmin
-        ? '<select class="newsTypeSelect" data-post-id="' + p.id + '" style="background:rgba(255,255,255,0.06); color:' + (isAviso ? 'var(--pink)' : 'var(--muted)') + '; border:1px solid ' + (isAviso ? 'rgba(255,64,129,0.3)' : 'var(--border)') + '; border-radius:999px; font-size:10.5px; font-weight:700; letter-spacing:0.03em; padding:3px 8px; text-transform:uppercase; font-family:inherit;">'
+        ? '<select class="newsTypeSelect" data-post-id="' + p.id + '" style="width:auto; display:inline-block; background:' + (isAviso ? 'var(--pink)' : 'rgba(255,255,255,0.06)') + '; color:' + (isAviso ? '#1a0a12' : 'var(--muted)') + '; border:1px solid ' + (isAviso ? 'var(--pink)' : 'var(--border)') + '; border-radius:999px; font-size:10.5px; font-weight:700; letter-spacing:0.03em; padding:3px 8px; text-transform:uppercase; font-family:inherit;">'
             + '<option value="hilo"' + (isAviso ? '' : ' selected') + '>HILO</option>'
             + '<option value="aviso"' + (isAviso ? ' selected' : '') + '>AVISO</option>'
           + '</select>'
         : (isAviso
-            ? '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--pink); border:1px solid rgba(255,64,129,0.3);">AVISO</span>'
+            ? '<span class="role-badge" style="background:var(--pink); color:#1a0a12; border:1px solid var(--pink);">AVISO</span>'
             : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>');
+      const cardStyle = 'animation-delay:' + (idx * 40) + 'ms;'
+        + (isAviso ? ' border-color:var(--pink-line); background:linear-gradient(165deg, rgba(255,143,190,0.09), var(--surface) 55%);' : '');
       const commentsHtml = (p.comments || []).map(function (c) {
         const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
         const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_display_name || c.author_username);
@@ -2110,8 +2116,8 @@
       const viewersHtml = canSeeViewers
         ? '<div class="meta-small" style="margin-top:8px; color:var(--muted-dim);" title="' + (viewers.length ? escapeHtml(viewers.join(', ')) : 'todavía nadie') + '">' + eyeIcon + ' ' + (viewers.length ? viewers.length + ' modelo(s) la vieron' : 'todavía ninguna modelo la ha visto') + '</div>'
         : '';
-      return '<div class="card" style="animation-delay:' + (idx * 40) + 'ms;">' +
-        '<div class="model-name-row" style="margin-bottom:4px;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + typeBadge + '</div>' +
+      return '<div class="card" style="' + cardStyle + '">' +
+        '<div class="model-name-row" style="margin-bottom:4px; flex-wrap:wrap;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + typeBadge + '</div>' +
         '<div class="meta-small" style="margin-bottom:10px;">' + pname + ' — ' + when + '</div>' +
         '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
         viewersHtml +

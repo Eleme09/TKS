@@ -119,7 +119,10 @@
     background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
   }
   .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
-  .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* min-width para que los 3 botones (Editar hora / Reiniciar / Borrar) no
+     queden apretados en una sola columna angosta, uno arriba del otro — con
+     esto entran 2 por fila en vez de 3 filas sueltas. */
+  .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; min-width: 200px; }
   /* Horas transmitidas: rosa = tuvo extra ese día, gris apagado = turno
      normal cumplido, rojo = le faltaron horas y tuvo una desconexión real. */
   .bcast { font-weight: 700; }
@@ -142,7 +145,7 @@
       /* Sin este min-width el navegador aplasta las 7 columnas dentro de los
          375px del teléfono y el justificante queda de una palabra por renglón.
          Con él, la tabla se desplaza de lado como una planilla de verdad. */
-      min-width: 900px;
+      min-width: 1000px;
     }
     td { padding: 9px 8px; }
     /* Cada columna con su ancho mínimo: si no, las cortas ceden y la de texto
@@ -381,7 +384,6 @@
       var salida;
       if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
-      else if (d.exit_source === 'manual') salida = hora(d.exit_at) + '<div class="sub2">editado por admin</div>';
       else salida = hora(d.exit_at);
 
       return '<tr>'

@@ -1493,6 +1493,91 @@ terminar — verificado con una consulta aparte que no quedó rastro, ni en
    `asistencia.html` — recordar tocar las dos si esto cambia, ya es la
    tercera vez que el patrón de columnas pareadas aparece en este archivo).
 
+## Corrección del mismo día: edición manual de horas debe ser invisible (2026-09-09, misma tarde)
+
+El usuario corrigió el punto 1 de la sección anterior apenas lo vio en uso:
+**"A la hora que yo coloque, se vera como si la Modelo entro o salio a esa
+hora. No que yo edite o que ella reporto otra hora."** `/api/attendance/day/edit`
+ya NO guarda `official_source: 'manual'` ni `exit_source: 'manual'` — guarda
+`official_source: 'reportada'` y **pisa `reported_at` con la misma hora que
+el admin puso**, sin importar lo que ella hubiera reportado antes ("no
+importa a la hora que se reporte, se borra y queda la nueva entrada").
+`exit_source` queda en `null` (nunca `'manual'`). Con esto la fila es
+indistinguible de una entrada/salida normal en la tabla Y en el CSV
+(`asistencia.html` tiene una columna "Reportó" separada de "Entrada" — si
+`reported_at` no se pisara, esa columna delataría la edición aunque la
+tabla principal la escondiera). Las ramas de UI que mostraban "editado por
+admin" (`exit_source === 'manual'`) se borraron de `index.html` y
+`asistencia.html` — ya no se escriben, dejarlas habría sido código muerto
+con el riesgo de que alguien las reactive sin saber que están prohibidas.
+**También se sacó el push de `notifyAttendanceValidated`** que este endpoint
+mandaba: pedido explícito, "no enviar notificaciones cuando rol admin edita
+horas y menos de días pasados" — cero avisos desde `day/edit`, sin
+excepción. El registro en `cb_audit_log` (interno, nunca visible en la UI)
+se mantiene intacto — la trazabilidad interna para el propio admin no es lo
+que se pidió esconder, solo lo que ve/podría inferir la modelo.
+**Ojo si se toca esto de nuevo:** el flujo de `/api/attendance/validate`
+("Llegó ahora" / "Otra hora…", para una llegada que SÍ se reportó y está
+pendiente de validar) es una función distinta, con su propia razón de ser
+documentada arriba (detectar reportes falsos tipo "Conni reportó a las 4 y
+no estaba") — esta corrección NO le aplica a ese flujo, solo a
+`day/edit`. No fusionar ambos sin que el usuario lo pida.
+
+## Bugs visuales encontrados con Playwright el mismo día (2026-09-09)
+
+Reporte del usuario: "veo botones unos encima de otro" + "el cuadro de
+aviso o anuncio no es distinto el uno del otro". Diagnosticado con
+Playwright + Chromium contra una instancia `SOLO_UI=1` (cuentas
+`qa_temp_admin2`/`qa_temp_model2`, borradas al terminar) en vez de adivinar
+a ciegas — capturas reales encontraron dos bugs concretos:
+
+1. **El `<select>` de tipo de Noticias (hilo/aviso) se estiraba al ancho
+   completo de la card** en vez de verse como una etiqueta chica — causa:
+   `index.html` tiene una regla global `input, select { width: 100%; ... }`
+   (línea ~156) que le gana a cualquier estilo inline que no fije `width`
+   explícitamente. El `<select>` que se agregó para que admin cambie el
+   tipo no traía `width`, así que heredó el 100%. **Cualquier `<select>`
+   nuevo que deba verse como badge/pill tiene que traer `width:auto;
+   display:inline-block;` en su propio estilo inline** — si no, hereda el
+   100% global sin avisar. De paso, eso hacía que HILO y AVISO se vieran
+   casi iguales (misma barra ancha, colores sutiles) — ahora además de
+   arreglar el ancho, AVISO quedó con fondo rosa sólido y texto oscuro
+   (mucho más "cartel de aviso" que un simple borde de color), y la CARD
+   completa de un aviso lleva un tinte rosa de fondo/borde
+   (`cardStyle` en `refreshNews()`), no solo el badge — así se distingue de
+   un vistazo, no solo mirando la esquina.
+2. **La columna "Corregir" de `asistencia.html`** (Editar hora / Reiniciar
+   / Borrar, 3 botones desde que se agregó "Editar hora") quedaba
+   apretada en una sola columna angosta con los 3 botones apilados muy
+   pegados uno encima del otro en móvil — la tabla se calcula con
+   `min-width` fijo y esa columna no tenía uno propio, así que se achicaba
+   al mínimo. Fix: `.fix-actions` con `min-width: 200px` (entran 2 botones
+   por fila en vez de 3 filas sueltas) y el `min-width` de la tabla subió
+   de 900px a 1000px para darle el espacio real. Verificado con Playwright
+   scrolleando la tabla horizontalmente y capturando esa columna puntual
+   (`el.scrollLeft = el.scrollWidth`) — antes y después.
+
+**Método que sirvió, repetirlo cuando el usuario reporte algo visual sin
+captura:** `npm install playwright` en un directorio aparte (`/tmp`, fuera
+del repo — no tocar `package.json` del proyecto) con
+`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` y
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` (el Chromium ya viene preinstalado ahí,
+no hace falta bajarlo de nuevo); usar la versión más reciente de playwright
+(`@latest`), no una vieja — una v1.48 fija chocó con el binario de Chromium
+preinstalado ("Old Headless mode has been removed"), v1.63 sí funcionó.
+Lanzar con `executablePath: '/opt/pw-browsers/chromium-<build>/chrome-linux/chrome'`
+(el nombre de carpeta exacto varía, listar `/opt/pw-browsers/` primero) y
+`args: ['--no-sandbox']`. Cuentas de prueba creadas y borradas en la misma
+sesión, igual que con curl — nada de esto es nuevo, solo automatiza lo que
+ya se hacía a mano.
+**Falso positivo a no perseguir (ya documentado arriba, confirmado de
+nuevo):** en una captura `fullPage` de Playwright, la barra de pestañas
+fija (`position:fixed`) aparece flotando encima del contenido de más abajo
+— es como Chromium compone el `fixed` al capturar más allá del viewport
+real, no un bug del sitio. Si algo parece "tapado" por la barra de abajo
+solo en una captura fullPage, no es real; confirmar con un viewport normal
+o scrolleando antes de reportarlo como bug.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

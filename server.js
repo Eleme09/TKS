@@ -3103,9 +3103,16 @@ const server = http.createServer(async (req, res) => {
   // una modelo (pedido explicito del usuario 2026-09-09) — a diferencia de
   // /api/attendance/day/reset (que reabre una fila EXISTENTE para que ella
   // vuelva a pasar por el flujo normal de validacion), esta CREA la fila si
-  // hace falta: cubre el caso de una modelo que nunca reporto ese dia. La
-  // entrada queda con official_source 'manual' para dejar claro que no vino
-  // de un reporte suyo. Se puede mandar solo entrada, solo salida, o las dos.
+  // hace falta: cubre el caso de una modelo que nunca reporto ese dia.
+  // **Correccion del mismo dia, pedido explicito del usuario:** esto tiene
+  // que quedar INDISTINGUIBLE de una entrada/salida normal — official_source
+  // se guarda como 'reportada' (no 'manual') y `reported_at` se PISA con la
+  // misma hora que se puso, sin importar lo que ella hubiera reportado antes
+  // ("no importa a la hora que se reporte, se borra y queda la nueva
+  // entrada"). exit_source se deja en null por la misma razon (nunca
+  // 'manual'). Tampoco dispara notificacion — el usuario fue explicito: sin
+  // avisos cuando el admin edita horas, y menos todavia en dias pasados. Se
+  // puede mandar solo entrada, solo salida, o las dos.
   if (parsed.pathname === '/api/attendance/day/edit' && req.method === 'POST') {
     const session = await requireAdmin(req, res);
     if (!session) return;
@@ -3139,7 +3146,8 @@ const server = http.createServer(async (req, res) => {
       const officialMs = studioScheduledMs(workDate, entryTime);
       const rawLateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
       patch.official_at = new Date(officialMs).toISOString();
-      patch.official_source = 'manual';
+      patch.official_source = 'reportada';
+      patch.reported_at = new Date(officialMs).toISOString();
       patch.late_minutes = applyLateGrace(rawLateMinutes, ATTENDANCE_GRACE_MINUTES);
     }
     if (exitTime) {
@@ -3147,7 +3155,7 @@ const server = http.createServer(async (req, res) => {
       const exitMs = studioInstantAfter(workDate, exitTime, refEntry);
       if (exitMs != null) {
         patch.exit_at = new Date(exitMs).toISOString();
-        patch.exit_source = 'manual';
+        patch.exit_source = null;
       }
     }
 
@@ -3159,7 +3167,6 @@ const server = http.createServer(async (req, res) => {
     await sbLogAudit(session, 'attendance_day_manual_edit', username, {
       work_date: workDate, entry_time: entryTime || null, exit_time: exitTime || null, antes,
     });
-    if (entryTime) notifyAttendanceValidated(username, Date.parse(result.official_at), result.late_minutes, workDate).catch(() => {});
     return sendJson(res, 200, { ok: true, day: result });
   }
 
