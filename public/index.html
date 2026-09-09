@@ -358,6 +358,9 @@
   .att-warning .att-warning-icon { flex: 0 0 auto; color: var(--bad); filter: drop-shadow(0 0 6px rgba(255,107,107,0.5)); }
   .att-warning .att-warning-title { font-weight: 700; font-size: 13px; color: var(--bad); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
   .att-warning .att-warning-body { font-size: 12.5px; color: var(--text); line-height: 1.55; }
+  .att-warning.att-good { background: linear-gradient(180deg, rgba(111,231,184,0.14), rgba(111,231,184,0.05)); border-color: rgba(111,231,184,0.4); }
+  .att-warning.att-good .att-warning-icon { color: var(--good); filter: drop-shadow(0 0 6px rgba(111,231,184,0.5)); }
+  .att-warning.att-good .att-warning-title { color: var(--good); }
   .att-file-link { color: var(--pink); text-decoration: underline; font-size: 12.5px; }
   .att-sheet-link {
     display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
@@ -720,6 +723,7 @@
         </svg>
       </div>
 
+      <div id="attRetrasoPanel" class="att-warning" style="display:none;"></div>
       <div id="attWarning" class="att-warning" style="display:none;"></div>
 
       <a class="att-open-sheet" href="/asistencia.html" target="_blank" rel="noopener">
@@ -999,6 +1003,7 @@
     btnNewsCreate: document.getElementById('btnNewsCreate'),
     newsError: document.getElementById('newsError'),
     newsList: document.getElementById('newsList'),
+    attRetrasoPanel: document.getElementById('attRetrasoPanel'),
     attWarning: document.getElementById('attWarning'),
     attModelArea: document.getElementById('attModelArea'),
     attStaffArea: document.getElementById('attStaffArea'),
@@ -1608,6 +1613,7 @@
     el.attModelArea.style.display = isStaff ? 'none' : 'block';
     el.attStaffArea.style.display = isStaff ? 'block' : 'none';
     renderAttendanceWarning();
+    renderAttendanceRetrasoPanel();
     if (isStaff) renderAttendanceStaff(); else renderAttendanceModel();
   }
 
@@ -1635,6 +1641,50 @@
     }
     el.attWarning.innerHTML = icon + '<div>' + body + '</div>';
     el.attWarning.style.display = 'flex';
+  }
+
+  // Frases motivacionales cuando una modelo está al día con su horario — se
+  // elige una al azar cada vez que se refresca la pestaña, para que no sea
+  // siempre la misma línea. Pedido explícito del usuario 2026-09-09.
+  const ATT_GOOD_PHRASES = [
+    'Vas muy bien — sigue así.',
+    'Puntual y constante: así se construye la confianza del equipo.',
+    'Ni un minuto de retraso. Eso también es profesionalismo.',
+    'Tu compromiso con el horario se nota. ¡Sigue así!',
+    'Llegar a tiempo también suma. Vas excelente esta quincena.',
+  ];
+
+  // Panel siempre visible SOLO para modelo (staff no necesita ver esto de sí
+  // misma): advertencia si lleva retraso acumulado, o un mensaje motivacional
+  // si va al día. Distinto del aviso de seguridad social (renderAttendanceWarning),
+  // que solo aparece al cruzar el umbral — este es el estado general, siempre.
+  function renderAttendanceRetrasoPanel() {
+    if (attData.role !== 'modelo') { el.attRetrasoPanel.style.display = 'none'; return; }
+    const mine = attData.my_total;
+    if (!mine || mine.entry_time == null) { el.attRetrasoPanel.style.display = 'none'; return; }
+    const lateMinutes = mine.late_minutes || 0;
+    if (lateMinutes > 0) {
+      const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
+        + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
+        + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+        + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
+      el.attRetrasoPanel.className = 'att-warning';
+      el.attRetrasoPanel.innerHTML = icon + '<div>'
+        + '<div class="att-warning-title">Llevas ' + attHorasMin(lateMinutes) + ' de retraso</div>'
+        + '<div class="att-warning-body">Acumulado en esta quincena. Todavía podés mejorarlo llegando puntual de acá en adelante.</div>'
+        + '</div>';
+    } else {
+      const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
+        + '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/>'
+        + '<path d="m8 12.5 2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const phrase = ATT_GOOD_PHRASES[Math.floor(Math.random() * ATT_GOOD_PHRASES.length)];
+      el.attRetrasoPanel.className = 'att-warning att-good';
+      el.attRetrasoPanel.innerHTML = icon + '<div>'
+        + '<div class="att-warning-title">Vas al día</div>'
+        + '<div class="att-warning-body">' + escapeHtml(phrase) + '</div>'
+        + '</div>';
+    }
+    el.attRetrasoPanel.style.display = 'flex';
   }
 
   function renderAttendanceModel() {

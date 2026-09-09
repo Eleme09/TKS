@@ -1688,6 +1688,37 @@ ese gate sin que el usuario lo pida explícitamente.
     propia para probar acciones que tocan cuentas reales, nunca una
     modelo real "porque total no pasa nada".
 
+## Panel de retraso/motivación para la modelo en Asistencia (2026-09-09, noche)
+
+Nuevo panel `#attRetrasoPanel` en `index.html`, **solo para rol `modelo`**,
+siempre visible cuando tiene horario asignado (no depende de cruzar ningún
+umbral, a diferencia del aviso de seguridad social que ya existía). Se
+renderiza junto con `renderAttendanceWarning()` cada vez que se refresca
+Asistencia (`renderAttendanceRetrasoPanel()`), usando `attData.my_total`:
+- `late_minutes > 0` → banner rojo "LLEVAS N DE RETRASO" (mismo estilo
+  `.att-warning` ya existente).
+- `late_minutes <= 0` (a tiempo o llegó temprano) → banner verde nuevo
+  (`.att-warning.att-good`) "VAS AL DÍA" con una frase motivacional elegida
+  al azar de `ATT_GOOD_PHRASES` (5 frases, ver el array en `index.html`) —
+  cambia en cada refresco, no es siempre la misma línea.
+Sin horario asignado (`entry_time == null`) el panel no se muestra —
+no tiene sentido felicitar o advertir sobre un retraso que ni se está
+calculando. Verificado con capturas reales (Playwright, dos cuentas de
+prueba con horario asignado, una con entrada tarde y otra a tiempo, ambas
+borradas al terminar): el estado rojo y el verde se ven exactamente como
+se diseñaron.
+**No confundir con `renderAttendanceWarning()`** (el aviso de seguridad
+social) — siguen siendo dos paneles separados con propósitos distintos: uno
+es el estado general de cada visita, el otro es la consecuencia real de
+cruzar el umbral configurado. Los dos pueden aparecer a la vez si
+corresponde.
+**Pendiente, discutido pero NO implementado todavía:** el usuario propuso
+que el ícono decorativo de cada pestaña (`.banner-icon`) alterne cada
+ciertos segundos con una frase motivacional random, para todas las
+pestañas del rol modelo. Se le dio una recomendación en el chat (no
+en código) — antes de construirlo, confirmar con el usuario el enfoque
+elegido (ver la respuesta de esa conversación si hace falta retomarlo).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
