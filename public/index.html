@@ -255,11 +255,12 @@
      rol modelo — el ícono nunca desaparece, así no hay saltos de layout.
      min-height reserva el renglón incluso vacía. */
   .banner-phrase {
-    min-height: 18px; margin-top: 8px; text-align: center; font-family: var(--font-display);
-    font-style: italic; font-size: 12.5px; letter-spacing: 0.01em; color: var(--text);
-    opacity: 0; transition: opacity .6s ease; padding: 0 12px;
+    min-height: 15px; margin-top: 8px; text-align: center; font-family: var(--font-display);
+    font-style: italic; font-size: 10.5px; letter-spacing: 0.01em; color: var(--text);
+    opacity: 0; transform: translateY(3px); will-change: opacity, transform; padding: 0 12px;
+    transition: opacity .45s cubic-bezier(.2,.8,.3,1), transform .45s cubic-bezier(.2,.8,.3,1);
   }
-  .banner-phrase.show { opacity: 1; }
+  .banner-phrase.show { opacity: 1; transform: translateY(0); }
   .banner-icon [class^="icon-"], .banner-icon [class*=" icon-"] {
     fill: none; stroke: var(--pink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
     filter: drop-shadow(0 0 5px var(--pink)) drop-shadow(0 0 14px var(--pink-line));
@@ -1130,9 +1131,9 @@
   const tabBtnModelos = document.getElementById('tabBtnModelos');
 
   // Frase motivacional que aparece/desaparece debajo del ícono de la pestaña
-  // activa, solo para rol modelo (pedido 2026-09-09). El ícono nunca
-  // desaparece — solo el texto de abajo entra y sale con fade, así no hay
-  // saltos de layout en móvil.
+  // activa, para cualquier rol logueado (extendido a administrador/ceo
+  // 2026-09-09). El ícono nunca desaparece — solo el texto de abajo entra
+  // y sale con fade, así no hay saltos de layout en móvil.
   const BANNER_PHRASES = [
     'Tu esfuerzo de hoy se nota.',
     'Un día más, un paso más adelante.',
@@ -1146,26 +1147,38 @@
     'Cada día es una oportunidad de brillar.',
   ];
   let bannerPhraseTimer = null;
+  // 470ms coincide con la transicion CSS de .45s + margen — evita que el
+  // texto nuevo se escriba mientras el anterior todavia esta visible.
+  const BANNER_PHRASE_FADE_MS = 470;
   function bannerPhraseTick() {
-    if (currentRole !== 'modelo') return;
+    if (!currentRole) return;
     const panel = tabPanels[currentTabName];
     const el2 = panel && panel.querySelector('.banner-phrase');
     if (!el2) return;
+    // Guard de reentrancia: si ya habia un fade pendiente en este mismo
+    // elemento (p.ej. un tick nuevo disparado antes de que el anterior
+    // terminara), se cancela en vez de dejar dos writes en carrera — eso
+    // es lo que podia producir texto viejo y nuevo superpuestos un frame.
+    if (el2._phraseFadeTimer) { clearTimeout(el2._phraseFadeTimer); el2._phraseFadeTimer = null; }
     el2.classList.remove('show');
-    setTimeout(function () {
+    el2._phraseFadeTimer = setTimeout(function () {
       el2.textContent = BANNER_PHRASES[Math.floor(Math.random() * BANNER_PHRASES.length)];
       el2.classList.add('show');
-    }, 650);
+      el2._phraseFadeTimer = null;
+    }, BANNER_PHRASE_FADE_MS);
   }
   function startBannerPhraseRotation() {
     stopBannerPhraseRotation();
-    if (currentRole !== 'modelo') return;
+    if (!currentRole) return;
     bannerPhraseTick();
     bannerPhraseTimer = setInterval(bannerPhraseTick, 5000);
   }
   function stopBannerPhraseRotation() {
     if (bannerPhraseTimer) { clearInterval(bannerPhraseTimer); bannerPhraseTimer = null; }
-    document.querySelectorAll('.banner-phrase').forEach(function (p) { p.classList.remove('show'); });
+    document.querySelectorAll('.banner-phrase').forEach(function (p) {
+      if (p._phraseFadeTimer) { clearTimeout(p._phraseFadeTimer); p._phraseFadeTimer = null; }
+      p.classList.remove('show');
+    });
   }
 
   function switchTab(name) {

@@ -1786,6 +1786,54 @@ ajustes puntuales sobre lo ya construido, no una feature nueva:
   hay ~10% de chance de repetir dos veces seguidas, no es un bug) y color
   blanco en la versión final. `npm test`: 105/105.
 
+## Segunda pasada sobre la frase motivacional (2026-09-09, todavía la misma noche)
+
+Tres pedidos más sobre lo mismo, en un solo mensaje: bajar más el tamaño de
+fuente, abrir la frase a `administrador`/`ceo` (antes exclusiva de
+`modelo`), y corregir un reporte de "frases sobrepuestas" buscando una
+animación más fluida.
+
+- **Tamaño de fuente**: 12.5px → 10.5px. `min-height` del contenedor bajó
+  de 18px a 15px a juego.
+- **Ahora la ven los 3 roles**: el gate `if (currentRole !== 'modelo')
+  return;` en `bannerPhraseTick`/`startBannerPhraseRotation` pasó a
+  `if (!currentRole) return;` — cualquier sesión logueada (administrador,
+  ceo, modelo) la ve. `showApp()` ya llamaba `startBannerPhraseRotation()`
+  sin filtrar por rol de entrada, así que no hizo falta tocar ese call
+  site. Verificado con Playwright: cuenta admin de prueba viendo la frase
+  en la pestaña Modelos.
+- **"Frases sobrepuestas"**: no se pudo reproducir un solape real
+  DOM/visual con el código anterior — se instrumentó un muestreo de
+  `opacity`/`textContent` cada 60ms durante un ciclo completo (90 muestras)
+  contra una instancia real y dio 0 anomalías (nunca cambió el texto
+  mientras la opacidad anterior seguía por encima de 0.15). Aun así, el
+  mecanismo tenía un punto real y no defendido: `bannerPhraseTick` no
+  guardaba referencia al `setTimeout` pendiente en el propio elemento, así
+  que si dos ticks llegaban a superponerse en el tiempo (throttling del
+  navegador en background, pestaña reactivada, etc.) podían quedar dos
+  `setTimeout` escribiendo sobre el mismo `.banner-phrase` sin ningún
+  orden garantizado — la causa más plausible de un flash de texto
+  encimado que solo el usuario, en su propio dispositivo, llegó a ver.
+  Fix defensivo: cada `.banner-phrase` ahora guarda su propio timer en
+  `el._phraseFadeTimer`; un tick nuevo cancela primero cualquier fade
+  pendiente en ese mismo elemento antes de programar el suyo — nunca hay
+  dos escrituras en carrera sobre el mismo nodo.
+- **Animación más fluida**: la transición pasó de un fade plano de 0.6s
+  (`ease`) a 0.45s con `cubic-bezier(.2,.8,.3,1)` (la misma curva que ya
+  usa `.tabpanel` para la animación de entrada de pestaña — reutilizada
+  por consistencia, no inventada) combinando opacidad con un desplazamiento
+  vertical sutil (`translateY(3px)` → `translateY(0)`), en vez de opacidad
+  sola — se ve como un fade+slide, más suave que el fade lineal anterior.
+  `will-change: opacity, transform` para ayudar a que el navegador lo
+  composite en su propia capa (menos probabilidad de parpadeo/ghosting en
+  Safari/iOS al animar texto, que es la otra hipótesis técnica del reporte
+  de "sobrepuestas" si el navegador del usuario llegó a redibujar mal el
+  cross-fade). El `setTimeout` interno se ajustó de 650ms a 470ms para
+  coincidir con la nueva duración de transición (0.45s + margen).
+  Verificado con Playwright (cuentas `qa_temp_phrase4`/`qa_temp_adminph4`,
+  borradas al terminar): capturas confirmando la fuente más chica y que
+  administrador ve la frase; `npm test`: 105/105.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
