@@ -1580,7 +1580,7 @@ o scrolleando antes de reportarlo como bug.
 
 ## Desprendible del estudio — tarifa distinta a la de las modelos (2026-09-09)
 
-`STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.5` (server.js, junto a
+`STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.05` (server.js, junto a
 `PAYOUT_RATE_USD_PER_TOKEN = 0.023`) — lo que el ESTUDIO recibe por token es
 una tarifa totalmente distinta a lo que el estudio le paga a cada modelo.
 Pedido explícito del usuario, confirmado con capturas: la card "RESUMEN DEL
@@ -1588,20 +1588,25 @@ ESTUDIO — QUINCENA ACTUAL" (arriba de la lista de modelos, `#summaryCard`,
 ya admin+ceo únicamente — `showSummary = role === 'administrador' || role
 === 'ceo'`, sin cambios ahí) tiene un stat "Desprendible del estudio
 (estimado)" que **antes** sumaba el `payoutUSD` de cada modelo (o sea, el
-total a 0.023) y **ahora** es `tokens totales del estudio × 0.5 × dólar
+total a 0.023) y **ahora** es `tokens totales del estudio × 0.05 × dólar
 Paxum` — la misma operación que el desprendible de cada modelo pero con la
-tarifa del estudio en vez de la de la modelo. `GET /api/models` ahora manda
+tarifa del estudio en vez de la de la modelo. `GET /api/models` manda
 `studio_rate_usd_per_token` en la respuesta (no hardcodeado en el frontend,
 mismo patrón que `dollar.rate`); `updateSummary(models, dollar, studioRate)`
 en `index.html` hace `totalTokens * studioRate` en vez de sumar
 `m.payoutUSD`. **El desprendible individual de cada modelo (Modelos y
 Desprendibles) NO cambia — sigue en `PAYOUT_RATE_USD_PER_TOKEN` (0.023),
-sin tocar.** Verificado end-to-end: 71.819 tokens × 0.5 × $2.922 dio
-$35.909,50 USD ≈ $104.939.680 COP, exacto contra lo esperado a mano.
+sin tocar.**
+**Corregida la misma noche:** se implementó primero en 0.5 (un error de un
+orden de magnitud, no un redondeo) — el usuario avisó que el número real es
+0.05 y se corrigió de inmediato. Verificado contra el Supabase real las dos
+veces: con 0.5 dio 71.819 tokens × 0.5 × $2.922 = $35.909,50 USD; con el
+0.05 correcto, 72.687 tokens × 0.05 × dólar Paxum dio $3.634,35 USD ≈
+$10.620.797 COP — el número que quedó en producción.
 **Por qué esto es sensible:** revela el margen real del estudio por token
-(~21x lo que recibe la modelo) — por eso importa que este stat quede
-SIEMPRE admin+ceo, nunca modelo; no relajar ese gate sin que el usuario lo
-pida explícitamente.
+frente a lo que recibe la modelo (0.05 vs 0.023, poco más del doble) — por
+eso importa que este stat quede SIEMPRE admin+ceo, nunca modelo; no relajar
+ese gate sin que el usuario lo pida explícitamente.
 
 ## Limpieza de código muerto + Cuentas ahora también para CEO (2026-09-09, noche)
 

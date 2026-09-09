@@ -169,7 +169,7 @@ const PAYOUT_RATE_USD_PER_TOKEN = 0.023;
 // usuario 2026-09-09 — usada UNICAMENTE en el resumen agregado
 // "Desprendible del estudio" (RESUMEN DEL ESTUDIO, admin+ceo), nunca en el
 // desprendible individual de una modelo (ese sigue en PAYOUT_RATE_USD_PER_TOKEN).
-const STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.5;
+const STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.05;
 
 // Paxum (con lo que realmente se paga) cambia el dolar mas barato que la tasa
 // general del mercado. La diferencia ronda los 200-210 COP; usamos el punto medio.
