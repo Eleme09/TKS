@@ -1603,6 +1603,86 @@ $35.909,50 USD ≈ $104.939.680 COP, exacto contra lo esperado a mano.
 SIEMPRE admin+ceo, nunca modelo; no relajar ese gate sin que el usuario lo
 pida explícitamente.
 
+## Limpieza de código muerto + Cuentas ahora también para CEO (2026-09-09, noche)
+
+- **"Otros ingresos de Chaturbate" eliminado de la UI** — pedido explícito
+  ("fue una función de cuando no sabíamos automatizar Chaturbate, ya no la
+  necesitamos"). Se borró la card completa de `index.html`
+  (`chaturbateExtraCard`) y sus tres funciones JS (`loadChaturbateExtraPeriods`,
+  `loadChaturbateExtraCurrent`, `saveChaturbateExtra`). **Los endpoints
+  (`/api/chaturbate-extra/periods|current|save`) y la tabla
+  `cb_chaturbate_extra_earnings` se dejaron intactos, dormidos** — mismo
+  patrón ya establecido con el paste-and-parse de Stripchat y el upload de
+  CSV. Razón para NO borrarlos también: `resolveChaturbateTokens` todavía
+  los lee como fallback para reconciliar quincenas **históricas** de antes
+  del 2026-09-03 (cuando no todas las modelos tenían `stats_api_token`
+  activo) — borrar la tabla podría hacer que un desprendible viejo ya
+  pagado se recalcule más bajo de lo que realmente fue. Si algún día se
+  confirma que ninguna quincena histórica depende ya de esto, ahí sí se
+  puede borrar de raíz.
+- **Auditoría del resto de la web, pedida explícitamente** ("verifica toda
+  la web de funciones que no necesitemos... aun tengamos ocupando espacio y
+  codigo"): se corrió un chequeo sistemático de funciones JS de
+  `index.html` sin ningún otro uso y de endpoints de `server.js` sin
+  ningún `fetch` que los llame. Encontrado y borrado: `fmtPayout(m)` en
+  `index.html` (definida, nunca llamada — quedó huérfana en algún
+  refactor). **Confirmado que NO hay funciones huérfanas en `server.js`**
+  (las 135 funciones definidas tienen al menos un caller). Los únicos
+  endpoints sin caller en el frontend son los tres ya documentados como
+  dormidos a propósito (Stripchat paste/parse/save, CSV upload, y ahora
+  chaturbate-extra) — ninguno es cruft accidental, los tres son fallback
+  deliberado. No se tocó nada de eso. Sin archivos sueltos en `public/`
+  ni en la raíz del repo. Si se vuelve a pedir esta auditoría: mismo
+  método — `grep -oE "function NOMBRE\("` contando ocurrencias por
+  archivo, cuidado con los falsos positivos de IIFEs
+  (`(function algo() {...})()` cuenta 1 sola vez en un grep de texto
+  plano aunque SÍ se ejecuten — verificar el patrón antes de borrar).
+- **Cuentas ahora también la abre `ceo`** (antes solo `administrador`),
+  pero con SOLO dos cards — pedido explícito, no relajar sin que el
+  usuario lo pida de nuevo:
+  - "Confirmación de extras y recuperaciones" (`shiftConfirmCard`) — CEO
+    ya podía gestionar el calendario de turnos (`requireAdminOrCeo` en los
+    endpoints de `/api/shifts/*`), esto solo la hace visible desde Cuentas
+    también.
+  - "Contraseñas y sesiones — modelos" (`modelAccountsCard`) — **esto SÍ
+    es una ampliación real de permisos de CEO**: antes CEO era "solo
+    lectura salvo el calendario de turnos"; ahora también puede resetear
+    la contraseña de cualquier modelo y forzar el cierre de sus sesiones.
+    `POST /api/models/set-password` pasó de `requireAdmin` a
+    `requireAdminOrCeo`. `POST /api/accounts/logout-everywhere` quedó
+    dividido: `type: 'model'` → `requireAdminOrCeo`; `type: 'admin'` →
+    sigue `requireAdmin` a secas — **CEO nunca puede forzar el logout de
+    otra cuenta admin/CEO**, solo de modelos. Verificado con curl real:
+    CEO contra `type:'admin'` da 403, contra `type:'model'` da 200.
+  - Las demás cards de Cuentas (Cuentas administrativas, Automatizar
+    Chaturbate, Mi nombre en Noticias, Registro de actividad) siguen
+    ocultas para CEO (`el.adminAccountsCard`/`chaturbateAutoCard`/
+    `displayNameCard`/`auditLogCard` con `display:none` cuando el rol no
+    es `administrador`) — el gateo es 100% client-side para la UI, pero
+    los endpoints de esas cards siguen `requireAdmin` puro, así que CEO no
+    podría usarlos ni pegándole directo a la API.
+  - "Mejorar la fuente" del apartado de confirmación (pedido explícito):
+    la fila de cada turno reclamado pasó de un párrafo corrido en fuente
+    plana a la jerarquía ya usada en Asistencia (`.att-row`/
+    `.att-row-head`/`.att-row-name` — nombre en mono bold arriba, pill de
+    estado al lado, fecha/hora/tipo en `.meta-small` debajo, botón en su
+    propia línea). Mismo patrón visual que ya se usa en otras listas de la
+    app — no se inventó una clase nueva.
+  - Probado end-to-end con Playwright contra el Supabase real (cuentas
+    `qa_temp_admin4`/`qa_temp_ceo4`/`qa_temp_model4`, borradas al
+    terminar): capturas confirmando que CEO ve exactamente las 2 cards y
+    administrador sigue viendo las 6.
+  - **Gotcha de esta misma sesión, para no repetirlo:** al probar
+    `/api/accounts/logout-everywhere` con `type:'model'` se usó por
+    descuido `amaranta_f00x` (modelo real de producción) en vez de una
+    cuenta `qa_temp_*` — le forzó un cierre de sesión real (invalida su
+    `session_version`, tiene que volver a loguearse, no borra ni cambia
+    ningún dato de plata). Sin consecuencia real, pero es exactamente el
+    tipo de descuido que la sección "Al probar contra la base real..."
+    de este archivo ya advierte — usar SIEMPRE una cuenta `qa_temp_*`
+    propia para probar acciones que tocan cuentas reales, nunca una
+    modelo real "porque total no pasa nada".
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

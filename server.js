@@ -2239,8 +2239,10 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
+  // Contraseñas y sesiones de modelos son admin+ceo (pedido 2026-09-09,
+  // Cuentas ahora se le abre a CEO con estas dos funciones puntuales).
   if (parsed.pathname === '/api/models/set-password' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -2256,12 +2258,15 @@ const server = http.createServer(async (req, res) => {
   // Cierra las sesiones abiertas de CUALQUIER cuenta (admin, CEO o modelo),
   // sin tener que resetear su contraseña de paso. Distinto de
   // /api/me/logout-everywhere, que solo afecta a la propia cuenta.
+  // CEO puede usar esto SOLO para type='model' (pedido 2026-09-09, Cuentas
+  // ahora se le abre con las cards de modelos puntualmente) — nunca para
+  // forzar logout de otra cuenta admin/CEO, eso sigue admin-only.
   if (parsed.pathname === '/api/accounts/logout-everywhere' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
-    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const type = body.type === 'model' ? 'model' : body.type === 'admin' ? 'admin' : null;
+    const session = type === 'model' ? await requireAdminOrCeo(req, res) : await requireAdmin(req, res);
+    if (!session) return;
     const username = type === 'model' ? sanitizeUsername(body.username) : (typeof body.username === 'string' ? body.username.trim() : '');
     if (!type || !username) return sendJson(res, 400, { error: 'type/username inválido' });
     await sbBumpSessionVersion(type, username);
