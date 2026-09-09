@@ -993,6 +993,30 @@ diagnóstico, no dinero) entre llamadas y llama a las funciones puras.
 por casualidad calzan con `HTTP <código> para <algo>` sin ser un fallo de
 red real, revisar este regex antes de asumir que el filtro está roto.**
 
+**Día 6 (vigía del 2026-09-09): el patrón sigue vivo pero cambió de forma,
+todavía benigno.** Dos cosas nuevas respecto a los primeros 5 días:
+1. **Ya no es solo HTTP 403** — aparecieron 429, 500, 503 y 504 mezclados
+   en la misma franja. El 2026-09-08 a las 14:07:17 hubo un burst real de
+   4 (504 abigail_f00x, 503 kitty_f00x/amaranta_f00x/tamar4_f00x, los 4 en
+   el mismo segundo) — eso cruza `API_ERROR_BURST_THRESHOLD` y el filtro
+   nuevo lo habría marcado como racha correctamente (se recuperó solo en
+   el siguiente ciclo, balance de las 4 sigue al día).
+2. **Se concentró de forma desigual en kitty_f00x** — 19 de los 30 errores
+   de las últimas 24h son de ella, casi uno por ciclo horario seguido
+   durante casi un día entero, mientras las otras 5 solo cayeron 1-2 veces
+   cada una. Se verificó específicamente que esto NO es un token vencido:
+   `last_balance_at` de kitty_f00x está tan fresco como el de cualquiera
+   (actualizado hace minutos), así que sigue teniendo éxito en la mayoría
+   de sus ciclos — solo le está tocando fallar más seguido que a las
+   demás. Punto 3 del chequeo (staleness > 2h) sigue limpio para las 6.
+**No se avisó por chat ni correo** — nada de esto tocó la plata ni dejó a
+nadie con el balance atascado; el burst real del 09-08 ya habría generado
+su propio aviso en el momento (vía el filtro de racha) si el usuario
+estaba mirando el chat en ese instante, no hace falta repetirlo acá. Si
+kitty_f00x específicamente empieza a mostrar `last_balance_at` atrasado
+(no solo errores), ahí sí es momento de pedirle que regenere su Stats API
+token — hoy no es el caso.
+
 ## Auditoría de diseño / móvil (2026-09-03)
 
 Revisión hecha con capturas reales (Playwright + Chromium, instancia
