@@ -164,6 +164,13 @@ let rateCache = { rate: null, marketRate: null, updatedAt: 0, error: null };
 // Tarifa de pago a la modelo: USD por token.
 const PAYOUT_RATE_USD_PER_TOKEN = 0.023;
 
+// Tarifa del ESTUDIO (lo que el estudio recibe por token, distinto de lo que
+// el estudio le paga a cada modelo): USD por token. Pedido explicito del
+// usuario 2026-09-09 — usada UNICAMENTE en el resumen agregado
+// "Desprendible del estudio" (RESUMEN DEL ESTUDIO, admin+ceo), nunca en el
+// desprendible individual de una modelo (ese sigue en PAYOUT_RATE_USD_PER_TOKEN).
+const STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.5;
+
 // Paxum (con lo que realmente se paga) cambia el dolar mas barato que la tasa
 // general del mercado. La diferencia ronda los 200-210 COP; usamos el punto medio.
 const PAXUM_SPREAD_COP = 205;
@@ -2342,7 +2349,12 @@ const server = http.createServer(async (req, res) => {
       } else if (session.role === 'ceo') {
         models = allModels.map((m) => ({ ...m, connection: { running: m.connection.running, status: m.connection.status, lastError: null } }));
       }
-      return sendJson(res, 200, { models, dollar: { ...dollar, currency: CURRENCY }, session: { username: session.username, role: session.role, gender: session.gender || null } });
+      return sendJson(res, 200, {
+        models,
+        dollar: { ...dollar, currency: CURRENCY },
+        studio_rate_usd_per_token: STUDIO_PAYOUT_RATE_USD_PER_TOKEN,
+        session: { username: session.username, role: session.role, gender: session.gender || null },
+      });
     } catch (e) {
       return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
     }

@@ -570,7 +570,7 @@
           <div class="stat"><div class="k">En línea ahora</div><div class="v" id="sumOnline">0 / 0</div></div>
           <div class="stat"><div class="k">Tokens (estudio)</div><div class="v" id="sumTokens">0</div></div>
           <div class="stat"><div class="k">Va ganando más</div><div class="v small" id="sumTop">—</div></div>
-          <div class="stat hero"><div class="k">Desprendible total estimado</div><div class="v" id="sumPayout">$0.00 USD ≈ $0 COP</div></div>
+          <div class="stat hero"><div class="k">Desprendible del estudio (estimado)</div><div class="v" id="sumPayout">$0.00 USD ≈ $0 COP</div></div>
         </div>
       </div>
 
@@ -1212,10 +1212,15 @@
   function fmtUSD(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD'; }
   function fmtCOP(v) { return '$' + Math.round(v).toLocaleString('es-CO') + ' COP'; }
 
-  function updateSummary(models, dollar) {
+  function updateSummary(models, dollar, studioRate) {
     const online = models.filter(function (m) { return m.online && m.online.state === 'online'; }).length;
     const totalTokens = models.reduce(function (s, m) { return s + (m.totalTokensPeriod || 0); }, 0);
-    const totalUSD = models.reduce(function (s, m) { return s + (m.payoutUSD || 0); }, 0);
+    // Desprendible DEL ESTUDIO, no la suma de lo que se le paga a cada
+    // modelo: tokens totales x tarifa del estudio (0.5, distinta de los
+    // 0.023 que recibe cada modelo) x dólar Paxum. Pedido explícito del
+    // usuario 2026-09-09 — no confundir con el desprendible individual de
+    // cada modelo (ese sigue viniendo de m.payoutUSD, sin tocar).
+    const totalUSD = totalTokens * (studioRate || 0);
     const totalCOP = dollar && dollar.rate ? totalUSD * dollar.rate : null;
 
     const payoutLabel = models.length && models[0].period ? models[0].period.payoutLabel : '';
@@ -1256,7 +1261,7 @@
       const isAdmin = currentRole === 'administrador';
       const showSummary = currentRole === 'administrador' || currentRole === 'ceo';
       el.summaryCard.style.display = showSummary ? 'block' : 'none';
-      if (showSummary) updateSummary(data.models || [], data.dollar);
+      if (showSummary) updateSummary(data.models || [], data.dollar, data.studio_rate_usd_per_token);
 
       if (isAdmin && !formOpenDecided) {
         setFormOpen(!data.models || data.models.length === 0);

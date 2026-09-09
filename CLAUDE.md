@@ -1578,6 +1578,31 @@ real, no un bug del sitio. Si algo parece "tapado" por la barra de abajo
 solo en una captura fullPage, no es real; confirmar con un viewport normal
 o scrolleando antes de reportarlo como bug.
 
+## Desprendible del estudio — tarifa distinta a la de las modelos (2026-09-09)
+
+`STUDIO_PAYOUT_RATE_USD_PER_TOKEN = 0.5` (server.js, junto a
+`PAYOUT_RATE_USD_PER_TOKEN = 0.023`) — lo que el ESTUDIO recibe por token es
+una tarifa totalmente distinta a lo que el estudio le paga a cada modelo.
+Pedido explícito del usuario, confirmado con capturas: la card "RESUMEN DEL
+ESTUDIO — QUINCENA ACTUAL" (arriba de la lista de modelos, `#summaryCard`,
+ya admin+ceo únicamente — `showSummary = role === 'administrador' || role
+=== 'ceo'`, sin cambios ahí) tiene un stat "Desprendible del estudio
+(estimado)" que **antes** sumaba el `payoutUSD` de cada modelo (o sea, el
+total a 0.023) y **ahora** es `tokens totales del estudio × 0.5 × dólar
+Paxum` — la misma operación que el desprendible de cada modelo pero con la
+tarifa del estudio en vez de la de la modelo. `GET /api/models` ahora manda
+`studio_rate_usd_per_token` en la respuesta (no hardcodeado en el frontend,
+mismo patrón que `dollar.rate`); `updateSummary(models, dollar, studioRate)`
+en `index.html` hace `totalTokens * studioRate` en vez de sumar
+`m.payoutUSD`. **El desprendible individual de cada modelo (Modelos y
+Desprendibles) NO cambia — sigue en `PAYOUT_RATE_USD_PER_TOKEN` (0.023),
+sin tocar.** Verificado end-to-end: 71.819 tokens × 0.5 × $2.922 dio
+$35.909,50 USD ≈ $104.939.680 COP, exacto contra lo esperado a mano.
+**Por qué esto es sensible:** revela el margen real del estudio por token
+(~21x lo que recibe la modelo) — por eso importa que este stat quede
+SIEMPRE admin+ceo, nunca modelo; no relajar ese gate sin que el usuario lo
+pida explícitamente.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
