@@ -255,8 +255,9 @@
      rol modelo — el ícono nunca desaparece, así no hay saltos de layout.
      min-height reserva el renglón incluso vacía. */
   .banner-phrase {
-    min-height: 16px; margin-top: 8px; text-align: center; font-size: 11.5px;
-    color: var(--muted); opacity: 0; transition: opacity .6s ease; padding: 0 12px;
+    min-height: 18px; margin-top: 8px; text-align: center; font-family: var(--font-display);
+    font-style: italic; font-size: 12.5px; letter-spacing: 0.01em; color: var(--text);
+    opacity: 0; transition: opacity .6s ease; padding: 0 12px;
   }
   .banner-phrase.show { opacity: 1; }
   .banner-icon [class^="icon-"], .banner-icon [class*=" icon-"] {
@@ -901,12 +902,12 @@
       </div>
       <div class="card" id="shiftConfirmCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Confirmación de extras y recuperaciones</h3>
-        <div class="meta-small" style="margin-bottom:12px;">El sistema ya le pregunta sola a cada modelo 6 horas antes si va a tomar su horario. Acá podés mandarle ese mismo aviso a mano, a cualquier hora.</div>
+        <div class="meta-small" style="margin-bottom:12px;">El sistema ya le pregunta solo a cada modelo 6 horas antes si va a tomar su horario. Aquí puedes mandarle ese mismo aviso a mano, a cualquier hora.</div>
         <div id="shiftConfirmList"></div>
       </div>
       <div class="card" id="chaturbateAutoCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Automatizar Chaturbate por completo (recomendado)</h3>
-        <div class="meta-small" style="margin-bottom:12px;">Una sola vez por modelo: generá un token en <b>chaturbate.com/statsapi/authtoken/</b> (logueada en su cuenta) y pegalo acá. Desde ahí el sistema vigila su balance de tokens solo, cada 5 minutos, para siempre — incluye propinas, privados, spy, fan club y contenido, todo junto, sin que nadie tenga que exportar ni cargar nada nunca más.</div>
+        <div class="meta-small" style="margin-bottom:12px;">Una sola vez por modelo: genera un token en <b>chaturbate.com/statsapi/authtoken/</b> (logueada en su cuenta) y pégalo aquí. Desde ahí el sistema vigila su balance de tokens solo, cada 5 minutos, para siempre — incluye propinas, privados, spy, fan club y contenido, todo junto, sin que nadie tenga que exportar ni cargar nada nunca más.</div>
         <label for="ctbStatsUser">Modelo</label>
         <select id="ctbStatsUser"></select>
         <label for="ctbStatsToken">Token de Stats API</label>
@@ -1135,11 +1136,14 @@
   const BANNER_PHRASES = [
     'Tu esfuerzo de hoy se nota.',
     'Un día más, un paso más adelante.',
-    'Sos una pieza clave de este estudio.',
-    'Seguí así, vas por buen camino.',
+    'Eres una pieza clave de este estudio.',
+    'Sigue así, vas por buen camino.',
     'Gracias por tu compromiso.',
-    'Hoy también podés dar lo mejor de vos.',
+    'Hoy también puedes dar lo mejor de ti.',
     'Cada turno cuenta — y el tuyo también.',
+    'Tu constancia hace la diferencia.',
+    'Confiamos en ti, sigue adelante.',
+    'Cada día es una oportunidad de brillar.',
   ];
   let bannerPhraseTimer = null;
   function bannerPhraseTick() {
@@ -1157,7 +1161,7 @@
     stopBannerPhraseRotation();
     if (currentRole !== 'modelo') return;
     bannerPhraseTick();
-    bannerPhraseTimer = setInterval(bannerPhraseTick, 9000);
+    bannerPhraseTimer = setInterval(bannerPhraseTick, 5000);
   }
   function stopBannerPhraseRotation() {
     if (bannerPhraseTimer) { clearInterval(bannerPhraseTimer); bannerPhraseTimer = null; }
@@ -1723,7 +1727,7 @@
       el.attRetrasoPanel.className = 'att-warning';
       el.attRetrasoPanel.innerHTML = icon + '<div>'
         + '<div class="att-warning-title">Llevas ' + attHorasMin(lateMinutes) + ' de retraso</div>'
-        + '<div class="att-warning-body">Acumulado en esta quincena. Todavía podés mejorarlo llegando puntual de acá en adelante.</div>'
+        + '<div class="att-warning-body">Acumulado en esta quincena. Todavía puedes mejorarlo llegando puntual de aquí en adelante.</div>'
         + '</div>';
     } else {
       const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'

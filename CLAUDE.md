@@ -1742,6 +1742,50 @@ diseño existente.**
   una frase nueva ahí después del siguiente ciclo — confirma que sigue a
   la pestaña activa correctamente.
 
+## Corrección de tono y ritmo de la frase motivacional (2026-09-09, misma noche)
+
+El usuario revisó la frase del banner recién implementada y pidió tres
+ajustes puntuales sobre lo ya construido, no una feature nueva:
+
+- **Tono: nada de voseo.** Varias frases y dos textos cercanos (la
+  descripción de la card "Confirmación de extras y recuperaciones" en
+  Cuentas, el cuerpo del panel de retraso en Asistencia, y la ayuda del
+  token de Chaturbate en Cuentas) usaban "vos"/"sos"/"podés"/"generá"/
+  "pegalo"/"acá" — modismos rioplatenses que no encajan con "un acento
+  forma y general... tuteado. Nada de vos, o sos nada de esos modismos."
+  Corregido a tuteo neutro en las 6 líneas encontradas por grep
+  (`\bvos\b|\bsos\b|podés|tenés|querés|sabés|decís|Seguí\b|llegá\b|
+  mirá\b|fijate|dale\b|acá\b`, case-insensitive, corrido contra
+  `index.html` completo — `asistencia.html` no tenía ninguna instancia
+  real, solo un "acá" dentro de un comentario de código, invisible al
+  usuario, que no hacía falta tocar). `ATT_GOOD_PHRASES` ya estaba en
+  tuteo correcto desde que se creó, no necesitó cambios.
+- **Más frecuente**: `bannerPhraseTimer` bajó de 9000ms a 5000ms.
+  `BANNER_PHRASES` pasó de 7 a 10 frases (se agregaron 3 nuevas, todas en
+  tuteo) para que la rotación más rápida no se sienta repetitiva.
+- **Fuente distinta**: `.banner-phrase` pasó de heredar la tipografía
+  normal del body a `font-family: var(--font-display)` (la misma fuente
+  de los títulos, 'Unbounded') en itálica — antes era texto plano en
+  `var(--muted)` a 11.5px, ahora se distingue con claridad del resto del
+  texto de la pestaña.
+- **Color: pedido aparte a mitad de esta misma corrección** — la primera
+  versión de este cambio dejó la frase en rosa neón (`var(--pink)`) para
+  que hiciera juego con el resto de la estética; el usuario pidió
+  explícitamente "Déjala blanca con el concepto que tienes" (o sea:
+  mantener itálica + fuente display + cadencia de 5s, solo cambiar el
+  color). Quedó en `var(--text)` (blanco casi puro, `#f5f5f7`).
+- Confirmado que las 6 pestañas siguen con su `.banner-phrase` intacto y
+  que el patrón de "solo rota en la pestaña activa, la siguiente pestaña
+  muestra su frase recién en el próximo ciclo global" (documentado en la
+  sección anterior) sigue funcionando igual — no se tocó esa lógica, solo
+  el intervalo, la fuente/color y el contenido de los arrays de frases.
+  Verificado con Playwright contra el Supabase real (cuentas
+  `qa_temp_phrase2`/`qa_temp_phrase3`, borradas al terminar cada una):
+  capturas confirmando fuente itálica display, texto en tuteo, cadencia
+  de 5s (misma frase o distinta entre ticks es aleatorio — con 10 frases
+  hay ~10% de chance de repetir dos veces seguidas, no es un bug) y color
+  blanco en la versión final. `npm test`: 105/105.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
