@@ -1389,6 +1389,110 @@ sondeos no se registra ni una propina.
   `tks-staging`) dado el nivel de verificación ya hecho — si el próximo cambio
   es más riesgoso, volver al flujo normal de la sección "Where things live".
 
+## Cuatro features de Asistencia/Noticias/Extras + horas transmitidas (2026-09-09)
+
+Pedido en un solo mensaje (4 features) más un quinto agregado a mitad de la
+misma sesión. Los cinco viven ahora en `chaturbate-lib.js` (lógica pura,
+con tests) + `server.js` (endpoints/schedulers) + `public/index.html` +
+`public/asistencia.html`. `npm test`: 105/105. Probado end-to-end contra el
+Supabase real (`SOLO_UI=1`, puerto 3001, cuentas `qa_temp_admin`/
+`qa_temp_model` y sus filas de asistencia/turnos/noticias borradas al
+terminar — verificado con una consulta aparte que no quedó rastro, ni en
+`cb_api_errors`). Push directo a `master`.
+
+1. **Admin agrega/corrige hora a mano en cualquier día** —
+   `POST /api/attendance/day/edit` (solo `administrador`): a diferencia de
+   `/api/attendance/day/reset` (que reabre una fila EXISTENTE), esta CREA la
+   fila si hace falta — cubre el caso de una modelo que nunca reportó ese
+   día. Acepta `entry_time` y/o `exit_time` (HH:MM), deja `official_source`/
+   `exit_source` en `'manual'`. UI: card "Agregar o corregir hora
+   manualmente" en `asistencia.html` (modelo + fecha + las dos horas) y un
+   botón "Editar hora" por fila en la columna Corregir que solo prellena esa
+   card (no duplica el formulario). `studioInstantAfter(workDate, timeStr,
+   referenceTime)` en `chaturbate-lib.js` decide si una hora de salida
+   escrita a mano cae al día siguiente (turno tarde cruza medianoche) — si
+   `timeStr` es igual o anterior a `referenceTime`, suma un día. Verificado
+   con el turno tarde real: entrada 16:10 + salida "00:05" dio
+   `2026-08-02T05:05:00Z` (día siguiente), correcto.
+
+2. **Salida automática tras 1h sin marcar** — `checkAutoExits()` en
+   `server.js`, corre cada 5 min (`startAutoExitChecking`, gateado por
+   `!UI_ONLY` igual que los demás pollers — **nunca lo saques de ese gate**:
+   un scratch de prueba con los pollers prendidos escribiría salidas
+   automáticas y mandaría push sobre datos reales). Revisa jornadas
+   `validada` de los últimos 3 días sin `exit_at`; el fin de turno se calcula
+   desde `official_at` (la entrada REAL, no la programada — si llegó tarde
+   su turno también se corre) más `shiftDurationMinutes(entry_time,
+   exit_time)`. Pasada 1h de ese fin de turno, marca `exit_at` = fin de
+   turno (no el instante en que el chequeo la detectó) y `exit_source:
+   'auto'`, avisa a administrador/ceo por push con el nombre y la hora.
+   `shiftDurationMinutes` maneja el cruce de medianoche del turno tarde
+   (16:00→00:00 da 480 min, no negativo). La UI muestra "automática" en
+   chico bajo la hora, mismo patrón que "reportó HH:MM" en la entrada.
+
+3. **Noticias: cambiar hilo↔aviso después de publicada** —
+   `POST /api/news/set-type` (solo `administrador`, el CEO puede publicar
+   pero no cambiar el tipo después). El badge de color (rosa=aviso,
+   gris=hilo) YA era visible a los 3 roles desde antes de este cambio — lo
+   único que faltaba era poder cambiarlo; para `administrador` el badge pasa
+   a ser un `<select>` funcional en vez de solo texto. Si un hilo con
+   comentarios pasa a aviso, los comentarios existentes se ocultan en la UI
+   (mismo `isAviso ? '' : commentsHtml` que ya existía) pero NO se borran de
+   la base — solo se bloquean comentarios nuevos
+   (`sbFetchNewsPostType` ya validaba esto server-side).
+
+4. **Confirmación de extra/recuperación 6h antes + botón manual en
+   Cuentas** — columnas nuevas `cb_shifts.confirmation_sent_at` / `confirmed`
+   (migración `shift_confirmation_and_exit_source`, aplicada directo en
+   Supabase, no en `schema.sql` — mismo patrón que `kind`/`attendance_status`
+   del 2026-09-05). `checkShiftConfirmations()` corre cada 10 min
+   (`startShiftConfirmationChecking`, mismo gate `!UI_ONLY`): a una extra/
+   recuperación reclamada que empieza en las próximas 6h y no tiene
+   `confirmation_sent_at`, le manda push a la MODELO puntual (nueva función
+   `sendPushToUser`, primera vez que se pushea a una cuenta específica en vez
+   de por rol) preguntando si la va a tomar. `POST /api/shifts/confirm`
+   (modelo): `confirm:true` solo guarda `confirmed=true`; `confirm:false`
+   llama a `sbUnclaimShift` (que ahora también resetea
+   `confirmation_sent_at`/`confirmed` a null — si no, la siguiente modelo que
+   reclame ese turno heredaría el estado de confirmación de la anterior) y
+   avisa a administrador/ceo que el cupo quedó libre.
+   `POST /api/shifts/send-confirmation` (admin/CEO): igual pero a cualquier
+   hora, sin esperar las 6h, y SIEMPRE vuelve a preguntar (resetea
+   `confirmed` a null aunque ya hubiera una respuesta) — botón "Enviar
+   confirmación ahora" en la nueva card "Confirmación de extras y
+   recuperaciones" en Cuentas, que lista las próximas reclamadas. En el
+   calendario de Extras, la modelo ve botones Sí/No en su propia pastilla
+   mientras la confirmación esté pendiente (mismo patrón visual que los
+   botones ✓/✗ de asistencia del admin, pero con `data-confirm-id` en vez de
+   `data-id` para no pisar el listener del admin — los dos comparten la
+   clase `.shift-mark-btn`).
+
+5. **Horas transmitidas en la hoja de asistencia, con color** (pedido a
+   mitad de la misma conversación, no estaba en el mensaje original). Nuevas
+   funciones puras en `chaturbate-lib.js`: `computeBroadcastSummary(events,
+   windowStartMs, windowEndMs)` reconstruye segmentos start/stop de
+   `cb_broadcast_events` recortados a la ventana del turno y devuelve
+   `onlineMinutes` + `maxGapMinutes` (el hueco de desconexión más grande,
+   solo EL QUE QUEDA ENTRE dos segmentos — no cuenta el tiempo antes del
+   primer start ni después del último stop, eso ya es tema de retraso de
+   entrada/salida, no de "reconexión"); `classifyBroadcastColor(...)` decide
+   el color: **rosa** si esa modelo tuvo una extra/recuperación reclamada ese
+   `work_date` (gana sobre cualquier otro criterio), **gris apagado** si
+   transmitió su turno completo (`onlineMinutes >= shiftDurationMinutes`),
+   **rojo** si transmitió menos Y tuvo un hueco de 30+ min
+   (`BROADCAST_GAP_ALERT_MINUTES`) — cualquier otro caso (menos horas pero
+   sin hueco grande) no lleva color especial. `buildAttendancePayload` en
+   `server.js` calcula esto para cada día con `scheduled_at` + horario con
+   `exit_time`: un solo fetch de `cb_broadcast_events` para TODA la quincena
+   y todas las modelos relevantes (`sbListBroadcastEventsRange`), no uno por
+   día por modelo. La ventana de un turno en curso se recorta a `now` (nunca
+   se cuenta tiempo "transmitido" en el futuro). Verificado end-to-end con
+   eventos reales insertados a mano: turno tarde con 415 min transmitidos de
+   480 (menos del turno) y un hueco de 45 min → color `rojo`, exactamente lo
+   esperado. Columna nueva "Transmitido" en ambas tablas (`index.html` y
+   `asistencia.html` — recordar tocar las dos si esto cambia, ya es la
+   tercera vez que el patrón de columnas pareadas aparece en este archivo).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

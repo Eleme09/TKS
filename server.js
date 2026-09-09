@@ -22,6 +22,7 @@ const {
   ATTENDANCE_GRACE_MINUTES, applyLateGrace,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
+  studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -406,6 +407,32 @@ async function sendPushToRole(role, body, options) {
   }));
 }
 
+async function sbListPushSubscriptionsForUser(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_push_subscriptions?select=username,endpoint,p256dh,auth&username=eq.' + encodeURIComponent(username), { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+// Igual que sendPushToRole pero a UNA cuenta puntual (todos sus dispositivos
+// suscritos) — para avisos que solo le sirven a ella, como la confirmacion
+// de una extra/recuperacion que reclamo.
+async function sendPushToUser(username, body, options) {
+  if (!PUSH_ENABLED) return;
+  const opts = options || {};
+  const subs = await sbListPushSubscriptionsForUser(username);
+  if (!subs.length) return;
+  const payload = JSON.stringify({ title: 'Placer Studios', body, tag: opts.tag });
+  await Promise.all(subs.map(async (row) => {
+    const sub = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+    try {
+      await webpush.sendNotification(sub, payload);
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await sbDeleteSubscriptionByEndpoint(row.endpoint);
+      }
+    }
+  }));
+}
+
 // "Modelo conectada" es un aviso de vitrina para el CEO, no algo accionable
 // por el administrador — por eso va solo al rol ceo (2026-09-02, pedido
 // explicito del usuario: no quiere estas notificaciones a el mismo).
@@ -514,6 +541,16 @@ async function sbFetchNewsPostType(postId) {
   return rows.length ? rows[0].post_type : null;
 }
 
+// Cambiar hilo <-> aviso DESPUES de publicado (pedido 2026-09-09) — solo
+// administrador, ver el endpoint /api/news/set-type.
+async function sbSetNewsPostType(id, postType) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ post_type: postType }),
+  });
+  return r.ok;
+}
+
 async function sbListNewsCommentsForPosts(postIds) {
   if (!postIds.length) return [];
   const qs = '?select=*&post_id=in.(' + postIds.join(',') + ')&order=created_at.asc';
@@ -596,12 +633,51 @@ async function sbClaimShift(id, username) {
   return rows.length > 0;
 }
 
+// Al liberar el cupo (cancele ella misma, un admin la quite, o responda que
+// NO va a tomar la extra) se resetean tambien los campos de confirmacion:
+// si no, quien reclame despues heredaria un "confirmation_sent_at"/"confirmed"
+// que no le corresponde y la UI mostraria un estado que no es el suyo.
 async function sbUnclaimShift(id) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
     method: 'PATCH',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ claimed_by: null, claimed_at: null }),
+    body: JSON.stringify({ claimed_by: null, claimed_at: null, confirmation_sent_at: null, confirmed: null }),
   }).catch(() => {});
+}
+
+// Confirmacion de que SI va a tomar la extra/recuperacion a la que se apunto.
+async function sbSetShiftConfirmed(id, confirmed) {
+  const resp = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&claimed_by=not.is.null',
+    { method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' }, body: JSON.stringify({ confirmed }) }
+  );
+  if (!resp.ok) return false;
+  const rows = await resp.json();
+  return rows.length > 0;
+}
+
+// Marca que ya se le mando el aviso de confirmacion automatico (6h antes).
+// El filtro confirmation_sent_at=is.null actua de mutex: si dos corridas del
+// chequeo se pisan, solo una consigue marcarla y manda el push.
+async function sbMarkShiftConfirmationSent(id) {
+  const resp = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&confirmation_sent_at=is.null',
+    { method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' }, body: JSON.stringify({ confirmation_sent_at: new Date().toISOString() }) }
+  );
+  if (!resp.ok) return false;
+  const rows = await resp.json();
+  return rows.length > 0;
+}
+
+// Envio MANUAL (admin, boton en Cuentas): a diferencia del automatico, no le
+// importa si ya se habia mandado antes — vuelve a preguntar de cero, por eso
+// tambien resetea `confirmed` a null.
+async function sbForceShiftConfirmationSent(id) {
+  const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ confirmation_sent_at: new Date().toISOString(), confirmed: null }),
+  });
+  return resp.ok;
 }
 
 async function sbFetchShift(id) {
@@ -684,6 +760,52 @@ async function computeShiftBlockInfo(shifts, session) {
     };
   });
   return { shift_blocks: blocks, shift_no_show_limit: SHIFT_NO_SHOW_LIMIT };
+}
+
+function shiftKindLabel(kind) {
+  return kind === 'recuperacion' ? 'recuperación' : 'extra';
+}
+
+async function sendShiftConfirmationRequest(shift) {
+  const horario = shift.start_time + (shift.end_time ? '–' + shift.end_time : '');
+  await sendPushToUser(
+    shift.claimed_by,
+    'Tu ' + shiftKindLabel(shift.kind) + ' del ' + shift.shift_date + ' a las ' + horario + ' es en unas horas — confirma en la app si la vas a tomar.',
+    { tag: 'placer-shift-confirm-' + shift.id }
+  );
+}
+
+// Corre cada rato (ver startShiftConfirmationChecking): a las extras/
+// recuperaciones reclamadas que empiezan dentro de las proximas 6h y todavia
+// no recibieron el aviso, les manda la pregunta "la vas a tomar?" a la
+// modelo. No repregunta si ya se mando (confirmation_sent_at), ni le
+// pregunta por un turno que ya empezo o ya paso.
+let shiftConfirmRunning = false;
+async function checkShiftConfirmations() {
+  if (shiftConfirmRunning) return;
+  shiftConfirmRunning = true;
+  try {
+    const shifts = await sbListShifts();
+    const now = Date.now();
+    for (const s of shifts) {
+      if (!s.claimed_by || s.confirmation_sent_at) continue;
+      const startMs = studioScheduledMs(s.shift_date, normalizeClock(s.start_time));
+      if (startMs == null) continue;
+      const msUntil = startMs - now;
+      if (msUntil <= 0 || msUntil > 6 * 3600000) continue;
+      const claimed = await sbMarkShiftConfirmationSent(s.id);
+      if (claimed) await sendShiftConfirmationRequest(s);
+    }
+  } catch (e) {
+    console.error('Error chequeando confirmaciones de extras: ' + e.message);
+  } finally {
+    shiftConfirmRunning = false;
+  }
+}
+
+function startShiftConfirmationChecking() {
+  checkShiftConfirmations();
+  setInterval(checkShiftConfirmations, 10 * 60 * 1000);
 }
 
 // ---- Asistencia (entradas, salidas, justificaciones, excusas) ----
@@ -903,6 +1025,41 @@ async function buildAttendancePayload(session) {
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s;
 
+  // "Horas transmitidas" por dia (pedido 2026-09-09): cuanto transmitio cada
+  // modelo DENTRO de la ventana de su turno ese dia, con codigo de color
+  // (ver classifyBroadcastColor en chaturbate-lib.js). Un solo fetch de
+  // eventos para toda la quincena, no uno por dia por modelo. Solo se calcula
+  // para dias con scheduled_at Y un horario con hora de salida asignada —
+  // sin eso no hay ventana que recortar.
+  const relevantUsernames = Array.from(new Set(days.map((d) => d.username)));
+  const periodStartMs = Date.parse(period.start + 'T00:00:00Z') - 24 * 3600000;
+  const [allShiftsForBroadcast, broadcastEvents] = await Promise.all([
+    sbListShifts(),
+    sbListBroadcastEventsRange(relevantUsernames, periodStartMs, now),
+  ]);
+  const eventsByUser = {};
+  for (const e of broadcastEvents) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
+  const extraDates = new Set();
+  for (const s of allShiftsForBroadcast) {
+    if (s.claimed_by && (s.kind === 'extra' || s.kind === 'recuperacion')) extraDates.add(s.claimed_by + '|' + s.shift_date);
+  }
+  for (const d of days) {
+    const hers = scheduleByUser[d.username];
+    if (!d.scheduled_at || !hers || !hers.exit_time) continue;
+    const durationMin = shiftDurationMinutes(hers.entry_time, hers.exit_time);
+    if (durationMin == null) continue;
+    const windowStart = Date.parse(d.scheduled_at);
+    const windowEnd = Math.min(windowStart + durationMin * 60000, now);
+    if (windowEnd <= windowStart) continue;
+    const summary = computeBroadcastSummary(eventsByUser[d.username] || [], windowStart, windowEnd);
+    const hadExtra = extraDates.has(d.username + '|' + d.work_date);
+    d.broadcast_minutes = summary.onlineMinutes;
+    d.broadcast_color = classifyBroadcastColor({
+      onlineMinutes: summary.onlineMinutes, maxGapMinutes: summary.maxGapMinutes,
+      shiftDurationMinutes: durationMin, hadExtra,
+    });
+  }
+
   // Acumulado de retraso de la quincena, por modelo, y quien debe asumir su
   // seguridad social por pasarse del umbral.
   const usernames = isStaff
@@ -1006,6 +1163,52 @@ async function notifyAttendanceValidated(username, officialMs, lateMinutes, work
   const firstTimeToday = await sbClaimDailyAttendanceNotice(workDate);
   if (!firstTimeToday) return;
   await sendPushToRole(['administrador', 'ceo'], 'TODAS TUS MODELOS ENTRARON A TIEMPO', { tag: 'placer-asistencia-todas' });
+}
+
+// Si una jornada VALIDADA se queda sin salida marcada 1h despues de que su
+// turno debia terminar, se marca sola (exit_source: 'auto') en vez de
+// quedar abierta para siempre — pedido explicito del usuario 2026-09-09. El
+// fin de turno se calcula desde la ENTRADA OFICIAL de ese dia (no la
+// programada): si llego tarde, su turno real tambien se corrio, y marcarle
+// la salida antes de que termine su turno real seria injusto. Se avisa
+// solo a administrador/ceo, con la modelo y la hora que quedo marcada.
+let autoExitRunning = false;
+async function checkAutoExits() {
+  if (autoExitRunning) return;
+  autoExitRunning = true;
+  try {
+    const now = Date.now();
+    const from = studioDateStr(now - 3 * 24 * 3600000);
+    const to = studioDateStr(now);
+    const [days, schedule] = await Promise.all([sbListAttendanceDays(from, to, null), sbListAttendanceSchedule()]);
+    const scheduleByUser = {};
+    for (const s of schedule) scheduleByUser[s.username] = s;
+    for (const d of days) {
+      if (d.exit_at || d.status !== 'validada' || !d.official_at) continue;
+      const hers = scheduleByUser[d.username];
+      if (!hers || !hers.exit_time) continue;
+      const durationMin = shiftDurationMinutes(hers.entry_time, hers.exit_time);
+      if (durationMin == null) continue;
+      const shiftEndMs = Date.parse(d.official_at) + durationMin * 60000;
+      if (now - shiftEndMs < 60 * 60000) continue;
+      const updated = await sbUpdateAttendanceDay(d.id, { exit_at: new Date(shiftEndMs).toISOString(), exit_source: 'auto' });
+      if (updated) {
+        sendPushToRole(['administrador', 'ceo'],
+          'Se marcó sola la salida de ' + d.username + ' (pasó 1h sin marcarla) — quedó a las ' + studioTimeStr(shiftEndMs) + '.',
+          { tag: 'placer-asistencia-autoexit-' + d.username + '-' + d.work_date }
+        ).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('Error chequeando salidas automáticas: ' + e.message);
+  } finally {
+    autoExitRunning = false;
+  }
+}
+
+function startAutoExitChecking() {
+  checkAutoExits();
+  setInterval(checkAutoExits, 5 * 60 * 1000);
 }
 
 // Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
@@ -1130,6 +1333,20 @@ async function sbFetchLastBroadcastEvent(username) {
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
+}
+
+// Trae de una vez el historial start/stop de varias modelos en un rango de
+// fechas (para la hoja de asistencia: "horas transmitidas" por dia). Un solo
+// fetch para toda la quincena en vez de uno por modelo por dia.
+async function sbListBroadcastEventsRange(usernames, fromMs, toMs) {
+  if (!usernames || !usernames.length) return [];
+  const qs = '?select=username,event_type,created_at'
+    + '&username=in.(' + usernames.map(encodeURIComponent).join(',') + ')'
+    + '&created_at=gte.' + encodeURIComponent(new Date(fromMs).toISOString())
+    + '&created_at=lte.' + encodeURIComponent(new Date(toMs).toISOString())
+    + '&order=created_at.asc';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
 }
 
 async function sbFetchAllModels() {
@@ -2464,6 +2681,22 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, post: { ...post, comments: [], viewers: [] } });
   }
 
+  // Cambiar el tipo de una publicacion YA publicada (pedido 2026-09-09):
+  // solo administrador, el CEO puede publicar pero no cambiarla despues.
+  if (parsed.pathname === '/api/news/set-type' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    const postType = body.type === 'aviso' ? 'aviso' : (body.type === 'hilo' ? 'hilo' : null);
+    if (!id || !postType) return sendJson(res, 400, { error: 'Datos inválidos' });
+    const ok = await sbSetNewsPostType(id, postType);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo cambiar el tipo' });
+    await sbLogAudit(session, 'news_set_type', null, { id, type: postType });
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (parsed.pathname === '/api/news/delete' && req.method === 'POST') {
     const session = await requireAdmin(req, res);
     if (!session) return;
@@ -2607,6 +2840,52 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, { error: 'No autorizado' });
     }
     await sbUnclaimShift(id);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // La modelo responde al aviso de "¿la vas a tomar?" (automatico 6h antes,
+  // o el que un admin mande a mano). Si dice que si, solo queda registrado.
+  // Si dice que no, se libera el cupo para que otra se apunte (pedido
+  // explicito del usuario 2026-09-09) y se avisa a administrador/ceo.
+  if (parsed.pathname === '/api/shifts/confirm' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos confirman su horario' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const shift = await sbFetchShift(id);
+    if (!shift || shift.claimed_by !== session.username) return sendJson(res, 403, { error: 'No es tu horario' });
+    if (body.confirm) {
+      await sbSetShiftConfirmed(id, true);
+      await sbLogAudit(session, 'shift_confirm_yes', session.username, { id, shift_date: shift.shift_date });
+      return sendJson(res, 200, { ok: true });
+    }
+    await sbUnclaimShift(id);
+    await sbLogAudit(session, 'shift_confirm_no', session.username, { id, shift_date: shift.shift_date });
+    sendPushToRole(['administrador', 'ceo'],
+      session.username + ' avisó que NO tomará su ' + shiftKindLabel(shift.kind) + ' del ' + shift.shift_date + ' — el cupo quedó libre.',
+      { tag: 'placer-shift-confirm-no-' + shift.id }
+    ).catch(() => {});
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Admin/CEO manda el aviso de confirmacion a mano, sin esperar a que
+  // falten 6h (boton en Cuentas). A diferencia del chequeo automatico, esto
+  // vuelve a preguntar aunque ya se hubiera mandado antes.
+  if (parsed.pathname === '/api/shifts/send-confirmation' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const shift = await sbFetchShift(id);
+    if (!shift || !shift.claimed_by) return sendJson(res, 404, { error: 'Ese horario no existe o nadie se apuntó' });
+    await sbForceShiftConfirmationSent(id);
+    await sendShiftConfirmationRequest(shift);
+    await sbLogAudit(session, 'shift_confirmation_manual', shift.claimed_by, { id, shift_date: shift.shift_date });
     return sendJson(res, 200, { ok: true });
   }
 
@@ -2820,6 +3099,70 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, day: updated });
   }
 
+  // Admin agrega o corrige a mano la entrada y/o salida de CUALQUIER dia de
+  // una modelo (pedido explicito del usuario 2026-09-09) — a diferencia de
+  // /api/attendance/day/reset (que reabre una fila EXISTENTE para que ella
+  // vuelva a pasar por el flujo normal de validacion), esta CREA la fila si
+  // hace falta: cubre el caso de una modelo que nunca reporto ese dia. La
+  // entrada queda con official_source 'manual' para dejar claro que no vino
+  // de un reporte suyo. Se puede mandar solo entrada, solo salida, o las dos.
+  if (parsed.pathname === '/api/attendance/day/edit' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : '';
+    if (!workDate) return sendJson(res, 400, { error: 'Fecha inválida' });
+    const entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
+    const exitTime = typeof body.exit_time === 'string' ? body.exit_time.trim() : '';
+    if (entryTime && !VALID_HHMM.test(entryTime)) return sendJson(res, 400, { error: 'Hora de entrada inválida (usa HH:MM)' });
+    if (exitTime && !VALID_HHMM.test(exitTime)) return sendJson(res, 400, { error: 'Hora de salida inválida (usa HH:MM)' });
+    if (!entryTime && !exitTime) return sendJson(res, 400, { error: 'Escribe al menos una hora' });
+
+    const schedule = await sbListAttendanceSchedule();
+    const hers = schedule.find((s) => s.username === username);
+    const scheduledMs = hers ? studioScheduledMs(workDate, hers.entry_time) : null;
+    const day = await sbFetchAttendanceDay(username, workDate);
+    const now = Date.now();
+
+    const patch = {
+      status: 'validada',
+      validated_at: new Date(now).toISOString(),
+      validated_by: session.username,
+      reject_reason: null,
+    };
+    if (scheduledMs != null) patch.scheduled_at = new Date(scheduledMs).toISOString();
+
+    if (entryTime) {
+      const officialMs = studioScheduledMs(workDate, entryTime);
+      const rawLateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
+      patch.official_at = new Date(officialMs).toISOString();
+      patch.official_source = 'manual';
+      patch.late_minutes = applyLateGrace(rawLateMinutes, ATTENDANCE_GRACE_MINUTES);
+    }
+    if (exitTime) {
+      const refEntry = entryTime || (hers ? hers.entry_time : null);
+      const exitMs = studioInstantAfter(workDate, exitTime, refEntry);
+      if (exitMs != null) {
+        patch.exit_at = new Date(exitMs).toISOString();
+        patch.exit_source = 'manual';
+      }
+    }
+
+    const antes = day ? { status: day.status, official_at: day.official_at, exit_at: day.exit_at, late_minutes: day.late_minutes } : null;
+    const result = day
+      ? await sbUpdateAttendanceDay(day.id, patch)
+      : await sbInsertAttendanceDay({ username, work_date: workDate, reported_at: new Date(now).toISOString(), ...patch });
+    if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_day_manual_edit', username, {
+      work_date: workDate, entry_time: entryTime || null, exit_time: exitTime || null, antes,
+    });
+    if (entryTime) notifyAttendanceValidated(username, Date.parse(result.official_at), result.late_minutes, workDate).catch(() => {});
+    return sendJson(res, 200, { ok: true, day: result });
+  }
+
   if (parsed.pathname === '/api/attendance/excuse' && req.method === 'POST') {
     const session = await requireSession(req, res);
     if (!session) return;
@@ -2962,4 +3305,6 @@ server.listen(PORT, () => {
     console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
   }
   startChaturbateBalancePolling();
+  startAutoExitChecking();
+  startShiftConfirmationChecking();
 });

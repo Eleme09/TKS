@@ -120,6 +120,15 @@
   }
   .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
   .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* Horas transmitidas: rosa = tuvo extra ese día, gris apagado = turno
+     normal cumplido, rojo = le faltaron horas y tuvo una desconexión real. */
+  .bcast { font-weight: 700; }
+  .bcast-rosa { color: var(--pink); }
+  .bcast-gris { color: var(--muted-dim); }
+  .bcast-rojo { color: var(--bad); }
+  .manual-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+  .manual-form input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 15px; font-family: var(--font-body); }
+  .errbox { display: none; color: var(--bad); font-size: 12px; margin-top: 10px; }
 
   @media (max-width: 640px) {
     /* Mismo criterio que en la app: en el teléfono los títulos de texto a
@@ -133,7 +142,7 @@
       /* Sin este min-width el navegador aplasta las 7 columnas dentro de los
          375px del teléfono y el justificante queda de una palabra por renglón.
          Con él, la tabla se desplaza de lado como una planilla de verdad. */
-      min-width: 760px;
+      min-width: 900px;
     }
     td { padding: 9px 8px; }
     /* Cada columna con su ancho mínimo: si no, las cortas ceden y la de texto
@@ -170,6 +179,33 @@
   <div class="card" id="filterCard" style="display:none;">
     <label for="filtro">Modelo</label>
     <select id="filtro"></select>
+  </div>
+
+  <div class="card" id="manualCard" style="display:none;">
+    <h2>Agregar o corregir hora manualmente</h2>
+    <div class="meta" style="margin-bottom:12px;">Sirve para cualquier día, tenga o no una fila todavía — si la modelo nunca reportó ese día, esto la crea.</div>
+    <div class="manual-form">
+      <div>
+        <label for="manualUser">Modelo</label>
+        <select id="manualUser"></select>
+      </div>
+      <div>
+        <label for="manualFecha">Día</label>
+        <input id="manualFecha" type="date">
+      </div>
+      <div>
+        <label for="manualEntrada">Entrada (HH:MM)</label>
+        <input id="manualEntrada" type="time">
+      </div>
+      <div>
+        <label for="manualSalida">Salida (HH:MM)</label>
+        <input id="manualSalida" type="time">
+      </div>
+    </div>
+    <div class="fix-actions" style="margin-top:12px;">
+      <button type="button" class="fix-btn" id="btnManualGuardar" style="padding:9px 16px; font-size:11.5px;">Guardar</button>
+    </div>
+    <div class="errbox" id="manualError"></div>
   </div>
 
   <div class="card">
@@ -210,6 +246,13 @@
     warning: document.getElementById('warning'),
     filterCard: document.getElementById('filterCard'),
     filtro: document.getElementById('filtro'),
+    manualCard: document.getElementById('manualCard'),
+    manualUser: document.getElementById('manualUser'),
+    manualFecha: document.getElementById('manualFecha'),
+    manualEntrada: document.getElementById('manualEntrada'),
+    manualSalida: document.getElementById('manualSalida'),
+    btnManualGuardar: document.getElementById('btnManualGuardar'),
+    manualError: document.getElementById('manualError'),
     tabla: document.getElementById('tabla'),
     totalsCard: document.getElementById('totalsCard'),
     totales: document.getElementById('totales'),
@@ -277,10 +320,17 @@
     entrada: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     salida: '<path d="M14 4h5v16h-5"/><path d="M4 12h9M9.5 8.5 13 12l-3.5 3.5"/>',
     retraso: '<path d="M7 3h10M7 21h10"/><path d="M7 3c0 4 5 6 5 9s-5 5-5 9"/><path d="M17 3c0 4-5 6-5 9s5 5 5 9"/>',
+    transmitido: '<path d="M4 12a8 8 0 0 1 16 0"/><path d="M4 12a8 8 0 0 0 16 0" opacity="0.35"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
     problema: '<path d="M12 4 21 20H3z"/><path d="M12 10.5v4"/><circle cx="12" cy="17.4" r="0.9" fill="currentColor" stroke="none"/>',
     justificante: '<path d="M4 5h16v11H9l-4 4z"/><path d="M8 9h8M8 12.5h5"/>',
     estado: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   };
+
+  function bcastHtml(d) {
+    if (d.broadcast_minutes == null) return '<span class="muted">—</span>';
+    var cls = d.broadcast_color ? ' bcast-' + d.broadcast_color : '';
+    return '<span class="bcast' + cls + '">' + horasMin(d.broadcast_minutes) + '</span>';
+  }
 
   function th(label, key) {
     return '<th title="' + label + '" aria-label="' + label + '">'
@@ -299,12 +349,13 @@
   }
 
   function tablaHtml(days, withName, justs) {
-    var cols = withName ? 8 : 7;
+    var cols = withName ? 9 : 8;
     if (!days.length) return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
     var index = justIndex(justs);
     var puedeCorregir = data.role === 'administrador';
     var head = '<tr>' + th('Día', 'dia') + (withName ? th('Modelo', 'modelo') : '')
       + th('Entrada', 'entrada') + th('Salida', 'salida') + th('Retraso', 'retraso')
+      + th('Transmitido', 'transmitido')
       + th('Problemática', 'problema') + th('Justificante', 'justificante') + th('Estado', 'estado')
       + (puedeCorregir ? '<th title="Corregir" aria-label="Corregir"><span class="th-txt">Corregir</span>'
           + '<span class="th-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span></th>' : '')
@@ -327,18 +378,25 @@
       else if (d.official_source && d.official_source !== 'reportada') {
         entrada = hora(d.official_at) + '<div class="sub2">reportó ' + hora(d.reported_at) + '</div>';
       } else entrada = hora(d.official_at);
+      var salida;
+      if (!d.exit_at) salida = '<span class="muted">—</span>';
+      else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
+      else if (d.exit_source === 'manual') salida = hora(d.exit_at) + '<div class="sub2">editado por admin</div>';
+      else salida = hora(d.exit_at);
 
       return '<tr>'
         + '<td class="num">' + fecha(d.work_date) + '</td>'
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
-        + '<td class="num">' + (d.exit_at ? hora(d.exit_at) : '<span class="muted">—</span>') + '</td>'
+        + '<td class="num">' + salida + '</td>'
         + '<td class="num">' + retrasoHtml(d.late_minutes) + '</td>'
+        + '<td class="num">' + bcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="just-col">' + textos + '</td>'
         + '<td>' + estadoHtml(d.status) + '</td>'
         + (puedeCorregir
             ? '<td><div class="fix-actions">'
+              + '<button type="button" class="fix-btn" data-editar-user="' + escapeHtml(d.username) + '" data-editar-fecha="' + d.work_date + '">Editar hora</button>'
               + '<button type="button" class="fix-btn" data-reset="' + d.id + '">Reiniciar</button>'
               + '<button type="button" class="fix-btn danger" data-borrar-dia="' + d.id + '">Borrar</button>'
               + '</div></td>'
@@ -426,8 +484,44 @@
       if (prev && (data.models || []).indexOf(prev) !== -1) el.filtro.value = prev;
       el.totalsCard.style.display = 'block';
     }
+    if (data.role === 'administrador') {
+      el.manualCard.style.display = 'block';
+      var prevManual = el.manualUser.value;
+      el.manualUser.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      if (prevManual) el.manualUser.value = prevManual;
+    }
     pintarTabla();
   }
+
+  function manualPrefill(username, workDate) {
+    if (!el.manualCard) return;
+    el.manualUser.value = username;
+    el.manualFecha.value = workDate;
+    el.manualEntrada.value = '';
+    el.manualSalida.value = '';
+    el.manualCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function guardarManual() {
+    el.manualError.style.display = 'none';
+    var username = el.manualUser.value;
+    var workDate = el.manualFecha.value;
+    var entry = el.manualEntrada.value;
+    var exit = el.manualSalida.value;
+    if (!username || !workDate) { el.manualError.style.display = 'block'; el.manualError.textContent = 'Elige modelo y día.'; return; }
+    if (!entry && !exit) { el.manualError.style.display = 'block'; el.manualError.textContent = 'Escribe al menos una hora.'; return; }
+    var r = await fetch('/api/attendance/day/edit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, work_date: workDate, entry_time: entry, exit_time: exit }),
+    });
+    var res = await r.json().catch(function () { return {}; });
+    if (!r.ok) { el.manualError.style.display = 'block'; el.manualError.textContent = res.error || 'No se pudo guardar'; return; }
+    el.manualEntrada.value = '';
+    el.manualSalida.value = '';
+    var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
+    if (d) { data = d; render(); }
+  }
+  el.btnManualGuardar.addEventListener('click', guardarManual);
 
   // Los acumulados y las excusas siguen al filtro: al abrir la hoja de una
   // modelo puntual no tiene sentido seguir listando a todas.
@@ -535,7 +629,7 @@
     var days = f ? data.days.filter(function (d) { return d.username === f; }) : data.days;
     var index = justIndex(f ? data.justifications.filter(function (j) { return j.username === f; }) : data.justifications);
 
-    var filas = [['Dia', 'Modelo', 'Entrada', 'Reporto', 'Salida', 'Retraso (min)', 'Problematica', 'Justificante', 'Estado']];
+    var filas = [['Dia', 'Modelo', 'Entrada', 'Reporto', 'Salida', 'Retraso (min)', 'Transmitido (min)', 'Problematica', 'Justificante', 'Estado']];
     days.forEach(function (d) {
       var mine = index[d.username + '|' + d.work_date] || [];
       filas.push([
@@ -545,6 +639,7 @@
         hora(d.reported_at),
         d.exit_at ? hora(d.exit_at) : '',
         d.late_minutes == null ? '' : d.late_minutes,
+        d.broadcast_minutes == null ? '' : d.broadcast_minutes,
         mine.map(function (j) { return kindShort(j.kind); }).join(' | '),
         mine.map(function (j) { return j.body; }).join(' | '),
         d.status,
@@ -599,6 +694,8 @@
   }
 
   document.addEventListener('click', function (e) {
+    var editar = e.target.closest && e.target.closest('[data-editar-user]');
+    if (editar) { manualPrefill(editar.getAttribute('data-editar-user'), editar.getAttribute('data-editar-fecha')); return; }
     var t = e.target.closest && e.target.closest('[data-borrar-just],[data-reset],[data-borrar-dia]');
     if (!t) return;
     if (t.hasAttribute('data-borrar-just')) {

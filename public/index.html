@@ -335,6 +335,12 @@
   .att-pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
   .att-pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
   .att-pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
+  /* Horas transmitidas: rosa = tuvo extra ese día, gris apagado = turno
+     normal cumplido, rojo = le faltaron horas y tuvo una desconexión real. */
+  .att-bcast { font-weight: 700; }
+  .att-bcast-rosa { color: var(--pink); }
+  .att-bcast-gris { color: var(--muted-dim); }
+  .att-bcast-rojo { color: var(--bad); }
   .att-row {
     background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px;
     padding: 12px; margin-bottom: 10px; animation: fadeUp .3s ease both;
@@ -436,7 +442,7 @@
     /* Sin min-width el navegador aplasta las columnas dentro de los 375px del
        teléfono y el justificante queda de una palabra por renglón. Con él, la
        tabla se desplaza de lado como una planilla. */
-    .att-table { min-width: 660px; font-size: 12px; }
+    .att-table { min-width: 780px; font-size: 12px; }
     .att-table td { padding: 9px 8px; }
     .att-table td, .att-table th { white-space: nowrap; }
     .att-just-col { min-width: 220px; max-width: 220px; white-space: normal; }
@@ -875,6 +881,11 @@
         <div class="meta-small" style="margin-bottom:12px;">Cambia la contraseña de acceso de cualquier modelo o cierra sus sesiones abiertas en otros dispositivos.</div>
         <div id="modelAccountsList"></div>
       </div>
+      <div class="card" id="shiftConfirmCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Confirmación de extras y recuperaciones</h3>
+        <div class="meta-small" style="margin-bottom:12px;">El sistema ya le pregunta sola a cada modelo 6 horas antes si va a tomar su horario. Acá podés mandarle ese mismo aviso a mano, a cualquier hora.</div>
+        <div id="shiftConfirmList"></div>
+      </div>
       <div class="card" id="chaturbateAutoCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Automatizar Chaturbate por completo (recomendado)</h3>
         <div class="meta-small" style="margin-bottom:12px;">Una sola vez por modelo: generá un token en <b>chaturbate.com/statsapi/authtoken/</b> (logueada en su cuenta) y pegalo acá. Desde ahí el sistema vigila su balance de tokens solo, cada 5 minutos, para siempre — incluye propinas, privados, spy, fan club y contenido, todo junto, sin que nadie tenga que exportar ni cargar nada nunca más.</div>
@@ -960,6 +971,7 @@
     ctbStatsResult: document.getElementById('ctbStatsResult'),
     ctbStatsList: document.getElementById('ctbStatsList'),
     modelAccountsList: document.getElementById('modelAccountsList'),
+    shiftConfirmList: document.getElementById('shiftConfirmList'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
     ceoUser: document.getElementById('ceoUser'),
@@ -1684,10 +1696,17 @@
     entrada: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     salida: '<path d="M14 4h5v16h-5"/><path d="M4 12h9M9.5 8.5 13 12l-3.5 3.5"/>',
     retraso: '<path d="M7 3h10M7 21h10"/><path d="M7 3c0 4 5 6 5 9s-5 5-5 9"/><path d="M17 3c0 4-5 6-5 9s5 5 5 9"/>',
+    transmitido: '<path d="M4 12a8 8 0 0 1 16 0"/><path d="M4 12a8 8 0 0 0 16 0" opacity="0.35"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
     problema: '<path d="M12 4 21 20H3z"/><path d="M12 10.5v4"/><circle cx="12" cy="17.4" r="0.9" fill="currentColor" stroke="none"/>',
     justificante: '<path d="M4 5h16v11H9l-4 4z"/><path d="M8 9h8M8 12.5h5"/>',
     estado: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   };
+
+  function attBcastHtml(d) {
+    if (d.broadcast_minutes == null) return '<span class="muted">—</span>';
+    const cls = d.broadcast_color ? ' att-bcast-' + d.broadcast_color : '';
+    return '<span class="att-bcast' + cls + '">' + attHorasMin(d.broadcast_minutes) + '</span>';
+  }
 
   function attTh(label, iconKey) {
     const paths = ATT_TH_ICONS[iconKey] || '';
@@ -1710,7 +1729,7 @@
   }
 
   function attTableHtml(days, withName, justifications) {
-    const cols = withName ? 8 : 7;
+    const cols = withName ? 9 : 8;
     if (!days || !days.length) {
       return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
     }
@@ -1720,6 +1739,7 @@
       + attTh('Entrada', 'entrada')
       + attTh('Salida', 'salida')
       + attTh('Retraso', 'retraso')
+      + attTh('Transmitido', 'transmitido')
       + attTh('Problemática', 'problema')
       + attTh('Justificante', 'justificante')
       + attTh('Estado', 'estado')
@@ -1748,12 +1768,23 @@
       } else {
         entrada = attHora(d.official_at);
       }
+      let salida;
+      if (!d.exit_at) {
+        salida = '<span class="muted">—</span>';
+      } else if (d.exit_source === 'auto') {
+        salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
+      } else if (d.exit_source === 'manual') {
+        salida = attHora(d.exit_at) + '<div class="att-sub">editado por admin</div>';
+      } else {
+        salida = attHora(d.exit_at);
+      }
       return '<tr>'
         + '<td class="num">' + attFechaCorta(d.work_date) + '</td>'
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
-        + '<td class="num">' + (d.exit_at ? attHora(d.exit_at) : '<span class="muted">—</span>') + '</td>'
+        + '<td class="num">' + salida + '</td>'
         + '<td class="num">' + attRetrasoHtml(d.late_minutes) + '</td>'
+        + '<td class="num">' + attBcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="att-just-col">' + textos + '</td>'
         + '<td>' + attEstadoHtml(d.status) + '</td>'
@@ -2053,9 +2084,17 @@
     el.newsList.innerHTML = posts.map(function (p, idx) {
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
       const isAviso = p.post_type === 'aviso';
-      const typeBadge = isAviso
-        ? '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--pink); border:1px solid rgba(255,64,129,0.3);">AVISO</span>'
-        : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>';
+      // El color (rosa=aviso, gris=hilo) lo ve cualquier rol siempre. Solo
+      // administrador puede además CAMBIAR el tipo despues de publicado —
+      // ahi el badge se vuelve un <select> funcional en vez de solo texto.
+      const typeBadge = isAdmin
+        ? '<select class="newsTypeSelect" data-post-id="' + p.id + '" style="background:rgba(255,255,255,0.06); color:' + (isAviso ? 'var(--pink)' : 'var(--muted)') + '; border:1px solid ' + (isAviso ? 'rgba(255,64,129,0.3)' : 'var(--border)') + '; border-radius:999px; font-size:10.5px; font-weight:700; letter-spacing:0.03em; padding:3px 8px; text-transform:uppercase; font-family:inherit;">'
+            + '<option value="hilo"' + (isAviso ? '' : ' selected') + '>HILO</option>'
+            + '<option value="aviso"' + (isAviso ? ' selected' : '') + '>AVISO</option>'
+          + '</select>'
+        : (isAviso
+            ? '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--pink); border:1px solid rgba(255,64,129,0.3);">AVISO</span>'
+            : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>');
       const commentsHtml = (p.comments || []).map(function (c) {
         const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
         const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_display_name || c.author_username);
@@ -2093,6 +2132,18 @@
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitNewsComment(input.getAttribute('data-post-id')); });
     });
     if (isAdmin) {
+      el.newsList.querySelectorAll('.newsTypeSelect').forEach(function (sel) {
+        sel.addEventListener('click', function (ev) { ev.stopPropagation(); });
+        sel.addEventListener('change', async function () {
+          const id = Number(sel.getAttribute('data-post-id'));
+          const type = sel.value;
+          const r = await fetch('/api/news/set-type', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, type }),
+          });
+          if (!r.ok) { const err = await r.json().catch(function () { return {}; }); alert(err.error || 'No se pudo cambiar el tipo'); }
+          refreshNews();
+        });
+      });
       el.newsList.querySelectorAll('.btnDeletePost').forEach(function (btn) {
         btn.addEventListener('click', async function () {
           if (!confirm('¿Eliminar esta noticia y todas sus respuestas?')) return;
@@ -2150,6 +2201,41 @@
   }
 
   el.btnNewsCreate.addEventListener('click', createNewsPost);
+
+  async function refreshShiftConfirmCard() {
+    const r = await fetch('/api/shifts');
+    if (!r.ok) return;
+    const data = await r.json();
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = (data.shifts || [])
+      .filter(function (s) { return s.claimed_by && s.shift_date >= today; })
+      .sort(function (a, b) { return (a.shift_date + a.start_time).localeCompare(b.shift_date + b.start_time); });
+    if (!upcoming.length) {
+      el.shiftConfirmList.innerHTML = '<div class="meta-small">No hay extras ni recuperaciones apuntadas próximamente.</div>';
+      return;
+    }
+    el.shiftConfirmList.innerHTML = upcoming.map(function (s) {
+      const horario = fmt12h(s.start_time) + (s.end_time ? ' – ' + fmt12h(s.end_time) : '');
+      const kindLabel = s.kind === 'recuperacion' ? 'Recuperación' : 'Extra';
+      let estado = '';
+      if (s.confirmed === true) estado = '<span class="att-pill validada">confirmó</span>';
+      else if (s.confirmation_sent_at) estado = '<span class="att-pill pendiente">esperando respuesta</span>';
+      return '<div class="admin-list-row">'
+        + '<span>' + escapeHtml(s.claimed_by) + ' — ' + attFechaCorta(s.shift_date) + ' ' + horario + ' (' + kindLabel + ') ' + estado + '</span>'
+        + '<button class="btn-primary shiftSendConfirm" data-id="' + s.id + '" style="font-size:11px; padding:5px 10px;">Enviar confirmación ahora</button>'
+        + '</div>';
+    }).join('');
+    el.shiftConfirmList.querySelectorAll('.shiftSendConfirm').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const r2 = await fetch('/api/shifts/send-confirmation', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: Number(btn.getAttribute('data-id')) }),
+        });
+        if (!r2.ok) { const err = await r2.json().catch(function () { return {}; }); alert(err.error || 'No se pudo enviar'); return; }
+        refreshShiftConfirmCard();
+      });
+    });
+  }
 
   async function refreshAdminAccounts() {
     const r = await fetch('/api/admins');
@@ -2495,8 +2581,17 @@
           const mine = isModel && s.claimed_by === currentUsername;
           const cls = mine ? 'mine' : 'taken';
           const statusCls = s.attendance_status === 'no_cumplio' ? ' no-cumplio' : (s.attendance_status === 'cumplio' ? ' cumplio' : '');
-          const label = mine ? (horario + ' · tú') : (horario + ' · ' + s.claimed_by);
-          return '<span class="shift-pill ' + cls + statusCls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '">' + label + kindTag + '</span>' + markRow;
+          const needsConfirm = mine && s.confirmation_sent_at && s.confirmed == null;
+          const label = mine
+            ? (horario + ' · tú' + (s.confirmed === true ? ' · confirmó' : ''))
+            : (horario + ' · ' + s.claimed_by);
+          const confirmRow = needsConfirm
+            ? '<div class="shift-mark-row">'
+              + '<span class="shift-mark-btn shift-mark-ok" data-confirm-id="' + s.id + '" data-confirm-val="si" title="Confirmar que sí la vas a tomar">Sí</span>'
+              + '<span class="shift-mark-btn shift-mark-bad" data-confirm-id="' + s.id + '" data-confirm-val="no" title="Avisar que no podrás tomarla">No</span>'
+              + '</div>'
+            : '';
+          return '<span class="shift-pill ' + cls + statusCls + '" data-id="' + s.id + '" data-state="' + (mine ? 'mine' : 'taken') + '">' + label + kindTag + '</span>' + markRow + confirmRow;
         }
         return '<span class="shift-pill open" data-id="' + s.id + '" data-state="open">' + horario + kindTag + '</span>';
       }).join('');
@@ -2522,13 +2617,22 @@
       });
     });
 
-    el.shiftsList.querySelectorAll('.shift-mark-btn').forEach(function (btn) {
+    el.shiftsList.querySelectorAll('.shift-mark-btn[data-id]').forEach(function (btn) {
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
         const id = btn.getAttribute('data-id');
         const status = btn.getAttribute('data-status');
         const alreadyActive = btn.classList.contains('is-active');
         markShiftAttendance(id, alreadyActive ? 'pendiente' : status);
+      });
+    });
+
+    el.shiftsList.querySelectorAll('[data-confirm-id]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        const id = btn.getAttribute('data-confirm-id');
+        const yes = btn.getAttribute('data-confirm-val') === 'si';
+        confirmShiftAction(id, yes);
       });
     });
 
@@ -2546,6 +2650,16 @@
       body: JSON.stringify({ id: Number(id), status: status }),
     });
     if (!r.ok) { const err = await r.json().catch(() => ({})); alert(err.error || 'No se pudo guardar'); }
+    lastShiftsHtml = null;
+    refreshShifts();
+  }
+
+  async function confirmShiftAction(id, yes) {
+    const r = await fetch('/api/shifts/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(id), confirm: yes }),
+    });
+    if (!r.ok) { const err = await r.json().catch(() => ({})); alert(err.error || 'No se pudo enviar tu respuesta'); }
     lastShiftsHtml = null;
     refreshShifts();
   }
@@ -2767,7 +2881,7 @@
     el.shiftCreateForm.style.display = canManageShifts ? 'block' : 'none';
     el.newsCreateCard.style.display = canManageShifts ? 'block' : 'none';
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
-    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbStatsStatus(); }
+    if (isAdmin) { refreshAdminAccounts(); refreshModelAccounts(); loadChaturbateExtraPeriods(); loadCtbStatsStatus(); refreshShiftConfirmCard(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 

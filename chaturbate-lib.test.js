@@ -537,3 +537,83 @@ describe('evaluateApiErrorBurst — blip horario vs racha real (regla del 2026-0
     assert.equal(last.isBurst, true);
   });
 });
+
+describe('studioInstantAfter', () => {
+  test('hora normal del mismo dia cuando es posterior a la referencia', () => {
+    const ms = lib.studioInstantAfter('2026-09-09', '15:30', '07:30');
+    assert.equal(lib.studioDateStr(ms), '2026-09-09');
+    assert.equal(lib.studioTimeStr(ms), '15:30');
+  });
+  test('hora igual o anterior a la referencia cae al dia siguiente (turno que cruza medianoche)', () => {
+    const ms = lib.studioInstantAfter('2026-09-09', '00:15', '16:00');
+    assert.equal(lib.studioDateStr(ms), '2026-09-10');
+    assert.equal(lib.studioTimeStr(ms), '00:15');
+  });
+});
+
+describe('shiftDurationMinutes', () => {
+  test('turno de mañana (07:30-15:30) da 8 horas', () => {
+    assert.equal(lib.shiftDurationMinutes('07:30', '15:30'), 480);
+  });
+  test('turno de tarde que cruza medianoche (16:00-00:00) también da 8 horas', () => {
+    assert.equal(lib.shiftDurationMinutes('16:00', '00:00'), 480);
+  });
+  test('sin alguna de las dos horas, devuelve null', () => {
+    assert.equal(lib.shiftDurationMinutes('16:00', null), null);
+    assert.equal(lib.shiftDurationMinutes(null, '16:00'), null);
+  });
+});
+
+describe('computeBroadcastSummary', () => {
+  const H = 3600000;
+  test('un start y un stop completos dentro de la ventana suman exacto', () => {
+    const events = [
+      { event_type: 'start', created_at: new Date(1000).toISOString() },
+      { event_type: 'stop', created_at: new Date(1000 + 2 * H).toISOString() },
+    ];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.onlineMinutes, 120);
+    assert.equal(r.maxGapMinutes, 0);
+  });
+  test('un stop sin start previo visible se cuenta desde el inicio de la ventana (ya venía transmitiendo)', () => {
+    const events = [{ event_type: 'stop', created_at: new Date(2 * H).toISOString() }];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.onlineMinutes, 120);
+  });
+  test('un start sin stop posterior se cierra al final de la ventana (sigue transmitiendo)', () => {
+    const events = [{ event_type: 'start', created_at: new Date(6 * H).toISOString() }];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.onlineMinutes, 120);
+  });
+  test('detecta el hueco más grande ENTRE dos segmentos, no antes del primero ni después del último', () => {
+    const events = [
+      { event_type: 'start', created_at: new Date(1 * H).toISOString() },
+      { event_type: 'stop', created_at: new Date(2 * H).toISOString() }, // sale
+      { event_type: 'start', created_at: new Date(2.75 * H).toISOString() }, // vuelve 45 min después
+      { event_type: 'stop', created_at: new Date(6 * H).toISOString() },
+    ];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.maxGapMinutes, 45);
+    assert.equal(r.onlineMinutes, (1 + 3.25) * 60);
+  });
+  test('sin eventos en la ventana, cero transmitido y cero hueco', () => {
+    const r = lib.computeBroadcastSummary([], 0, 8 * H);
+    assert.equal(r.onlineMinutes, 0);
+    assert.equal(r.maxGapMinutes, 0);
+  });
+});
+
+describe('classifyBroadcastColor', () => {
+  test('con extra ese día, siempre rosa aunque no haya cumplido el turno', () => {
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 10, maxGapMinutes: 200, shiftDurationMinutes: 480, hadExtra: true }), 'rosa');
+  });
+  test('turno normal cumplido de punta a punta, gris', () => {
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 480, maxGapMinutes: 0, shiftDurationMinutes: 480, hadExtra: false }), 'gris');
+  });
+  test('menos de su turno y un hueco de 30+ min, rojo', () => {
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 35, shiftDurationMinutes: 480, hadExtra: false }), 'rojo');
+  });
+  test('menos de su turno pero sin hueco grande, sin color especial', () => {
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 10, shiftDurationMinutes: 480, hadExtra: false }), null);
+  });
+});

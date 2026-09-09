@@ -444,6 +444,112 @@ function evaluateApiErrorBurst(recentTimestamps, now, windowMs, threshold) {
   return { timestamps: pruned, count: pruned.length, isBurst: pruned.length >= threshold };
 }
 
+// Instante real (ms) de una hora "HH:MM" en workDate, salvo que esa hora sea
+// igual o anterior a referenceTime (la entrada del turno) — ahi se asume que
+// cae al dia SIGUIENTE. Cubre el turno de la tarde (16:00-00:00, cruza
+// medianoche) y cualquier hora de salida escrita a mano que sea "antes" que
+// la entrada del mismo dia.
+function studioInstantAfter(workDate, timeStr, referenceTime) {
+  const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+  let d = workDate;
+  if (referenceTime != null && toMin(timeStr) <= toMin(referenceTime)) {
+    const dt = new Date(workDate + 'T00:00:00Z');
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    d = dt.toISOString().slice(0, 10);
+  }
+  return studioScheduledMs(d, timeStr);
+}
+
+// Duracion de un turno en minutos, entrada -> salida. Si la salida es igual o
+// anterior a la entrada (turno de la tarde: 16:00-00:00) se asume que cruza
+// medianoche, sumando 24h — asi "16:00" a "00:00" da 480 min (8h), no un
+// numero negativo.
+function shiftDurationMinutes(entryTime, exitTime) {
+  if (!entryTime || !exitTime) return null;
+  const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+  const e = toMin(entryTime);
+  const x = toMin(exitTime);
+  let diff = x - e;
+  if (diff <= 0) diff += 24 * 60;
+  return diff;
+}
+
+// ---- Horas transmitidas dentro de un turno (cb_broadcast_events) ----
+//
+// Reconstruye, a partir del historial de eventos start/stop de una modelo,
+// cuanto tiempo estuvo realmente transmitiendo dentro de una ventana de turno
+// [windowStartMs, windowEndMs), y el hueco de desconexion mas largo que tuvo
+// EN MEDIO de esa ventana (no cuenta el tiempo antes del primer start ni
+// despues del ultimo stop: eso ya lo cubre el retraso de entrada/salida en
+// otro lado, no es una "reconexion").
+//
+// events puede venir con mas rango del pedido a proposito (se recomienda
+// pedir con margen): un 'stop' que aparece antes de que haya un 'start'
+// visible significa que ya estaba transmitiendo desde antes de la ventana
+// pedida, asi que el segmento se abre desde windowStartMs; un 'start' sin
+// 'stop' posterior significa que seguia transmitiendo al cierre de la
+// ventana (o sigue en vivo ahora), asi que se cierra en windowEndMs.
+function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
+  if (windowStartMs == null || windowEndMs == null || windowEndMs <= windowStartMs) {
+    return { onlineMinutes: 0, maxGapMinutes: 0 };
+  }
+  const sorted = (events || [])
+    .map((e) => ({ type: e.event_type, ms: typeof e.created_at === 'number' ? e.created_at : Date.parse(e.created_at) }))
+    .filter((e) => Number.isFinite(e.ms) && (e.type === 'start' || e.type === 'stop'))
+    .sort((a, b) => a.ms - b.ms);
+
+  const segments = [];
+  let openStart = null;
+  for (const e of sorted) {
+    if (e.type === 'start') {
+      if (openStart == null) openStart = e.ms;
+    } else if (openStart != null) {
+      segments.push([openStart, e.ms]);
+      openStart = null;
+    } else {
+      segments.push([windowStartMs, e.ms]);
+    }
+  }
+  if (openStart != null) segments.push([openStart, windowEndMs]);
+
+  let onlineMs = 0;
+  const clipped = [];
+  for (const [s, e] of segments) {
+    const cs = Math.max(s, windowStartMs);
+    const ce = Math.min(e, windowEndMs);
+    if (ce > cs) {
+      clipped.push([cs, ce]);
+      onlineMs += ce - cs;
+    }
+  }
+  clipped.sort((a, b) => a[0] - b[0]);
+
+  let maxGapMs = 0;
+  for (let i = 1; i < clipped.length; i++) {
+    const gap = clipped[i][0] - clipped[i - 1][1];
+    if (gap > maxGapMs) maxGapMs = gap;
+  }
+
+  return { onlineMinutes: Math.round(onlineMs / 60000), maxGapMinutes: Math.round(maxGapMs / 60000) };
+}
+
+// Umbral de desconexion que cuenta como "problema real" (no un blip de unos
+// minutos) dentro de un turno — pedido explicito del usuario 2026-09-09.
+const BROADCAST_GAP_ALERT_MINUTES = 30;
+
+// Color de la celda "horas transmitidas" en la hoja de asistencia (pedido
+// 2026-09-09): rosa si ese dia tuvo una extra/recuperacion reclamada (gana
+// sobre cualquier otro criterio), gris apagado si cumplio el turno completo,
+// rojo si transmitio menos que su turno Y tuvo una desconexion real en medio.
+// Cualquier otro caso (menos de su turno pero sin hueco grande) no tiene
+// color especial: se muestra la hora sin marcar nada.
+function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMinutes, hadExtra }) {
+  if (hadExtra) return 'rosa';
+  if (shiftDurationMinutes != null && onlineMinutes >= shiftDurationMinutes) return 'gris';
+  if (maxGapMinutes >= BROADCAST_GAP_ALERT_MINUTES) return 'rojo';
+  return null;
+}
+
 module.exports = {
   MESES,
   STUDIO_UTC_OFFSET_HOURS,
@@ -484,4 +590,9 @@ module.exports = {
   API_ERROR_BURST_WINDOW_MS,
   API_ERROR_BURST_THRESHOLD,
   evaluateApiErrorBurst,
+  studioInstantAfter,
+  shiftDurationMinutes,
+  computeBroadcastSummary,
+  BROADCAST_GAP_ALERT_MINUTES,
+  classifyBroadcastColor,
 };
