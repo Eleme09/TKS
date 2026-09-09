@@ -251,6 +251,14 @@
     margin: 4px 0 24px; position: relative; animation: fadeUp .35s ease both; text-align: center;
   }
   .banner-icon { display: block; width: min(150px, 40%); height: auto; margin: 0 auto; overflow: visible; }
+  /* Frase motivacional que aparece/desaparece debajo del ícono, solo para
+     rol modelo — el ícono nunca desaparece, así no hay saltos de layout.
+     min-height reserva el renglón incluso vacía. */
+  .banner-phrase {
+    min-height: 16px; margin-top: 8px; text-align: center; font-size: 11.5px;
+    color: var(--muted); opacity: 0; transition: opacity .6s ease; padding: 0 12px;
+  }
+  .banner-phrase.show { opacity: 1; }
   .banner-icon [class^="icon-"], .banner-icon [class*=" icon-"] {
     fill: none; stroke: var(--pink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
     filter: drop-shadow(0 0 5px var(--pink)) drop-shadow(0 0 14px var(--pink-line));
@@ -564,6 +572,7 @@
           <path class="icon-main" d="M60 86 C 26 63, 10 42, 10 26 C 10 10, 24 2, 38 2 C 50 2, 60 10, 60 24 C 60 10, 70 2, 82 2 C 96 2, 110 10, 110 26 C 110 42, 94 63, 60 86 Z"/>
           <path class="icon-spark" d="M96 8 L98.5 14.5 L105 17 L98.5 19.5 L96 26 L93.5 19.5 L87 17 L93.5 14.5 Z"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
 
       <div class="card" id="summaryCard" style="display:none;">
@@ -615,6 +624,7 @@
           <path class="icon-main" d="M30 6 H90 M30 94 H90 M30 6 C30 40 60 44 60 50 C60 44 90 40 90 6 M30 94 C30 60 60 56 60 50 C60 56 90 60 90 94"/>
           <circle class="icon-drip" cx="60" cy="50" r="2.6"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
       <div class="card" id="shiftsCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Extras</h3>
@@ -676,6 +686,7 @@
           <circle class="icon-coin c3" cx="90" cy="40" r="20"/>
           <path class="icon-spark" d="M90 4 L92.5 10.5 L99 13 L92.5 15.5 L90 22 L87.5 15.5 L81 13 L87.5 10.5 Z"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
 
       <div class="card">
@@ -696,6 +707,7 @@
           <path class="icon-main" d="M14 16 H106 V64 H52 L28 84 V64 H14 Z"/>
           <path class="icon-spark" d="M100 4 L102.5 10.5 L109 13 L102.5 15.5 L100 22 L97.5 15.5 L91 13 L97.5 10.5 Z"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
       <div class="card" id="newsCreateCard" style="display:none;">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Publicar noticia</h3>
@@ -721,6 +733,7 @@
           <path class="icon-hand" d="M60 30 V52 L76 62"/>
           <path class="icon-spark" d="M100 8 L102.5 14.5 L109 17 L102.5 19.5 L100 26 L97.5 19.5 L91 17 L97.5 14.5 Z"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
 
       <div id="attRetrasoPanel" class="att-warning" style="display:none;"></div>
@@ -855,6 +868,7 @@
           <rect class="icon-body" x="24" y="46" width="72" height="46" rx="12"/>
           <path class="icon-heart-cut" d="M60 60 C 55 54, 46 55, 46 63 C 46 70, 60 80, 60 80 C 60 80, 74 70, 74 63 C 74 55, 65 54, 60 60 Z"/>
         </svg>
+        <div class="banner-phrase"></div>
       </div>
       <div class="card" id="displayNameCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Mi nombre en Noticias</h3>
@@ -1107,13 +1121,51 @@
   let sessionGen = 0; // se incrementa en cada login/logout; las respuestas de una sesion vieja se descartan
   let lastModelsHtml = null; // evita reconstruir el DOM (y parpadear la animacion de entrada) cuando el refresco cada 4s no trae cambios reales
   let lastShiftsHtml = null;
+  let currentTabName = 'modelos';
 
   const tabButtons = document.querySelectorAll('.tabbtn');
   const tabPanels = { modelos: document.getElementById('tab-modelos'), horas: document.getElementById('tab-horas'), desprendibles: document.getElementById('tab-desprendibles'), noticias: document.getElementById('tab-noticias'), asistencia: document.getElementById('tab-asistencia'), cuentas: document.getElementById('tab-cuentas') };
   const tabBtnCuentas = document.getElementById('tabBtnCuentas');
   const tabBtnModelos = document.getElementById('tabBtnModelos');
 
+  // Frase motivacional que aparece/desaparece debajo del ícono de la pestaña
+  // activa, solo para rol modelo (pedido 2026-09-09). El ícono nunca
+  // desaparece — solo el texto de abajo entra y sale con fade, así no hay
+  // saltos de layout en móvil.
+  const BANNER_PHRASES = [
+    'Tu esfuerzo de hoy se nota.',
+    'Un día más, un paso más adelante.',
+    'Sos una pieza clave de este estudio.',
+    'Seguí así, vas por buen camino.',
+    'Gracias por tu compromiso.',
+    'Hoy también podés dar lo mejor de vos.',
+    'Cada turno cuenta — y el tuyo también.',
+  ];
+  let bannerPhraseTimer = null;
+  function bannerPhraseTick() {
+    if (currentRole !== 'modelo') return;
+    const panel = tabPanels[currentTabName];
+    const el2 = panel && panel.querySelector('.banner-phrase');
+    if (!el2) return;
+    el2.classList.remove('show');
+    setTimeout(function () {
+      el2.textContent = BANNER_PHRASES[Math.floor(Math.random() * BANNER_PHRASES.length)];
+      el2.classList.add('show');
+    }, 650);
+  }
+  function startBannerPhraseRotation() {
+    stopBannerPhraseRotation();
+    if (currentRole !== 'modelo') return;
+    bannerPhraseTick();
+    bannerPhraseTimer = setInterval(bannerPhraseTick, 9000);
+  }
+  function stopBannerPhraseRotation() {
+    if (bannerPhraseTimer) { clearInterval(bannerPhraseTimer); bannerPhraseTimer = null; }
+    document.querySelectorAll('.banner-phrase').forEach(function (p) { p.classList.remove('show'); });
+  }
+
   function switchTab(name) {
+    currentTabName = name;
     Object.keys(tabPanels).forEach(function (k) {
       const panel = tabPanels[k];
       if (k === name) {
@@ -2898,6 +2950,7 @@
     refreshShifts();
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function () { refresh(); refreshShifts(); }, 4000);
+    startBannerPhraseRotation();
   }
 
   function showLogin() {
@@ -2907,6 +2960,7 @@
     formOpenDecided = false;
     lastModelsHtml = null;
     lastShiftsHtml = null;
+    stopBannerPhraseRotation();
     auditLoaded = false;
     el.auditList.textContent = 'Cargando…';
     if (el.auditDetails.open) el.auditDetails.open = false;

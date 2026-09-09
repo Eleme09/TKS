@@ -1712,12 +1712,35 @@ social) — siguen siendo dos paneles separados con propósitos distintos: uno
 es el estado general de cada visita, el otro es la consecuencia real de
 cruzar el umbral configurado. Los dos pueden aparecer a la vez si
 corresponde.
-**Pendiente, discutido pero NO implementado todavía:** el usuario propuso
-que el ícono decorativo de cada pestaña (`.banner-icon`) alterne cada
-ciertos segundos con una frase motivacional random, para todas las
-pestañas del rol modelo. Se le dio una recomendación en el chat (no
-en código) — antes de construirlo, confirmar con el usuario el enfoque
-elegido (ver la respuesta de esa conversación si hace falta retomarlo).
+**Frase motivacional rotando bajo el ícono de cada pestaña — implementado
+2026-09-09, misma noche.** El usuario propuso que el ícono decorativo
+desapareciera y una frase ocupara su lugar; se le hizo ver el problema real
+(el ícono da identidad visual a cada pestaña, y hacerlo desaparecer+la
+frase ocupando el mismo hueco corre el layout cada vez que cambia, sobre
+todo en móvil) y se ofrecieron 3 alternativas — **el usuario eligió: ícono
+SIEMPRE fijo, frase chica debajo con fade in/out, sin sacar nada del
+diseño existente.**
+- `.banner-phrase` (un `<div>` nuevo, vacío, agregado dentro de CADA uno de
+  los 6 `.section-banner` — Modelos/Extras/Desprendibles/Noticias/
+  Asistencia/Cuentas — justo después del `<svg class="banner-icon">`).
+  `min-height:16px` reserva el renglón siempre, así ni con la frase vacía
+  hay salto de layout; `opacity` con `transition .6s` para el fade.
+- `BANNER_PHRASES` (7 frases genéricas, `index.html`) — **distinto** del
+  array `ATT_GOOD_PHRASES` del panel de retraso: estas son de propósito
+  general (no hablan de horario), pensadas para cualquier pestaña.
+- `startBannerPhraseRotation()`/`bannerPhraseTick()`/
+  `stopBannerPhraseRotation()`: arrancan/paran junto con `pollTimer`
+  (login/logout, mismo patrón). El tick corre cada 9s, saca la clase
+  `.show` (fade out), y 650ms después pone una frase nueva al azar y
+  vuelve a poner `.show` (fade in) — **solo si `currentRole === 'modelo'`**,
+  administrador/CEO nunca ven esto. `currentTabName` (variable nueva,
+  actualizada dentro de `switchTab`) le dice al tick en qué pestaña
+  buscar el `.banner-phrase` a animar — así sigue a la modelo si cambia de
+  pestaña sin reiniciar el ciclo.
+- Verificado con Playwright: la frase aparece bajo el ícono de Modelos,
+  y al cambiar a Extras (el ícono del reloj de arena, sin tocarlo) aparece
+  una frase nueva ahí después del siguiente ciclo — confirma que sigue a
+  la pestaña activa correctamente.
 
 ## How this user likes to work
 
