@@ -19,7 +19,6 @@ const {
   studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
   computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
-  ATTENDANCE_GRACE_MINUTES, applyLateGrace,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
@@ -3003,13 +3002,8 @@ const server = http.createServer(async (req, res) => {
       const hers = schedule.find((s) => s.username === day.username);
       if (hers) scheduledMs = studioScheduledMs(day.work_date, hers.entry_time);
     }
-    // El margen de tolerancia se aplica ACA, en el servidor: lo que se guarda
-    // y lo que viaja al navegador es el retraso ya ajustado. El margen en si
-    // nunca sale de aca (ver la nota en chaturbate-lib.js). El dato crudo se
-    // puede recalcular siempre con scheduled_at y official_at, que quedan
-    // guardados los dos.
-    const rawLateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
-    const lateMinutes = applyLateGrace(rawLateMinutes, ATTENDANCE_GRACE_MINUTES);
+    // Hora normal, sin ningun margen interno (eliminado 2026-09-10).
+    const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
     const updated = await sbUpdateAttendanceDay(id, {
       status: 'validada',
       scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
@@ -3161,11 +3155,10 @@ const server = http.createServer(async (req, res) => {
 
     if (entryTime) {
       const officialMs = studioScheduledMs(workDate, entryTime);
-      const rawLateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
       patch.official_at = new Date(officialMs).toISOString();
       patch.official_source = 'reportada';
       patch.reported_at = new Date(officialMs).toISOString();
-      patch.late_minutes = applyLateGrace(rawLateMinutes, ATTENDANCE_GRACE_MINUTES);
+      patch.late_minutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
     }
     if (exitTime) {
       const refEntry = entryTime || (hers ? hers.entry_time : null);

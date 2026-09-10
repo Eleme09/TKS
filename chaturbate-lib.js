@@ -317,31 +317,9 @@ function shiftLabel(id, entryTime, exitTime) {
   return exit ? 'Personalizado (' + entry + '–' + exit + ')' : 'Personalizado (' + entry + ')';
 }
 
-// ---------------------------------------------------------------------------
-// CONFIDENCIAL — margen de tolerancia al entrar.
-//
-// Los primeros 12 minutos de cada turno no cuentan como retraso: nadie llega
-// al minuto exacto. Pasado ese margen, el retraso empieza a contar desde ahi
-// (llegar 20 minutos tarde cuenta como 8, no como 20).
-//
-// **Esto no puede aparecer en NINGUN texto de la web.** El usuario lo pidio
-// asi explicitamente: si las modelos supieran del margen, llegarian tarde a
-// proposito los 12 minutos. No lo pongas en la interfaz, ni en mensajes de
-// error, ni lo mandes en la respuesta de la API — se aplica en el servidor y
-// lo que viaja al navegador es unicamente el numero ya ajustado.
-//
-// El dato crudo no se pierde: `scheduled_at` y `official_at` quedan guardados
-// en cb_attendance_days, asi que el retraso real siempre se puede recalcular.
-// ---------------------------------------------------------------------------
-const ATTENDANCE_GRACE_MINUTES = 12;
-
-function applyLateGrace(rawLateMinutes, graceMinutes) {
-  if (rawLateMinutes == null) return null;
-  // Llegar temprano o justo se conserva tal cual; el margen solo perdona
-  // retraso, no convierte un adelanto en otra cosa.
-  if (rawLateMinutes <= 0) return rawLateMinutes;
-  return Math.max(0, rawLateMinutes - (graceMinutes || 0));
-}
+// El margen de tolerancia de 12 min que existia aca fue eliminado a pedido
+// del usuario (2026-09-10): el retraso ahora es SIEMPRE hora normal, sin
+// ningun ajuste interno — computeLateMinutes ya es el numero final.
 
 // Deuda por retraso: se cobra por HORA ALCANZADA, no proporcional. 59 minutos
 // de retraso acumulado no deben nada; a los 60 se debe una hora completa.
@@ -564,8 +542,6 @@ module.exports = {
   SHIFT_NO_SHOW_LIMIT,
   isShiftClaimBlocked,
   ATTENDANCE_SHIFTS,
-  ATTENDANCE_GRACE_MINUTES,
-  applyLateGrace,
   normalizeClock,
   shiftById,
   shiftFromTimes,

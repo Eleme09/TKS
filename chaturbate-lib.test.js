@@ -449,31 +449,14 @@ describe('asistencia — el turno de la tarde cruza medianoche', () => {
   });
 });
 
-describe('asistencia — margen de tolerancia al entrar (confidencial, ver chaturbate-lib.js)', () => {
-  const G = lib.ATTENDANCE_GRACE_MINUTES;
-  test('llegar dentro del margen no cuenta como retraso', () => {
-    assert.equal(lib.applyLateGrace(5, G), 0);
-    assert.equal(lib.applyLateGrace(G, G), 0);
+describe('asistencia — sin margen de tolerancia, hora normal (eliminado 2026-09-10)', () => {
+  test('una hora de deuda se alcanza a los 60 min exactos de retraso, sin ningún ajuste', () => {
+    assert.equal(lib.lateDebtCop(59, 10000), 0);
+    assert.equal(lib.lateDebtCop(60, 10000), 10000);
   });
-  test('pasado el margen, el retraso cuenta desde ahí, no desde la hora del turno', () => {
-    assert.equal(lib.applyLateGrace(20, G), 8);
-    assert.equal(lib.applyLateGrace(75, G), 63);
-  });
-  test('llegar temprano se conserva tal cual: el margen solo perdona retraso', () => {
-    assert.equal(lib.applyLateGrace(-30, G), -30);
-    assert.equal(lib.applyLateGrace(0, G), 0);
-  });
-  test('sin dato de retraso sigue sin haberlo', () => {
-    assert.equal(lib.applyLateGrace(null, G), null);
-  });
-  test('el margen es un parámetro: con 0 el retraso queda crudo', () => {
-    assert.equal(lib.applyLateGrace(20, 0), 20);
-  });
-  test('una hora de deuda recién se alcanza pasado el margen', () => {
-    // 71 min de retraso real -> 59 efectivos -> todavía no hay hora cobrada
-    assert.equal(lib.lateDebtCop(lib.applyLateGrace(71, G), 10000), 0);
-    // 72 min de retraso real -> 60 efectivos -> una hora
-    assert.equal(lib.lateDebtCop(lib.applyLateGrace(72, G), 10000), 10000);
+  test('applyLateGrace ya no existe en el módulo', () => {
+    assert.equal(lib.applyLateGrace, undefined);
+    assert.equal(lib.ATTENDANCE_GRACE_MINUTES, undefined);
   });
 });
 

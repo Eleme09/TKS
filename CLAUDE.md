@@ -1114,27 +1114,15 @@ las horas, para que el botón no dependa de que el navegador las mande bien) o
 escritas a mano coinciden con un turno, se guarda como ese turno. El turno de
 la tarde **cruza medianoche**, que es justo el caso que `pickWorkDate` cubre.
 
-### ⚠ CONFIDENCIAL — margen de tolerancia de entrada
+### Margen de tolerancia de entrada — ELIMINADO (2026-09-10, ver sección al final del archivo)
 
-`ATTENDANCE_GRACE_MINUTES = 12` en `chaturbate-lib.js`. Los primeros 12
-minutos de cada turno no cuentan como retraso; pasado ese margen el retraso
-cuenta desde ahí (llegar 20 tarde cuenta como 8, no como 20).
-
-**Esto NO puede aparecer en ningún texto de la web.** El usuario lo pidió así
-explícitamente: si las modelos supieran del margen, llegarían tarde a
-propósito esos 12 minutos. No lo pongas en la interfaz, ni en mensajes de
-error, ni lo mandes en la respuesta de la API — se aplica en `server.js` al
-validar y lo que viaja al navegador es únicamente el número ya ajustado.
-Verificado que no aparece en `public/` ni en ninguna respuesta.
-
-**Límite honesto que el usuario debe saber:** una modelo que sepa su hora de
-turno y vea su propio retraso puede restar y deducir el margen (llega 4:20,
-la app le muestra 8 minutos → dedujo los 12). No hay forma de mostrar un
-número consistente y a la vez esconder del todo la resta. Lo que sí está
-garantizado es que en ningún lado se lo decimos.
-
-El dato crudo no se pierde: `scheduled_at` y `official_at` quedan guardados
-en `cb_attendance_days`, así que el retraso real siempre se recalcula.
+Esta sección documentaba un margen de 12 minutos que perdonaba los primeros
+minutos de retraso de cada turno. **Ya no existe** — el usuario pidió
+quitarlo explícitamente, hora normal desde el minuto 1. `ATTENDANCE_GRACE_MINUTES`
+y `applyLateGrace` fueron borrados de `chaturbate-lib.js`, no solo puestos en
+0 — no queda ningún mecanismo de margen en el código. Detalle completo del
+cambio (y de la migración de datos que hizo falta) en la sección dedicada al
+final de este archivo.
 
 **La salida la anota ella y no se valida** (decisión explícita del usuario).
 
@@ -1863,6 +1851,64 @@ si este tipo de push (3 en 15 min, distintas modelos, autorecuperado) se
 vuelve frecuente y empieza a sentirse como ruido, ahí sí valdría la pena
 ajustar el umbral o la ventana — hoy, con una sola ocurrencia en varios
 días, no amerita tocar nada.
+
+## Eliminado el margen de tolerancia de 12 min en Asistencia — hora normal (2026-09-10)
+
+Pedido explícito: "Eliminaremos los 12 min internos que tenemos en el
+horario, hora normal. 7:30 - 3:30" + "Y el de la tarde igual y acomodame
+los horarios de acuerdo a este nuevo tiempo". Los turnos en sí **no
+cambiaron** (Mañana 07:30–15:30, Tarde 16:00–00:00 — ya eran esos horarios,
+el usuario los citó para confirmar cuál turno). Lo que se pidió eliminar es
+el margen de gracia de 12 minutos que perdonaba el inicio de cada turno
+(documentado hasta ahora como "⚠ CONFIDENCIAL" más arriba en este archivo)
+— y aplica a los DOS turnos por igual, porque el margen era un único
+parámetro global (`ATTENDANCE_GRACE_MINUTES`), nunca algo por-turno.
+
+**No se dejó en 0 como parámetro — se borró el mecanismo entero:**
+`ATTENDANCE_GRACE_MINUTES` y `applyLateGrace()` ya no existen en
+`chaturbate-lib.js` (antes vivían justo después de `ATTENDANCE_SHIFTS`).
+`server.js` ya no los importa; los dos call sites que los usaban
+(`/api/attendance/validate` y `/api/attendance/day/edit`) ahora guardan
+`late_minutes` directamente desde `computeLateMinutes(officialMs,
+scheduledMs)`, sin ningún ajuste después. Se eligió borrar en vez de
+poner el parámetro en 0 porque dejar viva una función/constante y toda la
+sección "CONFIDENCIAL" de este archivo para un margen que ya no existe es
+exactamente el tipo de código muerto que este proyecto ya se propuso evitar
+(ver "Limpieza de código muerto" del 2026-09-09) — y la propia razón de ser
+confidencial (que las modelos no dedujeran el margen) deja de aplicar si el
+margen no existe.
+
+**Migración de datos — la parte que hacía falta para que "cuente" de
+verdad ahora mismo, no solo hacia adelante.** `late_minutes` en
+`cb_attendance_days` es un valor que se CALCULA UNA VEZ al validar y se
+GUARDA — no se recalcula en cada lectura. Eso significa que las 18 filas ya
+validadas de la quincena en curso (2026-09-08 a 2026-09-10 al momento del
+cambio) tenían el retraso viejo horneado adentro con los 12 min ya
+restados (ej. un retraso real de 19 min guardado como 7). Se corrigieron
+las 18 con una sola consulta SQL directa contra Supabase:
+`update cb_attendance_days set late_minutes =
+round(extract(epoch from (official_at - scheduled_at))/60)::int where
+scheduled_at is not null and official_at is not null;` — usa exactamente
+`scheduled_at`/`official_at`, los dos timestamps crudos que la sección de
+arriba ya garantizaba que nunca se perdían, así que no fue necesario
+reconstruir nada a mano. Verificado fila por fila antes y después
+(ej. id 48 abigail_f00x: guardado 7 → recalculado 19; id 39 kitty_f00x:
+guardado 6 → recalculado 18 — la diferencia es siempre +12 para los que
+tenían retraso real por encima del margen, y sin cambio para los que
+llegaron temprano). Esto solo tocó la quincena en curso porque es la única
+con filas en la tabla — no hubo que decidir un corte de fecha, no había
+historia más vieja que arrastrar.
+
+Probado end-to-end contra el Supabase real (`SOLO_UI=1`, puerto 3013,
+cuentas `qa_temp_grace`/`qa_temp_adminG`, turno Mañana asignado, borradas
+al terminar): un reporte con 32 min de retraso real validó con
+`late_minutes: 32` (antes hubiera dado 20), y una hora cargada a mano por
+admin 5 minutos tarde vía `/api/attendance/day/edit` guardó
+`late_minutes: 5` (antes hubiera dado 0). `npm test`: 101/101 (se borraron
+los tests que verificaban el comportamiento del margen — ya no aplica — y
+se agregó uno que confirma que `applyLateGrace`/`ATTENDANCE_GRACE_MINUTES`
+ya no existen en el módulo, para que una reintroducción accidental no pase
+desapercibida).
 
 ## How this user likes to work
 
