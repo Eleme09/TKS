@@ -21,7 +21,7 @@ const {
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
-  studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
+  studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor, intervalsOverlap,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1045,9 +1045,21 @@ async function buildAttendancePayload(session) {
   ]);
   const eventsByUser = {};
   for (const e of broadcastEvents) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
-  const extraDates = new Set();
+  // Antes esto era "username|fecha" nada mas, asi que una recuperacion en la
+  // TARDE pintaba de rosa (sin juzgar) tambien el turno de la MAÑANA del
+  // mismo dia, aunque sean bloques de horario totalmente distintos. Ahora se
+  // guarda el rango real de cada extra/recuperacion y mas abajo se exige que
+  // se solape con la ventana del turno que se esta clasificando — mismo dia
+  // ya no alcanza, tiene que ser el mismo bloque de horas.
+  const extraWindowsByKey = {};
   for (const s of allShiftsForBroadcast) {
-    if (s.claimed_by && (s.kind === 'extra' || s.kind === 'recuperacion')) extraDates.add(s.claimed_by + '|' + s.shift_date);
+    if (!s.claimed_by || (s.kind !== 'extra' && s.kind !== 'recuperacion')) continue;
+    const startMs = studioScheduledMs(s.shift_date, s.start_time);
+    if (startMs == null) continue;
+    const durMin = shiftDurationMinutes(s.start_time, s.end_time);
+    const endMs = durMin != null ? startMs + durMin * 60000 : startMs;
+    const key = s.claimed_by + '|' + s.shift_date;
+    (extraWindowsByKey[key] = extraWindowsByKey[key] || []).push([startMs, endMs]);
   }
   for (const d of days) {
     const hers = scheduleByUser[d.username];
@@ -1058,7 +1070,8 @@ async function buildAttendancePayload(session) {
     const windowEnd = Math.min(windowStart + durationMin * 60000, now);
     if (windowEnd <= windowStart) continue;
     const summary = computeBroadcastSummary(eventsByUser[d.username] || [], windowStart, windowEnd);
-    const hadExtra = extraDates.has(d.username + '|' + d.work_date);
+    const extraWindows = extraWindowsByKey[d.username + '|' + d.work_date] || [];
+    const hadExtra = extraWindows.some(([s, e]) => intervalsOverlap(s, e, windowStart, windowEnd));
     d.broadcast_minutes = summary.onlineMinutes;
     d.broadcast_color = classifyBroadcastColor({
       onlineMinutes: summary.onlineMinutes, maxGapMinutes: summary.maxGapMinutes,

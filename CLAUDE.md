@@ -1910,6 +1910,61 @@ se agregó uno que confirma que `applyLateGrace`/`ATTENDANCE_GRACE_MINUTES`
 ya no existen en el módulo, para que una reintroducción accidental no pase
 desapercibida).
 
+## Dos bugs de Asistencia reportados con captura real (2026-09-10)
+
+El usuario mandó una captura de `asistencia.html` preguntando por qué el
+"25 min" de horas transmitidas de `tamar4_f00x` salía en rosa, y aparte
+reportó que modelos que llegan justo a su hora (ej. las 4:00 en punto)
+quedaban marcadas con 1 minuto de retraso — pidió corregir el mismo
+problema para las de la mañana también.
+
+**Bug 1 — retraso redondeado hacia arriba/abajo por segundos, no minutos
+completos.** `computeLateMinutes` usaba `Math.round`. Caso real encontrado
+en `cb_attendance_days`: `conni_f00x` (turno tarde) llegó 46.977 segundos
+después de su hora — `Math.round(46.977/60) = 1`, quedó guardada con "1
+minuto de retraso" cuando en la práctica llegó puntual. Mismo problema al
+revés con `tamar4_f00x` (turno mañana): llegó 33.141 segundos ANTES de su
+hora y quedó en "-1" en vez de 0. **Cambiado a `Math.trunc`**: solo cuenta
+minutos COMPLETOS transcurridos, en cualquiera de los dos sentidos —
+consistente con cómo ya se cobra la deuda (por hora ALCANZADA, no
+redondeada, ver `lateDebtHours`). `Math.trunc` de un valor negativo entre
+-1 y 0 da `-0`; se normalizó con `|| 0` para que nunca se vea ni se compare
+un cero negativo. Como `late_minutes` se calcula una vez y se guarda (mismo
+problema que la sección anterior), se corrigieron con SQL directo las 18
+filas ya validadas: `update cb_attendance_days set late_minutes =
+trunc(extract(epoch from (official_at - scheduled_at))/60)::int where
+scheduled_at is not null and official_at is not null;` — `conni_f00x`
+2026-09-08 pasó de 1 a 0, `tamar4_f00x` 2026-09-08 pasó de -1 a 0, y de
+paso varios otros valores bajaron 1 minuto por el mismo cambio de redondeo
+a truncado (ej. kitty_f00x 13→12) — no son casos sueltos, es el mismo fix
+aplicado parejo a todos los valores, no solo a los que rozan el minuto
+exacto.
+
+**Bug 2 — el rosa de "horas transmitidas" se decidía solo por FECHA, no por
+HORARIO.** `hadExtra` (en `classifyBroadcastColor`) se armaba con un
+`Set` de `username|fecha` sacado de `cb_shifts` — cualquier extra o
+recuperación reclamada ESE DÍA pintaba de rosa (sin juzgar) la fila
+completa, sin importar a qué hora era esa extra. Caso real: `tamar4_f00x`
+tenía una recuperación reclamada para el 2026-09-10 de 16:00 a 20:00
+(turno tarde) — su turno normal de MAÑANA (07:30-15:30) del mismo día
+salía en rosa por esa recuperación, aunque son bloques de horario que no
+se tocan para nada. Fix: nueva función pura `intervalsOverlap(aStart,
+aEnd, bStart, bEnd)` en `chaturbate-lib.js` (con tests, incluyendo el caso
+real de tamar4_f00x reproducido exacto); `server.js` ahora guarda el rango
+real (`start_time`/`end_time` convertidos a ms) de cada extra/recuperación
+reclamada por `username|fecha`, y `hadExtra` exige que ese rango se
+solape con la ventana del turno que se está clasificando — mismo día ya
+no alcanza, tiene que ser el mismo bloque de horas. Verificado en vivo
+(`SOLO_UI=1`, puerto 3014, cuenta `qa_temp_bcheck`, borrada al terminar):
+antes del fix el turno de mañana de tamar4_f00x del 2026-09-10 daba
+`broadcast_color: "rosa"`, después del fix da `null` (se juzga con el
+criterio normal, que es lo correcto ya que a esa hora su recuperación de
+tarde ni siquiera había empezado).
+
+`npm test`: 107/107. No hizo falta migrar datos para el bug 2 —
+`broadcast_color` se calcula en cada lectura de `/api/attendance`, nunca
+se guarda, así que el fix aplica solo con el redeploy.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

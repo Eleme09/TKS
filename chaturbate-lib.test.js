@@ -280,6 +280,22 @@ describe('asistencia — cálculo de retraso y acumulado', () => {
   test('sin hora oficial todavía: null, no 0 (0 sería "llegó puntual", que es distinto)', () => {
     assert.equal(lib.computeLateMinutes(null, 123), null);
   });
+  test('bug real 2026-09-10: llegar 47 segundos tarde NO cuenta como 1 minuto de retraso', () => {
+    // conni_f00x, turno tarde, 2026-09-08: official_at 46.977s despues del
+    // horario -> con Math.round quedaba guardado como 1 minuto de retraso.
+    const scheduled = lib.studioScheduledMs('2026-09-08', '16:00');
+    assert.equal(lib.computeLateMinutes(scheduled + 46977, scheduled), 0);
+  });
+  test('mismo bug, llegando temprano: 33 segundos antes NO cuenta como 1 minuto temprano', () => {
+    // tamar4_f00x, turno mañana, 2026-09-08: official_at 33.141s antes del
+    // horario -> con Math.round quedaba guardado como -1.
+    const scheduled = lib.studioScheduledMs('2026-09-08', '07:30');
+    assert.equal(lib.computeLateMinutes(scheduled - 33141, scheduled), 0);
+  });
+  test('pasado un minuto completo, sí cuenta (no se perdonan minutos enteros)', () => {
+    const scheduled = lib.studioScheduledMs('2026-09-08', '16:00');
+    assert.equal(lib.computeLateMinutes(scheduled + 62748, scheduled), 1);
+  });
   test('el acumulado solo suma retrasos; llegar temprano no borra un retraso anterior', () => {
     const days = [
       { status: 'validada', late_minutes: 30 },
@@ -583,6 +599,22 @@ describe('computeBroadcastSummary', () => {
     const r = lib.computeBroadcastSummary([], 0, 8 * H);
     assert.equal(r.onlineMinutes, 0);
     assert.equal(r.maxGapMinutes, 0);
+  });
+});
+
+describe('intervalsOverlap — bug real 2026-09-10: recuperación de tarde pintaba de rosa el turno de mañana', () => {
+  test('tamar4_f00x: recuperación tarde (16:00-20:00) NO se solapa con su turno mañana (07:30-15:30)', () => {
+    const manana = [lib.studioScheduledMs('2026-09-10', '07:30'), lib.studioScheduledMs('2026-09-10', '15:30')];
+    const tarde = [lib.studioScheduledMs('2026-09-10', '16:00'), lib.studioScheduledMs('2026-09-10', '20:00')];
+    assert.equal(lib.intervalsOverlap(tarde[0], tarde[1], manana[0], manana[1]), false);
+  });
+  test('una extra que sí cae dentro del turno evaluado, se solapa', () => {
+    const turno = [lib.studioScheduledMs('2026-09-10', '07:30'), lib.studioScheduledMs('2026-09-10', '15:30')];
+    const extra = [lib.studioScheduledMs('2026-09-10', '09:00'), lib.studioScheduledMs('2026-09-10', '11:00')];
+    assert.equal(lib.intervalsOverlap(extra[0], extra[1], turno[0], turno[1]), true);
+  });
+  test('rangos que apenas se tocan en el borde no cuentan como solapados', () => {
+    assert.equal(lib.intervalsOverlap(0, 100, 100, 200), false);
   });
 });
 

@@ -243,9 +243,19 @@ function studioScheduledMs(workDate, entryTime) {
 }
 
 // Minutos de retraso: positivo = llego tarde, negativo = llego temprano.
+// Math.trunc, NO Math.round: solo cuenta minutos COMPLETOS transcurridos, en
+// cualquiera de los dos sentidos. Con round, llegar 47 segundos tarde (0.78
+// min) redondeaba a "1 minuto de retraso" para alguien que en la practica
+// llego puntual — mismo problema al reves, 33 segundos temprano marcaba "-1
+// minuto". trunc(0.78) = 0 y trunc(-0.55) = 0, que es lo correcto: no ha
+// pasado ni un minuto completo todavia. Consistente con como ya se cobra la
+// deuda (por HORA alcanzada, no redondeada) — ver lateDebtHours mas abajo.
 function computeLateMinutes(officialMs, scheduledMs) {
   if (officialMs == null || scheduledMs == null) return null;
-  return Math.round((officialMs - scheduledMs) / 60000);
+  // El "|| 0" normaliza un -0 (llegar unos segundos temprano trunca a -0) a
+  // un 0 limpio — mismo valor en cualquier comparacion o al mostrarlo, pero
+  // evita el signo negativo raro si algo lo imprime directo.
+  return Math.trunc((officialMs - scheduledMs) / 60000) || 0;
 }
 
 // A que dia laboral pertenece una llegada.
@@ -515,12 +525,24 @@ function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
 // minutos) dentro de un turno — pedido explicito del usuario 2026-09-09.
 const BROADCAST_GAP_ALERT_MINUTES = 30;
 
+// Si dos rangos de tiempo se solapan. Usado para decidir si una extra/
+// recuperacion reclamada realmente cae DENTRO de la ventana del turno que se
+// esta clasificando (ver hadExtra en classifyBroadcastColor) — antes de
+// 2026-09-10 esto se decidia solo por fecha, asi que una recuperacion de
+// tarde pintaba de rosa (sin juzgar) tambien el turno de mañana del mismo
+// dia, aunque fueran bloques de horario totalmente distintos.
+function intervalsOverlap(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
 // Color de la celda "horas transmitidas" en la hoja de asistencia (pedido
-// 2026-09-09): rosa si ese dia tuvo una extra/recuperacion reclamada (gana
-// sobre cualquier otro criterio), gris apagado si cumplio el turno completo,
-// rojo si transmitio menos que su turno Y tuvo una desconexion real en medio.
-// Cualquier otro caso (menos de su turno pero sin hueco grande) no tiene
-// color especial: se muestra la hora sin marcar nada.
+// 2026-09-09): rosa si el turno se solapa con una extra/recuperacion
+// reclamada (gana sobre cualquier otro criterio — el llamador ya calculo
+// `hadExtra` con intervalsOverlap, no solo por fecha), gris apagado si
+// cumplio el turno completo, rojo si transmitio menos que su turno Y tuvo
+// una desconexion real en medio. Cualquier otro caso (menos de su turno pero
+// sin hueco grande) no tiene color especial: se muestra la hora sin marcar
+// nada.
 function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMinutes, hadExtra }) {
   if (hadExtra) return 'rosa';
   if (shiftDurationMinutes != null && onlineMinutes >= shiftDurationMinutes) return 'gris';
@@ -570,5 +592,6 @@ module.exports = {
   shiftDurationMinutes,
   computeBroadcastSummary,
   BROADCAST_GAP_ALERT_MINUTES,
+  intervalsOverlap,
   classifyBroadcastColor,
 };
