@@ -1834,6 +1834,36 @@ animación más fluida.
   borradas al terminar): capturas confirmando la fuente más chica y que
   administrador ve la frase; `npm test`: 105/105.
 
+## Primera racha real que cruzó el filtro de `sbLogApiError` (2026-09-10)
+
+El usuario recibió el push nuevo del filtro de racha (agregado 2026-09-09,
+ver sección de arriba): *"Error en chaturbate_stats: HTTP 403 para
+jax_f00x (van 3 HTTP 4xx/5xx en los últimos 15 min — ya no es un blip
+aislado)"*, a las 04:45 UTC (11:45 p.m. hora Colombia). Investigado contra
+`cb_api_errors` real: los 3 errores que cruzaron el umbral fueron
+`tamar4_f00x` (04:33:29), `jax_f00x` (04:39:27) y `jax_f00x` (04:45:27) —
+tres blips sueltos del mismo patrón horario benigno ya documentado (Días
+1-6 arriba), que esta vez cayeron lo bastante juntos (12 min de punta a
+punta) como para tocar el umbral de `API_ERROR_BURST_THRESHOLD` (3 en 15
+min) por coincidencia, no por una caída sostenida como la del 2026-09-04.
+**Cero errores nuevos después de las 04:45**, y las 7 modelos con
+`stats_api_token` (abigail/amaranta/conni/jax/kitty/pinky/tamar4 — ya son
+7, no 6, `tamar4_f00x` se sumó en algún momento sin que quedara nota
+explícita de cuándo) tenían `last_balance_at` actualizado a menos de un
+minuto al momento de revisar — se recuperó solo, sin ventana ciega
+sostenida, sin dato de plata afectado.
+**Conclusión: el filtro funcionó exactamente como se diseñó** — el umbral
+de 3-en-15-min existe justamente para agarrar algo como el bloqueo masivo
+del 2026-09-04 temprano, y no puede distinguir de antemano si un cruce del
+umbral es el inicio de un incidente real o una coincidencia benigna; solo
+lo sabe en retrospectiva, revisando si se recuperó. Esto NO es un bug del
+filtro ni motivo para subir el umbral — subirlo reduciría también la
+sensibilidad para detectar una racha real. Se documenta como precedente:
+si este tipo de push (3 en 15 min, distintas modelos, autorecuperado) se
+vuelve frecuente y empieza a sentirse como ruido, ahí sí valdría la pena
+ajustar el umbral o la ventana — hoy, con una sola ocurrencia en varios
+días, no amerita tocar nada.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
