@@ -123,10 +123,10 @@
      queden apretados en una sola columna angosta, uno arriba del otro — con
      esto entran 2 por fila en vez de 3 filas sueltas. */
   .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; min-width: 200px; }
-  /* Horas transmitidas: rosa = tuvo extra ese día, gris apagado = turno
-     normal cumplido, rojo = le faltaron horas y tuvo una desconexión real. */
+  /* Horas transmitidas: gris apagado = turno normal cumplido, rojo = le
+     faltaron horas y tuvo una desconexión real. Las extras/recuperaciones
+     no entran en este cálculo — se llevan aparte, a mano (2026-09-10). */
   .bcast { font-weight: 700; }
-  .bcast-rosa { color: var(--pink); }
   .bcast-gris { color: var(--muted-dim); }
   .bcast-rojo { color: var(--bad); }
   .manual-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }

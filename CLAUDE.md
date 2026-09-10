@@ -1965,6 +1965,43 @@ tarde ni siquiera había empezado).
 `broadcast_color` se calcula en cada lectura de `/api/attendance`, nunca
 se guarda, así que el fix aplica solo con el redeploy.
 
+## El rosa de "horas transmitidas" se eliminó del todo (2026-09-10, misma tarde)
+
+Apenas arreglado el bug 2 de la sección anterior (el solape por horario en
+vez de por fecha), el usuario pidió ir más lejos: **sacar el color rosa por
+completo**. Razón, en sus palabras: "Es confuso, la hora de la extra se
+hara aqui manual, nosotros solo llevamos el tiempo de jornada" — o sea, la
+hora de una extra/recuperación se va a llevar aparte, a mano, y este número
+("horas transmitidas") debe limitarse a la jornada normal, sin intentar
+mezclar o "perdonar" nada por tener una extra reclamada ese día.
+
+- `classifyBroadcastColor` en `chaturbate-lib.js` ya no acepta `hadExtra` —
+  solo mira `onlineMinutes`/`maxGapMinutes`/`shiftDurationMinutes`. Ahora
+  únicamente devuelve `'gris'` (cumplió el turno completo), `'rojo'`
+  (transmitió menos Y tuvo un hueco real de 30+ min) o `null` (cualquier
+  otro caso). El comentario de la función deja constancia de que el rosa
+  existió y por qué se sacó, para que no se reintroduzca sin que el
+  usuario lo pida de nuevo.
+- La función `intervalsOverlap` (recién agregada en el fix anterior,
+  la misma tarde) se borró también — ya no tenía ningún uso una vez que
+  el concepto de "extra que se solapa" dejó de existir. Con ella se fue
+  todo el bloque de `server.js` que armaba `extraWindowsByKey` a partir de
+  `sbListShifts()`; el fetch de turnos para esto ya no hace falta (síguelo
+  usando en otros endpoints, no se tocó esa función).
+- CSS: `.att-bcast-rosa` (`index.html`) y `.bcast-rosa` (`asistencia.html`)
+  se borraron — eran las únicas reglas que usaban ese color para esta
+  columna, quedaban muertas sin el tercer valor posible.
+- Verificado en vivo (`SOLO_UI=1`, puerto 3015, cuenta `qa_temp_norosa`,
+  borrada al terminar): el turno de mañana de `tamar4_f00x` del
+  2026-09-10 (la misma que disparó el reporte original) da
+  `broadcast_color: null` a pesar de tener la recuperación de tarde
+  reclamada — ya no hay forma de que una extra pinte nada en esta
+  columna, sea cual sea su horario. `npm test`: 104/104 (se sacaron los
+  tests de `intervalsOverlap` y del caso `hadExtra: true` → rosa; se
+  agregó uno que confirma que un `hadExtra: true` ya NO pisa el criterio
+  real — con un hueco de 200 min dentro del objeto de prueba, el
+  resultado es `'rojo'` por el criterio real, no `'rosa'`).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

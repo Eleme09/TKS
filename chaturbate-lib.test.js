@@ -602,33 +602,21 @@ describe('computeBroadcastSummary', () => {
   });
 });
 
-describe('intervalsOverlap — bug real 2026-09-10: recuperación de tarde pintaba de rosa el turno de mañana', () => {
-  test('tamar4_f00x: recuperación tarde (16:00-20:00) NO se solapa con su turno mañana (07:30-15:30)', () => {
-    const manana = [lib.studioScheduledMs('2026-09-10', '07:30'), lib.studioScheduledMs('2026-09-10', '15:30')];
-    const tarde = [lib.studioScheduledMs('2026-09-10', '16:00'), lib.studioScheduledMs('2026-09-10', '20:00')];
-    assert.equal(lib.intervalsOverlap(tarde[0], tarde[1], manana[0], manana[1]), false);
-  });
-  test('una extra que sí cae dentro del turno evaluado, se solapa', () => {
-    const turno = [lib.studioScheduledMs('2026-09-10', '07:30'), lib.studioScheduledMs('2026-09-10', '15:30')];
-    const extra = [lib.studioScheduledMs('2026-09-10', '09:00'), lib.studioScheduledMs('2026-09-10', '11:00')];
-    assert.equal(lib.intervalsOverlap(extra[0], extra[1], turno[0], turno[1]), true);
-  });
-  test('rangos que apenas se tocan en el borde no cuentan como solapados', () => {
-    assert.equal(lib.intervalsOverlap(0, 100, 100, 200), false);
-  });
-});
-
 describe('classifyBroadcastColor', () => {
-  test('con extra ese día, siempre rosa aunque no haya cumplido el turno', () => {
-    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 10, maxGapMinutes: 200, shiftDurationMinutes: 480, hadExtra: true }), 'rosa');
-  });
   test('turno normal cumplido de punta a punta, gris', () => {
-    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 480, maxGapMinutes: 0, shiftDurationMinutes: 480, hadExtra: false }), 'gris');
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 480, maxGapMinutes: 0, shiftDurationMinutes: 480 }), 'gris');
   });
   test('menos de su turno y un hueco de 30+ min, rojo', () => {
-    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 35, shiftDurationMinutes: 480, hadExtra: false }), 'rojo');
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 35, shiftDurationMinutes: 480 }), 'rojo');
   });
   test('menos de su turno pero sin hueco grande, sin color especial', () => {
-    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 10, shiftDurationMinutes: 480, hadExtra: false }), null);
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 400, maxGapMinutes: 10, shiftDurationMinutes: 480 }), null);
+  });
+  test('el rosa por extra/recuperación se eliminó (2026-09-10): un "hadExtra" ya no pisa el criterio real', () => {
+    // Antes "hadExtra: true" ganaba sobre cualquier otro criterio y daba
+    // rosa sin más. Ahora ya no existe ese concepto acá — con un hueco de
+    // 200 min esto es "rojo" por el criterio real (desconexión grande), no
+    // "rosa" por tener una extra reclamada ese día.
+    assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 10, maxGapMinutes: 200, shiftDurationMinutes: 480, hadExtra: true }), 'rojo');
   });
 });

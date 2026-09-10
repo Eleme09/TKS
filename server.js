@@ -21,7 +21,7 @@ const {
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
-  studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor, intervalsOverlap,
+  studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1036,31 +1036,14 @@ async function buildAttendancePayload(session) {
   // (ver classifyBroadcastColor en chaturbate-lib.js). Un solo fetch de
   // eventos para toda la quincena, no uno por dia por modelo. Solo se calcula
   // para dias con scheduled_at Y un horario con hora de salida asignada —
-  // sin eso no hay ventana que recortar.
+  // sin eso no hay ventana que recortar. Las extras/recuperaciones NO entran
+  // en este calculo (sacado 2026-09-10 a pedido del usuario, ver nota en
+  // classifyBroadcastColor) — ese tiempo se lleva aparte, a mano.
   const relevantUsernames = Array.from(new Set(days.map((d) => d.username)));
   const periodStartMs = Date.parse(period.start + 'T00:00:00Z') - 24 * 3600000;
-  const [allShiftsForBroadcast, broadcastEvents] = await Promise.all([
-    sbListShifts(),
-    sbListBroadcastEventsRange(relevantUsernames, periodStartMs, now),
-  ]);
+  const broadcastEvents = await sbListBroadcastEventsRange(relevantUsernames, periodStartMs, now);
   const eventsByUser = {};
   for (const e of broadcastEvents) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
-  // Antes esto era "username|fecha" nada mas, asi que una recuperacion en la
-  // TARDE pintaba de rosa (sin juzgar) tambien el turno de la MAÑANA del
-  // mismo dia, aunque sean bloques de horario totalmente distintos. Ahora se
-  // guarda el rango real de cada extra/recuperacion y mas abajo se exige que
-  // se solape con la ventana del turno que se esta clasificando — mismo dia
-  // ya no alcanza, tiene que ser el mismo bloque de horas.
-  const extraWindowsByKey = {};
-  for (const s of allShiftsForBroadcast) {
-    if (!s.claimed_by || (s.kind !== 'extra' && s.kind !== 'recuperacion')) continue;
-    const startMs = studioScheduledMs(s.shift_date, s.start_time);
-    if (startMs == null) continue;
-    const durMin = shiftDurationMinutes(s.start_time, s.end_time);
-    const endMs = durMin != null ? startMs + durMin * 60000 : startMs;
-    const key = s.claimed_by + '|' + s.shift_date;
-    (extraWindowsByKey[key] = extraWindowsByKey[key] || []).push([startMs, endMs]);
-  }
   for (const d of days) {
     const hers = scheduleByUser[d.username];
     if (!d.scheduled_at || !hers || !hers.exit_time) continue;
@@ -1070,12 +1053,10 @@ async function buildAttendancePayload(session) {
     const windowEnd = Math.min(windowStart + durationMin * 60000, now);
     if (windowEnd <= windowStart) continue;
     const summary = computeBroadcastSummary(eventsByUser[d.username] || [], windowStart, windowEnd);
-    const extraWindows = extraWindowsByKey[d.username + '|' + d.work_date] || [];
-    const hadExtra = extraWindows.some(([s, e]) => intervalsOverlap(s, e, windowStart, windowEnd));
     d.broadcast_minutes = summary.onlineMinutes;
     d.broadcast_color = classifyBroadcastColor({
       onlineMinutes: summary.onlineMinutes, maxGapMinutes: summary.maxGapMinutes,
-      shiftDurationMinutes: durationMin, hadExtra,
+      shiftDurationMinutes: durationMin,
     });
   }
 

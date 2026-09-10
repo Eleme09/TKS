@@ -345,10 +345,10 @@
   .att-pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
   .att-pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
   .att-pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
-  /* Horas transmitidas: rosa = tuvo extra ese día, gris apagado = turno
-     normal cumplido, rojo = le faltaron horas y tuvo una desconexión real. */
+  /* Horas transmitidas: gris apagado = turno normal cumplido, rojo = le
+     faltaron horas y tuvo una desconexión real. Las extras/recuperaciones
+     no entran en este cálculo — se llevan aparte, a mano (2026-09-10). */
   .att-bcast { font-weight: 700; }
-  .att-bcast-rosa { color: var(--pink); }
   .att-bcast-gris { color: var(--muted-dim); }
   .att-bcast-rojo { color: var(--bad); }
   .att-row {

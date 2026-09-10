@@ -525,26 +525,19 @@ function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
 // minutos) dentro de un turno — pedido explicito del usuario 2026-09-09.
 const BROADCAST_GAP_ALERT_MINUTES = 30;
 
-// Si dos rangos de tiempo se solapan. Usado para decidir si una extra/
-// recuperacion reclamada realmente cae DENTRO de la ventana del turno que se
-// esta clasificando (ver hadExtra en classifyBroadcastColor) — antes de
-// 2026-09-10 esto se decidia solo por fecha, asi que una recuperacion de
-// tarde pintaba de rosa (sin juzgar) tambien el turno de mañana del mismo
-// dia, aunque fueran bloques de horario totalmente distintos.
-function intervalsOverlap(aStart, aEnd, bStart, bEnd) {
-  return aStart < bEnd && bStart < aEnd;
-}
-
 // Color de la celda "horas transmitidas" en la hoja de asistencia (pedido
-// 2026-09-09): rosa si el turno se solapa con una extra/recuperacion
-// reclamada (gana sobre cualquier otro criterio — el llamador ya calculo
-// `hadExtra` con intervalsOverlap, no solo por fecha), gris apagado si
-// cumplio el turno completo, rojo si transmitio menos que su turno Y tuvo
-// una desconexion real en medio. Cualquier otro caso (menos de su turno pero
-// sin hueco grande) no tiene color especial: se muestra la hora sin marcar
-// nada.
-function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMinutes, hadExtra }) {
-  if (hadExtra) return 'rosa';
+// 2026-09-09): gris apagado si cumplio el turno completo, rojo si
+// transmitio menos que su turno Y tuvo una desconexion real en medio.
+// Cualquier otro caso (menos de su turno pero sin hueco grande) no tiene
+// color especial: se muestra la hora sin marcar nada.
+//
+// Hubo un tercer color, rosa, para cuando la modelo tenia una extra/
+// recuperacion reclamada ese dia (pensado para no "juzgarla" con el
+// criterio normal). Se sacó del todo el 2026-09-10, a pedido del usuario:
+// la hora de la extra/recuperación se maneja aparte, a mano — este
+// numero solo lleva el tiempo de la jornada normal, sin mezclar las dos
+// cosas. No reintroducir sin que el usuario lo pida.
+function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMinutes }) {
   if (shiftDurationMinutes != null && onlineMinutes >= shiftDurationMinutes) return 'gris';
   if (maxGapMinutes >= BROADCAST_GAP_ALERT_MINUTES) return 'rojo';
   return null;
@@ -592,6 +585,5 @@ module.exports = {
   shiftDurationMinutes,
   computeBroadcastSummary,
   BROADCAST_GAP_ALERT_MINUTES,
-  intervalsOverlap,
   classifyBroadcastColor,
 };
