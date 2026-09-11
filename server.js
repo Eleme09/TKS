@@ -155,6 +155,34 @@ const SB_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+// PostgREST tapa cada respuesta a 1000 filas por defecto y lo hace en
+// silencio (200/206, sin error) -- confirmado 2026-09-11 pidiendo
+// "Range: 0-99999" a la API real de este proyecto y recibiendo de vuelta
+// solo 1000 filas ("content-range: 0-999/4767"). Cualquier consulta que
+// traiga TODAS las modelos de una quincena entera (miles de propinas/ticks
+// combinados) puede superar eso, y de hecho lo hacia: era la causa real del
+// bug Desprendibles-vs-Modelos con numeros de tokens distintos para la misma
+// quincena (ver CLAUDE.md). Este helper pagina con el header Range hasta
+// traer todo -- usarlo en cualquier fetch de varias modelos a la vez que no
+// venga ya acotado por username (las consultas de un solo usuario rara vez
+// se acercan a 1000 filas, pero si alguna llega a ese volumen tambien lo
+// necesita).
+async function sbFetchAllRows(table, qs) {
+  const rows = [];
+  let offset = 0;
+  const pageSize = 1000;
+  for (;;) {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + qs, {
+      headers: Object.assign({}, SB_HEADERS, { 'Range-Unit': 'items', Range: offset + '-' + (offset + pageSize - 1) }),
+    });
+    if (!r.ok) return rows;
+    const page = await r.json();
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+    offset += pageSize;
+  }
+}
+
 // Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
 const CURRENCY = 'COP';
 const RATE_CACHE_MS = 5 * 60 * 1000;
@@ -1344,9 +1372,8 @@ async function sbListBroadcastEventsRange(usernames, fromMs, toMs) {
     + '&username=in.(' + usernames.map(encodeURIComponent).join(',') + ')'
     + '&created_at=gte.' + encodeURIComponent(new Date(fromMs).toISOString())
     + '&created_at=lte.' + encodeURIComponent(new Date(toMs).toISOString())
-    + '&order=created_at.asc';
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_broadcast_events' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+    + '&order=created_at.asc,id.asc';
+  return sbFetchAllRows('cb_broadcast_events', qs);
 }
 
 async function sbFetchAllModels() {
@@ -1355,15 +1382,13 @@ async function sbFetchAllModels() {
 }
 
 async function sbFetchTipsInRange(startIso, endIso) {
-  const qs = '?select=username,tokens,created_at&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  const qs = '?select=username,tokens,created_at&created_at=gte.' + encodeURIComponent(startIso) + '&created_at=lte.' + encodeURIComponent(endIso) + '&order=id.asc';
+  return sbFetchAllRows('cb_tips', qs);
 }
 
 async function sbFetchUserTipsSince(username, sinceIso) {
-  const qs = '?select=tokens,created_at&username=eq.' + encodeURIComponent(username) + '&created_at=gte.' + encodeURIComponent(sinceIso);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_tips' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  const qs = '?select=tokens,created_at&username=eq.' + encodeURIComponent(username) + '&created_at=gte.' + encodeURIComponent(sinceIso) + '&order=id.asc';
+  return sbFetchAllRows('cb_tips', qs);
 }
 
 // ---- Stripchat (sin API oficial de ganancias: se ingresa a mano, pegando el
@@ -1505,15 +1530,13 @@ async function sbInsertBalanceReset(username, fromBalance, toBalance, detectedAt
 }
 
 async function sbFetchBalanceTicksInRange(startIso, endIso) {
-  const qs = '?select=username,tokens,sampled_at&sampled_at=gte.' + encodeURIComponent(startIso) + '&sampled_at=lte.' + encodeURIComponent(endIso);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  const qs = '?select=username,tokens,sampled_at&sampled_at=gte.' + encodeURIComponent(startIso) + '&sampled_at=lte.' + encodeURIComponent(endIso) + '&order=id.asc';
+  return sbFetchAllRows('cb_balance_ticks', qs);
 }
 
 async function sbFetchUserBalanceTicksSince(username, sinceIso) {
-  const qs = '?select=tokens,sampled_at&username=eq.' + encodeURIComponent(username) + '&sampled_at=gte.' + encodeURIComponent(sinceIso);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_balance_ticks' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  const qs = '?select=tokens,sampled_at&username=eq.' + encodeURIComponent(username) + '&sampled_at=gte.' + encodeURIComponent(sinceIso) + '&order=id.asc';
+  return sbFetchAllRows('cb_balance_ticks', qs);
 }
 
 // ---- Base congelada de la quincena (CSV) ----

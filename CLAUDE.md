@@ -2002,6 +2002,102 @@ mezclar o "perdonar" nada por tener una extra reclamada ese día.
   real — con un hueco de 200 min dentro del objeto de prueba, el
   resultado es `'rojo'` por el criterio real, no `'rosa'`).
 
+## Bug real de dinero: Modelos y Desprendibles mostraban tokens distintos para la misma quincena (2026-09-11)
+
+El usuario mandó dos capturas de `amaranta_f00x` (misma quincena, ~1 minuto
+de diferencia): Modelos mostraba 19.773 tokens (CB 8.434 + SC 11.339) y
+Desprendibles mostraba 25.203 (CB 11.903 + SC ~13.3xx) — **inconsistencia
+interna real entre dos pantallas de la propia app**, no una comparación
+contra el dashboard de Chaturbate. Investigado y confirmado con datos reales
+de Supabase (no solo lectura de código): Modelos SIEMPRE quedaba corto
+frente al total real, y el corto se agrava a medida que avanza la quincena.
+
+**Causa raíz: PostgREST tapa cada respuesta a 1000 filas por defecto, en
+silencio (200/206, sin ningún error) — confirmado pidiendo directamente
+`Range: 0-99999` a la API real de este proyecto Supabase y recibiendo de
+vuelta solo 1000 filas (`content-range: 0-999/4767`).** `buildModelReports()`
+(pestaña Modelos, `/api/models`) trae los tips y los balance-ticks de **TODAS
+las modelos de toda la quincena en una sola consulta sin username**
+(`sbFetchTipsInRange`, `sbFetchBalanceTicksInRange`) — con 7 modelos activas
+eso ya suma miles de filas por quincena (4.767 tips solo en lo que va de la
+quincena actual al momento de este fix), muy por encima de 1000. El corte
+cae, por orden de inserción, en algún punto temprano de la quincena (para
+este caso, ~el 4 de septiembre a las 00:28) — así que `buildModelReports()`
+solo estaba viendo los primeros días de cada quincena y arrastrando eso como
+si fuera el total completo, cada vez más corto cuanto más avanza el periodo.
+`/api/payslips` (Desprendibles), en cambio, consulta por-usuario
+(`sbFetchUserTipsSince`/`sbFetchUserBalanceTicksSince`, acotadas por
+`username=eq.`), así que en la práctica se mantenía casi siempre bajo las
+1000 filas y mostraba el número correcto — **Desprendibles no estaba "mal",
+Modelos era el que estaba corto**; el "25.203 más alto que 19.773" que vio
+el usuario es justo lo que se espera si Modelos pierde datos: subestima,
+nunca sobreestima.
+
+**Verificado con los cinco pasos, no solo leyendo el código:**
+1. Se sacó a mano el total real de tips/ticks de amaranta para la quincena
+   actual directo de Supabase vía SQL — sin ningún límite de fila (la
+   consulta SQL directa no pasa por PostgREST, así que no sufre el mismo
+   tope).
+2. Se replicó a mano la fórmula de `resolveChaturbateTokens` con esos
+   números completos: `770 (base) + max(9029 ticks después de covers_until,
+   3321 tips después de covers_until) = 9799` tokens de Chaturbate.
+3. Se golpeó la API real de Supabase directo (no vía server.js) con
+   `Range: 0-99999` para la consulta multi-modelo de `sbFetchTipsInRange` y
+   se confirmó que SÍ vuelve truncada a 1000 filas pese a pedir más — el
+   límite es del lado del servidor PostgREST, no algo que el cliente pueda
+   evitar sin paginar.
+4. Se confirmó que pedir explícitamente páginas siguientes
+   (`Range: 1000-1999`, etc.) SÍ funciona y trae el resto — la paginación
+   por header `Range` es la solución real, no un límite duro sin salida.
+5. Antes y después del fix se comparó `/api/models` contra
+   `/api/payslips?username=X` para las 7 modelos, en una instancia
+   `SOLO_UI=1` contra el Supabase real: antes, Desprendibles ganaba a
+   Modelos en las 7; después del fix, los dos endpoints devuelven
+   exactamente los mismos números en las 7 (ej. amaranta_f00x: ambos dan
+   CB 9799 / SC 11339 / total 21138).
+
+**El fix:** `sbFetchAllRows(table, qs)` (nuevo, junto a `SB_HEADERS` en
+`server.js`) pagina con el header `Range` (1000 filas por página) hasta
+traer todo, en vez de una sola consulta sin límite. Aplicado a las cinco
+consultas que traen datos de más de una modelo a la vez y que por eso
+pueden superar 1000 filas: `sbFetchTipsInRange`, `sbFetchUserTipsSince`,
+`sbFetchBalanceTicksInRange`, `sbFetchUserBalanceTicksSince` (estas dos
+"Since" son por-usuario, pero de todos modos pueden acumular miles de filas
+a lo largo de las 6 quincenas que consulta Desprendibles — hoy no se nota
+para ninguna modelo porque el balance-ticks manda sobre tips en el max(),
+pero es el mismo bug en potencia) y `sbListBroadcastEventsRange` (usada por
+`buildAttendancePayload` para "horas transmitidas" — mismo patrón
+multi-modelo-sin-limite, no dinero pero sí un dato que se muestra). Se le
+agregó `order=id.asc` (o `,id.asc` como desempate donde ya ordenaba por
+fecha) a las cinco, porque paginar con `Range` sin un orden explícito y
+estable no garantiza páginas consistentes entre pedidos sucesivos según la
+propia documentación de PostgREST. Las consultas de un solo valor por
+modelo por quincena (`sbFetchStripchatEarningsForPeriod`,
+`sbFetchChaturbateExtraEarningsForPeriod`, `sbFetchPeriodBaseForPeriod` y
+sus pares `...ForUserSince`) NO se tocaron — nunca se acercan a 1000 filas
+por diseño (una fila por modelo por periodo), así que no tenían este riesgo.
+
+**No hizo falta migrar ningún dato.** A diferencia de otros bugs de este
+archivo (retrasos, tolerancia), acá nada se guarda mal en la base — el
+número corto se calculaba al vuelo en cada `GET /api/models` y nunca se
+persistía, así que el fix aplica solo con el redeploy, sin ningún `update`
+de por medio. Tampoco afectó nunca ningún pago ya hecho: `/api/payslips`
+(el que realmente alimenta el desprendible que se paga) siempre tuvo el
+número correcto para las quincenas que se han pagado hasta ahora — el
+riesgo real era que alguien mirara la pestaña Modelos y AHÍ SÍ tomara una
+decisión de pago con el número corto, o que el "Desprendible del estudio"
+del resumen (que también sale de `buildModelReports`) se viera más bajo de
+lo real.
+
+**Si esto se repite en cualquier otra tabla `cb_*` a futuro:** el síntoma es
+siempre el mismo — un total que se queda corto y que empeora con el tiempo
+o con más modelos/eventos, nunca un valor al azar ni un error visible.
+Antes de sospechar de la lógica de negocio, preguntar primero: ¿esta
+consulta trae filas de MÁS DE UNA modela a la vez, sin filtrar por
+`username`, para un rango que puede acumular volumen (toda una quincena,
+todo el historial)? Si la respuesta es sí, es candidata a este mismo bug —
+usar `sbFetchAllRows` en vez de un `fetch` simple.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
