@@ -917,6 +917,12 @@
         <div id="ctbStatsResult" class="meta-small" style="margin-top:8px;"></div>
         <div id="ctbStatsList" style="margin-top:10px;"></div>
       </div>
+      <div class="card" id="systemHealthCard">
+        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Salud del sistema</h3>
+        <div class="meta-small" style="margin-bottom:12px;">El chequeo diario automático corre solo con una sesión de Claude activa. Si te quedas sin cuota y ese chequeo no corre ese día, revisa lo mismo aquí manualmente, cuando quieras.</div>
+        <div class="row"><button id="btnSystemHealthCheck" class="btn-primary" style="flex:1;">Revisar ahora</button></div>
+        <div id="systemHealthResult" class="meta-small" style="margin-top:10px;"></div>
+      </div>
       <div class="card" id="auditLogCard">
         <details id="auditDetails">
           <summary style="cursor:pointer; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Registro de actividad</summary>
@@ -984,6 +990,9 @@
     auditLogCard: document.getElementById('auditLogCard'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
+    systemHealthCard: document.getElementById('systemHealthCard'),
+    btnSystemHealthCheck: document.getElementById('btnSystemHealthCheck'),
+    systemHealthResult: document.getElementById('systemHealthResult'),
     ceoUser: document.getElementById('ceoUser'),
     ceoPass: document.getElementById('ceoPass'),
     ceoGender: document.getElementById('ceoGender'),
@@ -2521,6 +2530,47 @@
     }).join('');
   }
 
+  // Mismo chequeo que corre solo el vigia diario (una Routine de Claude
+  // Code), pero disparado a mano desde el botón — para el día que no haya
+  // cuota de Claude disponible y ese chequeo automático no corra. No manda
+  // push ni correo, solo muestra el resultado en pantalla.
+  async function runSystemHealthCheck() {
+    el.btnSystemHealthCheck.disabled = true;
+    el.systemHealthResult.textContent = 'Revisando…';
+    try {
+      const r = await fetch('/api/system-health');
+      if (!r.ok) { el.systemHealthResult.textContent = 'No se pudo revisar.'; return; }
+      const d = await r.json();
+      const lines = [];
+      if (d.unhandledEvents && d.unhandledEvents.length) {
+        d.unhandledEvents.forEach(function (x) {
+          lines.push('⚠ Evento nuevo sin clasificar: <b>' + escapeHtml(x.method) + '</b> (' + x.count + ' veces, última ' + new Date(x.last).toLocaleString('es-CO') + ')');
+        });
+      }
+      if (d.apiErrors) {
+        (d.apiErrors.shapeChanges || []).forEach(function (x) {
+          lines.push('⚠ Mensaje de error inusual en <b>' + escapeHtml(x.source) + '</b>: "' + escapeHtml(x.message) + '" (' + new Date(x.created_at).toLocaleString('es-CO') + ')');
+        });
+        (d.apiErrors.bySource || []).forEach(function (x) {
+          if (x.count > 10) lines.push('⚠ <b>' + escapeHtml(x.source) + '</b>: ' + x.count + ' errores en las últimas 24h (último: "' + escapeHtml(x.lastMessage) + '")');
+        });
+      }
+      (d.staleBalances || []).forEach(function (x) {
+        lines.push('⚠ <b>' + escapeHtml(x.username) + '</b> tiene seguimiento automático activo pero su balance no se actualiza desde ' + (x.last_balance_at ? new Date(x.last_balance_at).toLocaleString('es-CO') : 'nunca') + ' — posible token vencido.');
+      });
+      if (d.stripchatSync && d.stripchatSync.stale) {
+        lines.push('⚠ Sincronización de Stripchat sin actualizar' + (d.stripchatSync.hours_since != null ? ' hace ' + d.stripchatSync.hours_since + 'h' : '') + ' — posible API key vencida.');
+      }
+      el.systemHealthResult.innerHTML = lines.length
+        ? lines.map(function (l) { return '<div style="padding:4px 0; color:var(--bad);">' + l + '</div>'; }).join('')
+        : '<span style="color:var(--good, #4caf87);">✓ Todo normal — sin nada raro en las 4 señales.</span>';
+    } catch (e) {
+      el.systemHealthResult.textContent = 'Error revisando: ' + e.message;
+    } finally {
+      el.btnSystemHealthCheck.disabled = false;
+    }
+  }
+
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   let shiftsViewDate = new Date();
 
@@ -2956,6 +3006,7 @@
     el.adminAccountsCard.style.display = isAdmin ? 'block' : 'none';
     el.chaturbateAutoCard.style.display = isAdmin ? 'block' : 'none';
     el.auditLogCard.style.display = isAdmin ? 'block' : 'none';
+    el.systemHealthCard.style.display = isAdmin ? 'block' : 'none';
     el.modelAccountsCard.style.display = canAccessCuentas ? 'block' : 'none';
     el.shiftConfirmCard.style.display = canAccessCuentas ? 'block' : 'none';
     if (isAdmin) { refreshAdminAccounts(); loadCtbStatsStatus(); }
@@ -3029,6 +3080,8 @@
   el.auditDetails.addEventListener('toggle', function () {
     if (el.auditDetails.open) loadAuditLog();
   });
+
+  el.btnSystemHealthCheck.addEventListener('click', runSystemHealthCheck);
 
   el.btnExportCsv.addEventListener('click', downloadPayslipsCsv);
 

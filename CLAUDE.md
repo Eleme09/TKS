@@ -1366,6 +1366,21 @@ de su turno tras el fix (antes: amaranta, abigail y tamar4 con varios días
 inflados). `npm test`: 106/106. No hizo falta migrar nada — este valor se
 calcula al vuelo en cada `GET /api/attendance`, nunca se guarda.
 
+## Salud del sistema manual en Cuentas (2026-09-15)
+
+Pedido explícito: si el usuario se queda sin cuota de Claude, el vigía diario
+(que depende de una sesión de Claude activa) no corre ese día. Nueva card
+"Salud del sistema" en Cuentas (admin-only) con un botón "Revisar ahora" que
+corre las MISMAS 4 señales del vigía (`GET /api/system-health`, admin-only):
+eventos sin clasificar, rachas de errores 4xx/5xx o mensajes con forma
+distinta a "HTTP <código> para <modelo>", balances sin actualizar 2h+,
+sync de Stripchat sin actualizar 24h+. Solo lectura, no manda push ni
+correo — el vigía automático (Routine, sigue igual) es el único que avisa
+proactivamente; esto es el respaldo manual para cuando ese automático no
+corrió. `sbCheck*` en `server.js`, junto a `sbListAuditLog`. Verificado
+contra Supabase real (`SOLO_UI=1`): devuelve exactamente los mismos números
+que la corrida del vigía del mismo día.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

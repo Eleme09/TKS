@@ -543,6 +543,83 @@ async function sbListAuditLog(limit) {
   return r.ok ? r.json() : [];
 }
 
+// ---- Chequeo de salud manual (Cuentas -> Salud del sistema) ----
+// Mismas 4 senales que el vigia diario automatico (Routine de Claude Code),
+// pero corridas por el propio servidor a pedido del admin -- para cuando
+// ese chequeo automatico no pueda correr (p.ej. sin cuota de Claude para
+// esa sesion) y el admin quiera ver lo mismo sin depender de eso. Fecha
+// aqui, no una copia de la logica: sbLogApiError y el resto del pipeline
+// de avisos siguen igual, esto es solo una lectura on-demand de las mismas
+// tablas.
+
+const KNOWN_UNHANDLED_EVENT_METHODS = new Set([
+  'userEnter', 'userLeave', 'follow', 'unfollow', 'chatMessage',
+  'roomSubjectChange', 'privateMessage', 'fanclubJoin', 'mediaPurchase',
+]);
+
+async function sbCheckUnhandledEvents() {
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_unhandled_events?select=method,created_at&created_at=gte.'
+      + encodeURIComponent(new Date(Date.now() - 7 * 24 * 3600000).toISOString()),
+    { headers: SB_HEADERS },
+  );
+  const rows = r.ok ? await r.json() : [];
+  const byMethod = {};
+  for (const row of rows) {
+    if (KNOWN_UNHANDLED_EVENT_METHODS.has(row.method)) continue;
+    const cur = byMethod[row.method] || { count: 0, last: null };
+    cur.count += 1;
+    if (!cur.last || row.created_at > cur.last) cur.last = row.created_at;
+    byMethod[row.method] = cur;
+  }
+  return Object.entries(byMethod).map(([method, v]) => ({ method, count: v.count, last: v.last }));
+}
+
+async function sbCheckApiErrorBursts() {
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_api_errors?select=source,message,created_at&created_at=gte.'
+      + encodeURIComponent(new Date(Date.now() - 24 * 3600000).toISOString()),
+    { headers: SB_HEADERS },
+  );
+  const rows = r.ok ? await r.json() : [];
+  const bySource = {};
+  const shapeChanges = [];
+  for (const row of rows) {
+    const cur = bySource[row.source] || { count: 0, last: null, lastMessage: null };
+    cur.count += 1;
+    if (!cur.last || row.created_at > cur.last) { cur.last = row.created_at; cur.lastMessage = row.message; }
+    bySource[row.source] = cur;
+    if (!isHttpStatusApiError(row.message)) shapeChanges.push({ source: row.source, message: row.message, created_at: row.created_at });
+  }
+  return {
+    bySource: Object.entries(bySource).map(([source, v]) => ({ source, count: v.count, last: v.last, lastMessage: v.lastMessage })),
+    shapeChanges,
+  };
+}
+
+async function sbCheckStaleBalances() {
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_models?select=username,last_balance_at&stats_api_token=not.is.null',
+    { headers: SB_HEADERS },
+  );
+  const rows = r.ok ? await r.json() : [];
+  const cutoff = Date.now() - 2 * 3600000;
+  return rows
+    .filter((m) => !m.last_balance_at || new Date(m.last_balance_at).getTime() < cutoff)
+    .map((m) => ({ username: m.username, last_balance_at: m.last_balance_at || null }));
+}
+
+async function sbCheckStripchatSync() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings?select=username,updated_at', { headers: SB_HEADERS });
+  const rows = r.ok ? await r.json() : [];
+  let mostRecent = null;
+  for (const row of rows) {
+    if (!mostRecent || row.updated_at > mostRecent) mostRecent = row.updated_at;
+  }
+  const staleHours = mostRecent ? (Date.now() - new Date(mostRecent).getTime()) / 3600000 : null;
+  return { most_recent: mostRecent, stale: mostRecent == null || staleHours > 24, hours_since: mostRecent ? Math.round(staleHours * 10) / 10 : null };
+}
+
 // ---- Noticias (anuncios de admin/CEO; el hilo de comentarios queda abierto a todos) ----
 
 async function sbListNewsPosts(limit) {
@@ -2210,6 +2287,21 @@ const server = http.createServer(async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
     const entries = await sbListAuditLog(100);
     return sendJson(res, 200, { entries });
+  }
+
+  if (parsed.pathname === '/api/system-health' && req.method === 'GET') {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+      const [unhandledEvents, apiErrors, staleBalances, stripchatSync] = await Promise.all([
+        sbCheckUnhandledEvents(),
+        sbCheckApiErrorBursts(),
+        sbCheckStaleBalances(),
+        sbCheckStripchatSync(),
+      ]);
+      return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync });
+    } catch (e) {
+      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+    }
   }
 
   if (parsed.pathname === '/api/admins/create' && req.method === 'POST') {
