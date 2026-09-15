@@ -488,13 +488,28 @@ function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
 
   const segments = [];
   let openStart = null;
+  // sawStart: solo el PRIMER "stop" huerfano de todo el historial (antes de
+  // ver cualquier "start") puede significar "ya transmitia desde antes de
+  // que empezara a llegar data" -- se asume online desde el inicio de ESTA
+  // ventana. Cualquier otro "stop" huerfano posterior (uno que aparece
+  // DESPUES de haber visto al menos un start real) no es eso: es un
+  // duplicado/glitch (bug real encontrado 2026-09-15, amaranta_f00x: un
+  // "stop stop" seguido sin start entre medio, mismo dia). Antes se
+  // aceptaba cualquier huerfano como si fuera el primero, y como `events`
+  // es el historial COMPLETO de la modela para toda la quincena (un solo
+  // fetch para todos los dias), un huerfano de OTRO dia ademas creaba un
+  // segmento fantasma [windowStartMs, ese stop] que cubria la ventana
+  // ENTERA de un dia que no tenia nada que ver, inflando su total muy por
+  // encima de la duracion real del turno (1431 min en vez de 471).
+  let sawStart = false;
   for (const e of sorted) {
     if (e.type === 'start') {
+      sawStart = true;
       if (openStart == null) openStart = e.ms;
     } else if (openStart != null) {
       segments.push([openStart, e.ms]);
       openStart = null;
-    } else {
+    } else if (!sawStart && e.ms > windowStartMs && e.ms < windowEndMs) {
       segments.push([windowStartMs, e.ms]);
     }
   }

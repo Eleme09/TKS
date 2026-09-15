@@ -600,6 +600,26 @@ describe('computeBroadcastSummary', () => {
     assert.equal(r.onlineMinutes, 0);
     assert.equal(r.maxGapMinutes, 0);
   });
+  test('un stop huérfano de OTRO día (fuera de esta ventana) no contamina el cálculo (bug real 2026-09-15, amaranta_f00x: un "stop stop" seguido sin start en un día metía un segmento fantasma que cubría toda la ventana de TODOS los demás días de la quincena, dando 1431 min en vez de 471)', () => {
+    const events = [
+      { event_type: 'start', created_at: new Date(1 * H).toISOString() },
+      { event_type: 'stop', created_at: new Date(3 * H).toISOString() },
+      // "stop" huérfano de un día distinto -- muy anterior a la ventana.
+      { event_type: 'stop', created_at: new Date(-5 * H).toISOString() },
+      // "stop" huérfano de un día distinto -- muy posterior a la ventana.
+      { event_type: 'stop', created_at: new Date(50 * H).toISOString() },
+    ];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.onlineMinutes, 120);
+  });
+  test('un stop huérfano que SÍ cae dentro de la ventana sigue contando desde el inicio (comportamiento real, no se rompió)', () => {
+    const events = [
+      { event_type: 'stop', created_at: new Date(2 * H).toISOString() },
+      { event_type: 'stop', created_at: new Date(-5 * H).toISOString() },
+    ];
+    const r = lib.computeBroadcastSummary(events, 0, 8 * H);
+    assert.equal(r.onlineMinutes, 120);
+  });
 });
 
 describe('classifyBroadcastColor', () => {

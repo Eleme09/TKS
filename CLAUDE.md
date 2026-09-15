@@ -1338,6 +1338,34 @@ consulta trae filas de más de una modelo a la vez sin filtrar por
 `username`? Si sí, usar `sbFetchAllRows`, no un `fetch` simple. Investigación
 completa (números reales verificados paso a paso) en HISTORIAL.md.
 
+## Bug real: "horas transmitidas" mostraba hasta 15h en un turno de 8h (2026-09-15)
+
+Reporte del usuario: modelos con jornadas desfasadas hasta 15h. Causa en
+`computeBroadcastSummary` (`chaturbate-lib.js`): un "stop" huérfano (sin
+"start" previo) se aceptaba SIEMPRE como "ya transmitía desde el inicio del
+turno", sin chequear si ese stop caía dentro de la ventana del día que se
+está calculando. Como `events` es el historial COMPLETO de la modela para
+toda la quincena (un solo fetch para todos los días), un glitch real y
+recurrente — dos "stop" seguidos sin "start" entre medio, visto en varios
+días de varias modelos — generaba un segmento fantasma `[inicio de ESTA
+ventana, ese stop de OTRO día]` que cubría el turno ENTERO de un día que no
+tenía nada que ver, sumándose sin deduplicar sobre el segmento real.
+Reproducido y confirmado con los eventos reales de amaranta_f00x: el cálculo
+daba 1431 min para un turno de 8h (480 min) — un doble "stop stop" del
+2026-09-13 y otro del 2026-09-14 sumaban +480 min fantasma cada uno sobre
+los ~471 min reales del 2026-09-10.
+
+**Fix**: el "stop" huérfano solo cuenta si (a) cae dentro de la ventana que
+se está calculando Y (b) es el PRIMER huérfano de todo el historial, antes
+de haber visto cualquier "start" real — un huérfano que aparece DESPUÉS de
+al menos un start ya visto es un duplicado/glitch, no una señal de que
+venía transmitiendo desde antes. Regresión con los datos reales de
+amaranta_f00x en `chaturbate-lib.test.js`. Verificado contra Supabase real
+(`SOLO_UI=1`): las 7 modelos, cero días con `broadcast_minutes` por encima
+de su turno tras el fix (antes: amaranta, abigail y tamar4 con varios días
+inflados). `npm test`: 106/106. No hizo falta migrar nada — este valor se
+calcula al vuelo en cada `GET /api/attendance`, nunca se guarda.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
