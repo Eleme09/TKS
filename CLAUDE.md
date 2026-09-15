@@ -1381,6 +1381,51 @@ corrió. `sbCheck*` en `server.js`, junto a `sbListAuditLog`. Verificado
 contra Supabase real (`SOLO_UI=1`): devuelve exactamente los mismos números
 que la corrida del vigía del mismo día.
 
+## Marcar falta (no vino) + aviso anticipado de seguridad social (2026-09-15)
+
+Dos features relacionadas, pedidas juntas.
+
+**Marcar falta**: `POST /api/attendance/day/no-show` (admin O ceo —
+`requireAdminOrCeo`, a diferencia de `day/edit` que sigue siendo solo
+admin) `{username, work_date, note}`. Cuenta como jornada completa de falta:
+`late_minutes` = duración de su turno completo (480 min en los dos turnos
+actuales), `official_at`/`exit_at` quedan en `null` (invalidados),
+`official_source: 'falta'`, `status: 'validada'` (para que fluya sin tocar
+nada por `sumLateMinutes`/`owes_social_security`/`debt_cop`, que ya filtran
+por ese status). `note` es el motivo — "No se presentó" / "Retardo
+injustificado" / uno libre, UI en `asistencia.html` (card nueva "Marcar
+falta", visible a admin+ceo, reusa modelo+fecha). Entrada se renderiza
+mostrando el motivo en vez de una hora (`index.html` y `asistencia.html`,
+buscar `official_source === 'falta'`). Si ya había una fila para ese día,
+la sobreescribe (no hace falta borrar antes).
+
+**Aviso anticipado**: cuando a una modelo le falta 1 hora o menos para
+CRUZAR el umbral (pero todavía no lo cruza) — distinto del banner reactivo
+`owes_social_security` que ya existía. `approaching_social_security`/
+`approaching_message` se calculan en vivo en cada `GET /api/attendance`
+(en `totals`, ventana `[threshold-60, threshold)`) para que la lista en
+pantalla siempre refleje el estado real; ADEMÁS un poller
+(`checkApproachingSocialSecurity`, cada 10 min, gateado `!UI_ONLY`) manda
+push a administrador+ceo y a la propia modelo (`sendPushToUser`), UNA sola
+vez por modelo por quincena (candado `cb_attendance_approaching_notice`,
+mismo patrón que `cb_attendance_daily_notice`). Mensaje personalizable por
+admin O ceo en cualquier momento (`POST /api/attendance/approaching-alert-message`,
+`cb_attendance_settings.approaching_alert_message`, texto libre con
+`{modelo}` como placeholder) — vacío restablece el default
+(`resolveApproachingAlertMessage` en `chaturbate-lib.js`, con tests). UI:
+card "Aviso anticipado de seguridad social" en Asistencia (`index.html`,
+admin+ceo) con el textarea + lista en vivo de modelos próximas; banner
+propio para la modelo (solo ella, admin/ceo ya lo ven en la lista).
+
+Verificado end-to-end contra Supabase real (`SOLO_UI=1`, cuentas
+`qa_temp_noshow_admin`/`_ceo`/`_model`, borradas al terminar): CEO marcó la
+falta de la modelo QA (480 min, `owes_social_security: true`, `debt_cop: 0`
+por el tope ya existente); bajando `late_minutes` a 320 (umbral 360) dio
+`approaching_social_security: true` con el mensaje default resuelto
+correctamente; CEO personalizó el mensaje y se reflejó al toque; modelo
+recibió 403 en los dos endpoints nuevos (son admin/ceo, no modelo). `npm
+test`: 109/109.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

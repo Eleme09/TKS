@@ -211,6 +211,37 @@
     <div class="errbox" id="manualError"></div>
   </div>
 
+  <div class="card" id="faltaCard" style="display:none;">
+    <h2>Marcar falta (no se presentó)</h2>
+    <div class="meta" style="margin-bottom:12px;">Cuenta como jornada completa de falta: se le suma todo su turno al retraso acumulado de la quincena. Invalida cualquier hora de entrada/salida que hubiera para ese día.</div>
+    <div class="manual-form">
+      <div>
+        <label for="faltaUser">Modelo</label>
+        <select id="faltaUser"></select>
+      </div>
+      <div>
+        <label for="faltaFecha">Día</label>
+        <input id="faltaFecha" type="date">
+      </div>
+      <div>
+        <label for="faltaMotivo">Motivo</label>
+        <select id="faltaMotivo">
+          <option value="No se presentó">No se presentó</option>
+          <option value="Retardo injustificado">Retardo injustificado</option>
+          <option value="otro">Otro (especificar)</option>
+        </select>
+      </div>
+      <div id="faltaMotivoOtroWrap" style="display:none;">
+        <label for="faltaMotivoOtro">Especificar motivo</label>
+        <input id="faltaMotivoOtro" type="text" maxlength="300">
+      </div>
+    </div>
+    <div class="fix-actions" style="margin-top:12px;">
+      <button type="button" class="fix-btn danger" id="btnFaltaGuardar" style="padding:9px 16px; font-size:11.5px;">Marcar falta</button>
+    </div>
+    <div class="errbox" id="faltaError"></div>
+  </div>
+
   <div class="card">
     <h2>Jornadas de la quincena</h2>
     <div class="table-wrap"><table id="tabla"></table></div>
@@ -256,6 +287,14 @@
     manualSalida: document.getElementById('manualSalida'),
     btnManualGuardar: document.getElementById('btnManualGuardar'),
     manualError: document.getElementById('manualError'),
+    faltaCard: document.getElementById('faltaCard'),
+    faltaUser: document.getElementById('faltaUser'),
+    faltaFecha: document.getElementById('faltaFecha'),
+    faltaMotivo: document.getElementById('faltaMotivo'),
+    faltaMotivoOtroWrap: document.getElementById('faltaMotivoOtroWrap'),
+    faltaMotivoOtro: document.getElementById('faltaMotivoOtro'),
+    btnFaltaGuardar: document.getElementById('btnFaltaGuardar'),
+    faltaError: document.getElementById('faltaError'),
     tabla: document.getElementById('tabla'),
     totalsCard: document.getElementById('totalsCard'),
     totales: document.getElementById('totales'),
@@ -377,12 +416,15 @@
         ? mine.map(function (j) { return '<div class="just-cell">' + escapeHtml(j.body) + '</div>'; }).join('')
         : '<span class="muted">—</span>';
       var entrada;
-      if (!d.official_at) entrada = '<span class="muted">—</span>';
+      if (d.official_source === 'falta') {
+        entrada = '<span class="tag" style="color:var(--bad, #ff6b6b);">' + escapeHtml(d.note || 'No se presentó') + '</span>';
+      } else if (!d.official_at) entrada = '<span class="muted">—</span>';
       else if (d.official_source && d.official_source !== 'reportada') {
         entrada = hora(d.official_at) + '<div class="sub2">reportó ' + hora(d.reported_at) + '</div>';
       } else entrada = hora(d.official_at);
       var salida;
-      if (!d.exit_at) salida = '<span class="muted">—</span>';
+      if (d.official_source === 'falta') salida = '<span class="muted">—</span>';
+      else if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
       else salida = hora(d.exit_at);
 
@@ -492,6 +534,12 @@
       el.manualUser.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
       if (prevManual) el.manualUser.value = prevManual;
     }
+    if (staff) {
+      el.faltaCard.style.display = 'block';
+      var prevFalta = el.faltaUser.value;
+      el.faltaUser.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      if (prevFalta) el.faltaUser.value = prevFalta;
+    }
     pintarTabla();
   }
 
@@ -524,6 +572,29 @@
     if (d) { data = d; render(); }
   }
   el.btnManualGuardar.addEventListener('click', guardarManual);
+
+  el.faltaMotivo.addEventListener('change', function () {
+    el.faltaMotivoOtroWrap.style.display = el.faltaMotivo.value === 'otro' ? 'block' : 'none';
+  });
+
+  async function guardarFalta() {
+    el.faltaError.style.display = 'none';
+    var username = el.faltaUser.value;
+    var workDate = el.faltaFecha.value;
+    if (!username || !workDate) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Elige modelo y día.'; return; }
+    var note = el.faltaMotivo.value === 'otro' ? el.faltaMotivoOtro.value.trim() : el.faltaMotivo.value;
+    if (el.faltaMotivo.value === 'otro' && !note) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Especifica el motivo.'; return; }
+    var r = await fetch('/api/attendance/day/no-show', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, work_date: workDate, note: note }),
+    });
+    var res = await r.json().catch(function () { return {}; });
+    if (!r.ok) { el.faltaError.style.display = 'block'; el.faltaError.textContent = res.error || 'No se pudo guardar'; return; }
+    el.faltaMotivoOtro.value = '';
+    var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
+    if (d) { data = d; render(); }
+  }
+  el.btnFaltaGuardar.addEventListener('click', guardarFalta);
 
   // Los acumulados y las excusas siguen al filtro: al abrir la hoja de una
   // modelo puntual no tiene sentido seguir listando a todas.

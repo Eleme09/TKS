@@ -405,6 +405,24 @@ function sumLateMinutes(days) {
   return total;
 }
 
+// Aviso anticipado (2026-09-15, pedido explicito del usuario): cuando a una
+// modelo le falta 1 hora o menos para cruzar el umbral de seguridad social
+// (pero todavia no lo cruzo), CEO y administrador -- y ella misma -- reciben
+// este aviso, para poder actuar ANTES de que pase, no solo enterarse despues
+// via el banner reactivo de "ya la cruzo". El texto es personalizable por
+// admin o ceo en cualquier momento (cb_attendance_settings.approaching_alert_message);
+// si no se personaliza, se usa este default. "{modelo}" se reemplaza por el
+// username; si el texto personalizado no trae "{modelo}", se le agrega el
+// nombre al final entre parentesis para que nunca quede ambiguo de quien se
+// trata (importante porque el mismo texto se reusa para cada modelo que
+// entre en la ventana).
+const DEFAULT_APPROACHING_ALERT_MESSAGE = '{modelo} está a menos de 1 hora de asumir su propia seguridad social esta quincena por acumulado de retraso.';
+
+function resolveApproachingAlertMessage(template, username) {
+  const t = (template && String(template).trim()) || DEFAULT_APPROACHING_ALERT_MESSAGE;
+  return t.indexOf('{modelo}') !== -1 ? t.split('{modelo}').join(username) : t + ' (' + username + ')';
+}
+
 // Un fallo de API externo con forma "HTTP <codigo> para <modelo>" es un
 // blip de red/rate-limit contra una cuenta puntual; cualquier otro mensaje
 // (ej. "cambio la forma de la respuesta, falta el campo token_balance") es
@@ -578,6 +596,8 @@ module.exports = {
   shiftLabel,
   computeLateMinutes,
   sumLateMinutes,
+  DEFAULT_APPROACHING_ALERT_MESSAGE,
+  resolveApproachingAlertMessage,
   getQuincena,
   getQuincenaHistory,
   toDateStr,

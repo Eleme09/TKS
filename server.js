@@ -22,6 +22,7 @@ const {
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
+  resolveApproachingAlertMessage,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1069,7 +1070,10 @@ async function sbInsertAttendanceExcuse(row) {
   return rows.length ? rows[0] : null;
 }
 
-const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true };
+const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true, approaching_alert_message: null };
+
+// Ventana del aviso anticipado (2026-09-15): "le falta 1 hora" en minutos.
+const APPROACHING_ALERT_WINDOW_MINUTES = 60;
 
 async function sbFetchAttendanceSettings() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings?id=eq.1&select=*', { headers: SB_HEADERS });
@@ -1101,6 +1105,29 @@ async function sbClaimDailyAttendanceNotice(workDate) {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ work_date: workDate }),
+  });
+  return r.ok;
+}
+
+// Igual patron que sbClaimDailyAttendanceNotice: la fila con primary key
+// (username, period_start) hace de "candado" atomico -- si ya existe, el
+// insert falla y sabemos que el aviso anticipado de seguridad social ya
+// salio para esa modelo esta quincena, asi que no se repite en cada corrida
+// del poller (cada 10 min) mientras siga dentro de la ventana de 1h.
+async function sbClaimApproachingNotice(username, periodStart) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_approaching_notice', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ username, period_start: periodStart }),
+  });
+  return r.ok;
+}
+
+async function sbUpdateApproachingAlertMessage(message) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ id: 1, approaching_alert_message: message, updated_at: new Date().toISOString() }),
   });
   return r.ok;
 }
@@ -1173,9 +1200,18 @@ async function buildAttendancePayload(session) {
   const totals = usernames.map((username) => {
     const mine = days.filter((d) => d.username === username);
     const lateMinutes = sumLateMinutes(mine);
+    // Aviso anticipado (2026-09-15): a menos de 1h de cruzar el umbral, pero
+    // todavia sin cruzarlo -- distinto del owes_social_security de abajo,
+    // que es la consecuencia YA consumada. Se calcula en vivo en cada
+    // refresco (no depende del candado de una sola vez que usa el push del
+    // poller) para que la lista en pantalla siempre refleje el estado real.
+    const approachingWindowStart = Math.max(0, threshold - APPROACHING_ALERT_WINDOW_MINUTES);
+    const isApproaching = socialSecurityEnabled && lateMinutes >= approachingWindowStart && lateMinutes < threshold;
     return {
       username,
       late_minutes: lateMinutes,
+      approaching_social_security: isApproaching,
+      approaching_message: isApproaching ? resolveApproachingAlertMessage(settings.approaching_alert_message, username) : null,
       entry_time: (scheduleByUser[username] && scheduleByUser[username].entry_time) || null,
       exit_time: (scheduleByUser[username] && scheduleByUser[username].exit_time) || null,
       shift: scheduleByUser[username]
@@ -1219,6 +1255,7 @@ async function buildAttendancePayload(session) {
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
     social_security_enabled: socialSecurityEnabled,
+    approaching_alert_message: settings.approaching_alert_message || null,
     shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
@@ -1314,6 +1351,56 @@ async function checkAutoExits() {
 function startAutoExitChecking() {
   checkAutoExits();
   setInterval(checkAutoExits, 5 * 60 * 1000);
+}
+
+// Aviso anticipado de seguridad social (2026-09-15, pedido explicito del
+// usuario): a diferencia del banner reactivo (owes_social_security, que ya
+// vive en buildAttendancePayload y se calcula en vivo en cada refresco), esto
+// es un PUSH proactivo -- para que administrador, ceo y la propia modelo se
+// enteren de una vez, sin depender de que alguien tenga la pestaña abierta.
+// Se manda UNA sola vez por modelo por quincena (candado en
+// cb_attendance_approaching_notice via sbClaimApproachingNotice) para no
+// repetir el mismo push cada 10 minutos mientras siga dentro de la ventana.
+let approachingCheckRunning = false;
+async function checkApproachingSocialSecurity() {
+  if (approachingCheckRunning) return;
+  approachingCheckRunning = true;
+  try {
+    const settings = await sbFetchAttendanceSettings();
+    if (settings.social_security_enabled === false) return;
+    const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
+    const windowStart = Math.max(0, threshold - APPROACHING_ALERT_WINDOW_MINUTES);
+    const today = studioDateStr(Date.now());
+    const period = studioQuincenaRange(today);
+    const [days, schedule, models] = await Promise.all([
+      sbListAttendanceDays(period.start, period.end, null),
+      sbListAttendanceSchedule(),
+      sbFetchAllModels(),
+    ]);
+    const scheduleByUser = {};
+    for (const s of schedule) scheduleByUser[s.username] = s;
+    const modelUsernames = models.filter((m) => m.role === 'modelo').map((m) => m.username);
+    for (const username of modelUsernames) {
+      if (!scheduleByUser[username]) continue;
+      const mine = days.filter((d) => d.username === username);
+      const lateMinutes = sumLateMinutes(mine);
+      if (lateMinutes < windowStart || lateMinutes >= threshold) continue;
+      const claimed = await sbClaimApproachingNotice(username, period.start);
+      if (!claimed) continue;
+      const message = resolveApproachingAlertMessage(settings.approaching_alert_message, username);
+      sendPushToRole(['administrador', 'ceo'], message, { tag: 'placer-approaching-ss-' + username }).catch(() => {});
+      sendPushToUser(username, message, { tag: 'placer-approaching-ss-mia' }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('Error chequeando aviso anticipado de seguridad social: ' + e.message);
+  } finally {
+    approachingCheckRunning = false;
+  }
+}
+
+function startApproachingSocialSecurityChecking() {
+  checkApproachingSocialSecurity();
+  setInterval(checkApproachingSocialSecurity, 10 * 60 * 1000);
 }
 
 // Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
@@ -3289,6 +3376,71 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, day: result });
   }
 
+  // Marcar que una modelo NO vino ese día (2026-09-15, pedido explícito):
+  // cuenta como falta de jornada completa (el turno entero se suma a su
+  // retraso acumulado de la quincena, con lo que empuja el umbral de
+  // seguridad social igual que llegar tarde) — invalida cualquier hora de
+  // entrada/salida que hubiera. admin Y ceo pueden marcarla (a diferencia de
+  // day/edit, que sigue siendo solo admin).
+  if (parsed.pathname === '/api/attendance/day/no-show' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : '';
+    if (!workDate) return sendJson(res, 400, { error: 'Fecha inválida' });
+    if (workDate > studioDateStr(Date.now())) return sendJson(res, 400, { error: 'No puedes marcar una falta en un día futuro' });
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
+
+    const schedule = await sbListAttendanceSchedule();
+    const hers = schedule.find((s) => s.username === username);
+    if (!hers || !hers.exit_time) return sendJson(res, 400, { error: 'Esa modelo no tiene horario asignado (con hora de salida)' });
+    const durationMin = shiftDurationMinutes(hers.entry_time, hers.exit_time);
+    if (durationMin == null) return sendJson(res, 400, { error: 'No se pudo calcular la duración de su turno' });
+    const scheduledMs = studioScheduledMs(workDate, hers.entry_time);
+
+    const day = await sbFetchAttendanceDay(username, workDate);
+    const now = Date.now();
+    const patch = {
+      status: 'validada',
+      official_at: null,
+      official_source: 'falta',
+      exit_at: null,
+      exit_source: null,
+      late_minutes: durationMin,
+      note: note || 'No se presentó',
+      scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
+      validated_at: new Date(now).toISOString(),
+      validated_by: session.username,
+      reject_reason: null,
+    };
+    const antes = day ? { status: day.status, official_at: day.official_at, exit_at: day.exit_at, late_minutes: day.late_minutes, note: day.note } : null;
+    const result = day
+      ? await sbUpdateAttendanceDay(day.id, patch)
+      : await sbInsertAttendanceDay({ username, work_date: workDate, reported_at: new Date(now).toISOString(), ...patch });
+    if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_no_show', username, { work_date: workDate, note: patch.note, late_minutes: durationMin, antes });
+    return sendJson(res, 200, { ok: true, day: result });
+  }
+
+  // Mensaje del aviso anticipado de seguridad social: admin O ceo pueden
+  // personalizarlo cuando quieran (a diferencia del resto de
+  // /api/attendance/settings, que sigue siendo admin-only). message vacío
+  // o ausente restablece el default.
+  if (parsed.pathname === '/api/attendance/approaching-alert-message' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const message = typeof body.message === 'string' ? body.message.trim().slice(0, 500) : '';
+    const ok = await sbUpdateApproachingAlertMessage(message || null);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_approaching_message_set', null, { message: message || null });
+    return sendJson(res, 200, { ok: true, message: message || null });
+  }
+
   if (parsed.pathname === '/api/attendance/excuse' && req.method === 'POST') {
     const session = await requireSession(req, res);
     if (!session) return;
@@ -3433,4 +3585,5 @@ server.listen(PORT, () => {
   startChaturbateBalancePolling();
   startAutoExitChecking();
   startShiftConfirmationChecking();
+  startApproachingSocialSecurityChecking();
 });

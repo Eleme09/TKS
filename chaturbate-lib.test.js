@@ -640,3 +640,19 @@ describe('classifyBroadcastColor', () => {
     assert.equal(lib.classifyBroadcastColor({ onlineMinutes: 10, maxGapMinutes: 200, shiftDurationMinutes: 480, hadExtra: true }), 'rojo');
   });
 });
+
+describe('resolveApproachingAlertMessage', () => {
+  test('sin plantilla personalizada, usa el default con el nombre reemplazado', () => {
+    const r = lib.resolveApproachingAlertMessage(null, 'amaranta_f00x');
+    assert.match(r, /^amaranta_f00x /);
+    assert.equal(r.indexOf('{modelo}'), -1);
+  });
+  test('plantilla personalizada con {modelo} lo reemplaza donde corresponda', () => {
+    const r = lib.resolveApproachingAlertMessage('Atención: {modelo} está por asumir su salud.', 'kitty_f00x');
+    assert.equal(r, 'Atención: kitty_f00x está por asumir su salud.');
+  });
+  test('plantilla personalizada sin {modelo} le agrega el nombre al final para no dejarlo ambiguo', () => {
+    const r = lib.resolveApproachingAlertMessage('Revisen a la modelo que va a cruzar el umbral.', 'jax_f00x');
+    assert.equal(r, 'Revisen a la modelo que va a cruzar el umbral. (jax_f00x)');
+  });
+});

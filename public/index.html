@@ -739,6 +739,7 @@
       </div>
 
       <div id="attRetrasoPanel" class="att-warning" style="display:none;"></div>
+      <div id="attApproachingBanner" class="att-warning" style="display:none;"></div>
       <div id="attWarning" class="att-warning" style="display:none;"></div>
 
       <a class="att-open-sheet" href="/asistencia.html" target="_blank" rel="noopener">
@@ -859,6 +860,19 @@
           <div class="row" style="margin-top:10px;"><button id="btnAttThreshold" class="btn-primary" style="flex:1;">Guardar umbral y tarifa</button></div>
           <div id="attConfigError" class="errbox"></div>
           <div id="attSchedList" style="margin-top:14px;"></div>
+        </div>
+
+        <div class="card" id="attApproachingCard" style="display:none;">
+          <h3 class="card-title">Aviso anticipado de seguridad social</h3>
+          <div class="meta-small" style="margin-bottom:12px;">Cuando a una modelo le falta 1 hora o menos para cruzar el umbral, administrador, CEO y ella misma reciben este aviso (push y aquí en pantalla) — para poder actuar antes de que pase. Personalízalo cuando quieras; si lo dejas vacío se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
+          <label for="attApproachingMsg">Mensaje del aviso</label>
+          <textarea id="attApproachingMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} está a menos de 1 hora de asumir su propia seguridad social esta quincena por acumulado de retraso."></textarea>
+          <div class="row" style="margin-top:10px;">
+            <button id="btnAttApproachingSave" class="btn-primary" style="flex:1;">Guardar</button>
+            <button id="btnAttApproachingReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
+          </div>
+          <div id="attApproachingError" class="errbox"></div>
+          <div id="attApproachingList" style="margin-top:14px;"></div>
         </div>
       </div>
     </div>
@@ -1029,6 +1043,7 @@
     newsError: document.getElementById('newsError'),
     newsList: document.getElementById('newsList'),
     attRetrasoPanel: document.getElementById('attRetrasoPanel'),
+    attApproachingBanner: document.getElementById('attApproachingBanner'),
     attWarning: document.getElementById('attWarning'),
     attModelArea: document.getElementById('attModelArea'),
     attStaffArea: document.getElementById('attStaffArea'),
@@ -1068,6 +1083,12 @@
     btnAttThreshold: document.getElementById('btnAttThreshold'),
     attConfigError: document.getElementById('attConfigError'),
     attSchedList: document.getElementById('attSchedList'),
+    attApproachingCard: document.getElementById('attApproachingCard'),
+    attApproachingMsg: document.getElementById('attApproachingMsg'),
+    btnAttApproachingSave: document.getElementById('btnAttApproachingSave'),
+    btnAttApproachingReset: document.getElementById('btnAttApproachingReset'),
+    attApproachingError: document.getElementById('attApproachingError'),
+    attApproachingList: document.getElementById('attApproachingList'),
   };
 
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1691,8 +1712,25 @@
     el.attModelArea.style.display = isStaff ? 'none' : 'block';
     el.attStaffArea.style.display = isStaff ? 'block' : 'none';
     renderAttendanceWarning();
+    renderAttendanceApproachingBanner();
     renderAttendanceRetrasoPanel();
     if (isStaff) renderAttendanceStaff(); else renderAttendanceModel();
+  }
+
+  // Aviso anticipado (2026-09-15) solo para la modelo -- para administrador/
+  // ceo el mismo dato ya sale en la lista "Aviso anticipado de seguridad
+  // social" del Resumen, no hace falta duplicarlo en un banner arriba.
+  function renderAttendanceApproachingBanner() {
+    if (attData.role !== 'modelo') { el.attApproachingBanner.style.display = 'none'; return; }
+    const mine = attData.my_total;
+    if (!mine || !mine.approaching_social_security) { el.attApproachingBanner.style.display = 'none'; el.attApproachingBanner.innerHTML = ''; return; }
+    const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
+      + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
+      + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+      + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
+    el.attApproachingBanner.innerHTML = icon + '<div><div class="att-warning-title">Estás cerca del límite</div>'
+      + '<div class="att-warning-body">' + escapeHtml(mine.approaching_message || '') + '</div></div>';
+    el.attApproachingBanner.style.display = 'flex';
   }
 
   // El aviso de seguridad social. Para la modelo habla de ella; para la
@@ -1876,7 +1914,9 @@
       // queda en chico lo que la modelo había reportado: sin eso se pierde la
       // única pista visible de que hubo una corrección.
       let entrada;
-      if (!d.official_at) {
+      if (d.official_source === 'falta') {
+        entrada = '<span class="att-late">' + escapeHtml(d.note || 'No se presentó') + '</span>';
+      } else if (!d.official_at) {
         entrada = '<span class="muted">—</span>';
       } else if (d.official_source && d.official_source !== 'reportada') {
         entrada = attHora(d.official_at) + '<div class="att-sub">reportó ' + attHora(d.reported_at) + '</div>';
@@ -1884,7 +1924,9 @@
         entrada = attHora(d.official_at);
       }
       let salida;
-      if (!d.exit_at) {
+      if (d.official_source === 'falta') {
+        salida = '<span class="muted">—</span>';
+      } else if (!d.exit_at) {
         salida = '<span class="muted">—</span>';
       } else if (d.exit_source === 'auto') {
         salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
@@ -1936,8 +1978,23 @@
 
   function renderAttendanceStaff() {
     const isAdmin = attData.role === 'administrador';
+    const isCeo = attData.role === 'ceo';
     el.attConfigCard.style.display = isAdmin ? 'block' : 'none';
     el.attPendingCard.style.display = isAdmin ? 'block' : 'none';
+    el.attApproachingCard.style.display = (isAdmin || isCeo) ? 'block' : 'none';
+    if (isAdmin || isCeo) {
+      if (document.activeElement !== el.attApproachingMsg) {
+        el.attApproachingMsg.value = attData.approaching_alert_message || '';
+      }
+      const approaching = (attData.totals || []).filter(function (t) { return t.approaching_social_security; });
+      el.attApproachingList.innerHTML = approaching.length
+        ? approaching.map(function (t) {
+            return '<div class="att-row"><div class="att-row-head"><span class="att-row-name">' + escapeHtml(t.username) + '</span>'
+              + '<span class="att-pill" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">próxima</span></div>'
+              + '<div class="meta-small">' + escapeHtml(t.approaching_message || '') + '</div></div>';
+          }).join('')
+        : '<div class="meta-small">Ninguna modelo está cerca del umbral ahora mismo.</div>';
+    }
 
     if (isAdmin) el.attPendingList.innerHTML = attPendingHtml(attData.pending || []);
     if (isAdmin) {
@@ -1955,7 +2012,11 @@
       return '<div class="att-row">'
         + '<div class="att-row-head">'
         + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
-        + (t.owes_social_security ? '<span class="att-pill rechazada">asume seguridad social</span>' : '<span class="att-pill validada">al día</span>')
+        + (t.owes_social_security
+            ? '<span class="att-pill rechazada">asume seguridad social</span>'
+            : t.approaching_social_security
+              ? '<span class="att-pill" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">próxima a asumirla</span>'
+              : '<span class="att-pill validada">al día</span>')
         + '</div>'
         + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
         + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
@@ -2170,10 +2231,23 @@
     await refreshAttendance();
   }
 
+  async function attSaveApproachingMessage(message) {
+    attClearBox(el.attApproachingError);
+    const r = await fetch('/api/attendance/approaching-alert-message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attApproachingError, data.error || 'No se pudo guardar');
+    await refreshAttendance();
+  }
+
   el.btnAttJust.addEventListener('click', attSendJustification);
   el.btnAttExcuse.addEventListener('click', attUploadExcuse);
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);
+  el.btnAttApproachingSave.addEventListener('click', function () { attSaveApproachingMessage(el.attApproachingMsg.value); });
+  el.btnAttApproachingReset.addEventListener('click', function () { el.attApproachingMsg.value = ''; attSaveApproachingMessage(''); });
   el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
   el.attSchedUser.addEventListener('change', attMarcarTurnoActivo);
   // Un justificante largo se muestra recortado a dos líneas; tocarlo lo abre.
