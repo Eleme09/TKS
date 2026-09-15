@@ -1426,6 +1426,21 @@ correctamente; CEO personalizó el mensaje y se reflejó al toque; modelo
 recibió 403 en los dos endpoints nuevos (son admin/ceo, no modelo). `npm
 test`: 109/109.
 
+## "Automatizar Chaturbate por completo" eliminado de Cuentas (2026-09-15)
+
+Pedido explícito: card redundante — las 7 modelos ya están activadas con
+`stats_api_token`, no queda nadie a quien activarle nada. Se borró la card
+completa de `index.html` (`chaturbateAutoCard`) y sus tres funciones JS
+(`loadCtbStatsStatus`, el listener de `btnSaveCtbStats`). **Los endpoints
+(`/api/chaturbate-stats-token/status`, `/api/chaturbate-stats-token/set`)
+se dejaron intactos, dormidos** — mismo patrón que Stripchat paste/parse,
+CSV upload y "Otros ingresos de Chaturbate". Razón para NO borrarlos
+también: si algún día se suma una modelo NUEVA al estudio, hace falta
+alguna forma de activarle el token — sin UI, el endpoint sigue siendo
+callable directo (curl) mientras no se decida traer la UI de vuelta o
+armar una nueva. Si se confirma que el estudio no va a sumar modelos
+nunca más, ahí sí se puede borrar de raíz.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

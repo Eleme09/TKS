@@ -920,17 +920,6 @@
         <div class="meta-small" style="margin-bottom:12px;">El sistema ya le pregunta solo a cada modelo 6 horas antes si va a tomar su horario. Aquí puedes mandarle ese mismo aviso a mano, a cualquier hora.</div>
         <div id="shiftConfirmList"></div>
       </div>
-      <div class="card" id="chaturbateAutoCard">
-        <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Automatizar Chaturbate por completo (recomendado)</h3>
-        <div class="meta-small" style="margin-bottom:12px;">Una sola vez por modelo: genera un token en <b>chaturbate.com/statsapi/authtoken/</b> (logueada en su cuenta) y pégalo aquí. Desde ahí el sistema vigila su balance de tokens solo, cada 5 minutos, para siempre — incluye propinas, privados, spy, fan club y contenido, todo junto, sin que nadie tenga que exportar ni cargar nada nunca más.</div>
-        <label for="ctbStatsUser">Modelo</label>
-        <select id="ctbStatsUser"></select>
-        <label for="ctbStatsToken">Token de Stats API</label>
-        <input id="ctbStatsToken" placeholder="24 caracteres" autocomplete="off">
-        <div class="row" style="margin-top:10px;"><button id="btnSaveCtbStats" class="btn-primary" style="flex:1;">Guardar y activar</button></div>
-        <div id="ctbStatsResult" class="meta-small" style="margin-top:8px;"></div>
-        <div id="ctbStatsList" style="margin-top:10px;"></div>
-      </div>
       <div class="card" id="systemHealthCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Salud del sistema</h3>
         <div class="meta-small" style="margin-bottom:12px;">El chequeo diario automático corre solo con una sesión de Claude activa. Si te quedas sin cuota y ese chequeo no corre ese día, revisa lo mismo aquí manualmente, cuando quieras.</div>
@@ -991,12 +980,6 @@
     displayNameInput: document.getElementById('displayNameInput'),
     btnSaveDisplayName: document.getElementById('btnSaveDisplayName'),
     displayNameError: document.getElementById('displayNameError'),
-    chaturbateAutoCard: document.getElementById('chaturbateAutoCard'),
-    ctbStatsUser: document.getElementById('ctbStatsUser'),
-    ctbStatsToken: document.getElementById('ctbStatsToken'),
-    btnSaveCtbStats: document.getElementById('btnSaveCtbStats'),
-    ctbStatsResult: document.getElementById('ctbStatsResult'),
-    ctbStatsList: document.getElementById('ctbStatsList'),
     modelAccountsCard: document.getElementById('modelAccountsCard'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     shiftConfirmCard: document.getElementById('shiftConfirmCard'),
@@ -2505,48 +2488,6 @@
     });
   }
 
-  async function loadCtbStatsStatus() {
-    const r = await fetch('/api/models');
-    if (r.ok) {
-      const data = await r.json();
-      const models = data.models || [];
-      el.ctbStatsUser.innerHTML = models.map(function (m) {
-        return '<option value="' + escapeHtml(m.account) + '">' + escapeHtml(m.account) + '</option>';
-      }).join('');
-    }
-    const r2 = await fetch('/api/chaturbate-stats-token/status');
-    if (!r2.ok) return;
-    const data2 = await r2.json();
-    const entries = data2.entries || [];
-    el.ctbStatsList.innerHTML = entries.map(function (e) {
-      const dot = e.active ? '🟢' : '⚪';
-      const label = e.active ? 'automático' : 'sin activar';
-      return '<div class="meta-small">' + dot + ' ' + escapeHtml(e.username) + ' — ' + label + '</div>';
-    }).join('');
-  }
-
-  el.btnSaveCtbStats.addEventListener('click', async function () {
-    el.ctbStatsResult.textContent = '';
-    const username = el.ctbStatsUser.value;
-    const statsToken = el.ctbStatsToken.value.trim();
-    if (!username || !statsToken) { el.ctbStatsResult.textContent = 'Elegí la modelo y pegá el token.'; return; }
-    el.btnSaveCtbStats.disabled = true;
-    const r = await fetch('/api/chaturbate-stats-token/set', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, statsToken }),
-    });
-    el.btnSaveCtbStats.disabled = false;
-    if (!r.ok) {
-      const err = await r.json().catch(function () { return {}; });
-      el.ctbStatsResult.textContent = err.error || 'No se pudo activar.';
-      return;
-    }
-    const data = await r.json();
-    el.ctbStatsToken.value = '';
-    el.ctbStatsResult.textContent = 'Listo — ' + data.username + ' activada. Balance actual: ' + data.currentBalance.toLocaleString('es-ES') + ' tokens.';
-    loadCtbStatsStatus();
-  });
-
   async function forceLogoutAccount(type, username) {
     if (!confirm('¿Cerrar todas las sesiones abiertas de "' + username + '"? Tendrá que volver a iniciar sesión en todos sus dispositivos.')) return;
     const r = await fetch('/api/accounts/logout-everywhere', {
@@ -3078,12 +3019,11 @@
     if (!isAdmin) { el.addModelCard.style.display = 'none'; el.btnShowForm.style.display = 'none'; }
     el.displayNameCard.style.display = isAdmin ? 'block' : 'none';
     el.adminAccountsCard.style.display = isAdmin ? 'block' : 'none';
-    el.chaturbateAutoCard.style.display = isAdmin ? 'block' : 'none';
     el.auditLogCard.style.display = isAdmin ? 'block' : 'none';
     el.systemHealthCard.style.display = isAdmin ? 'block' : 'none';
     el.modelAccountsCard.style.display = canAccessCuentas ? 'block' : 'none';
     el.shiftConfirmCard.style.display = canAccessCuentas ? 'block' : 'none';
-    if (isAdmin) { refreshAdminAccounts(); loadCtbStatsStatus(); }
+    if (isAdmin) { refreshAdminAccounts(); }
     if (canAccessCuentas) { refreshModelAccounts(); refreshShiftConfirmCard(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
