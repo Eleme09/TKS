@@ -178,10 +178,20 @@
   .errbox { background: var(--bad-soft); border: 1px solid var(--bad); color: #ffb0aa; padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-top: 12px; display: none; }
   .meta-small { font-size: 11px; color: var(--muted-dim); margin-top: 4px; line-height: 1.5; }
   .privacy-note { text-align: center; font-size: 11px; color: var(--muted-dim); margin-top: 14px; font-family: var(--font-mono); }
-  .models { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  /* auto-fit (no auto-fill): con pocas tarjetas -sobre todo la vista de una
+     sola modelo, que solo ve la suya- las columnas vacías no se quedan
+     reservando espacio a los lados; la tarjeta real se estira a ocupar el
+     ancho disponible en vez de quedar angosta con un hueco enorme al lado. */
+  .models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
   .model {
     background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%);
     border: 1px solid var(--border); border-radius: 18px; padding: 18px;
+    /* Tope de ancho: sin esto, una modelo (que solo ve su propia tarjeta) la
+       veía estirada a todo el ancho de la pantalla en escritorio, con las
+       estadísticas de adentro perdidas en un espacio enorme. No afecta la
+       vista con varias tarjetas -ahí el grid ya las deja más angostas que
+       esto de por sí. */
+    max-width: 460px;
     transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; animation: fadeUp .35s ease both;
   }
   .model:hover { border-color: #35353a; box-shadow: 0 10px 26px rgba(0,0,0,0.35); transform: translateY(-3px); }
@@ -437,12 +447,20 @@
     .topbar { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 16px; }
     .topbar .who { font-size: 12px; }
     .topbar-actions { gap: 8px; flex-wrap: nowrap; }
-    .btnAnon-txt { display: none; }
+    /* Antes el texto se ocultaba del todo y solo quedaba el ícono -- sin hover
+       en el teléfono, "cerrar mis sesiones en todos lados" quedaba adivinando
+       a ciegas. Mismo patrón que .tabIcon: ícono arriba, etiqueta chica abajo,
+       nunca solo-ícono. */
     .btnAnon-ico { display: inline-flex; }
     .topbar-actions .btnAnon,
     .topbar-actions #btnLogout {
-      flex: 1; justify-content: center; padding: 10px 4px; text-decoration: none;
+      flex: 1; flex-direction: column; gap: 3px; justify-content: center;
+      padding: 8px 2px; text-decoration: none; text-transform: none;
       border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+    }
+    .topbar-actions .btnAnon-txt {
+      display: block; font-size: 8.5px; line-height: 1.1; letter-spacing: 0;
+      text-decoration: none; white-space: normal;
     }
     .topbar-actions #btnLogout { color: var(--pink); border-color: var(--pink-line); }
     .conn { flex-direction: column; align-items: stretch; gap: 10px; }

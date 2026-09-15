@@ -1742,6 +1742,35 @@ revisó en cambio que el frontend nunca lee ese campo salvo dentro del
 `if (showSummary)` que ya es admin/ceo-only, así que quitarlo para modelo
 no le rompe nada a nadie.
 
+## Tercer lote de arreglos fáciles de la auditoría — dos de UX (2026-09-16)
+
+- **Botones de la barra superior ya no son solo-ícono en el celular**
+  ("ocultar mi nombre", "cerrar mis sesiones en todos lados", "Salir") —
+  mismo patrón que ya se usaba en las 6 pestañas principales (`.tabIcon`):
+  ícono arriba, etiqueta chica abajo, nunca el ícono solo. Antes el texto
+  se ocultaba del todo en pantallas angostas y solo quedaba el `title` (sin
+  hover en el teléfono, invisible). El botón de la campana (`btnEnablePush`)
+  se dejó igual a propósito — nunca tuvo texto ni siquiera en escritorio,
+  es un ícono de campana reconocible por sí solo, no es el mismo caso que
+  el resto.
+- **La tarjeta de una sola modelo ya no queda estirada a todo el ancho de
+  la pantalla en escritorio.** Causa real: `.models` usaba
+  `grid-template-columns: repeat(auto-fill, ...)` — con `auto-fill` (a
+  diferencia de `auto-fit`) el grid reserva columnas vacías invisibles
+  hasta llenar el ancho disponible, así que una sola tarjeta quedaba
+  angosta con dos columnas fantasma ocupando el resto de la fila. Cambiado
+  a `auto-fit` (colapsa esas columnas vacías) + `max-width: 460px` en
+  `.model` (para que, ya sin columnas fantasma, la tarjeta no se estire
+  ella misma a los 1200px+ de una pantalla ancha con las estadísticas de
+  adentro perdidas en el espacio). Verificado que la vista con varias
+  modelos (admin/CEO) queda idéntica a antes — el tope de 460px nunca se
+  activa ahí porque el grid ya las deja más angostas que eso.
+
+Verificado con Chromium + capturas reales (datos de prueba, nunca datos
+reales) en las dos resoluciones: la vista de una sola modelo ya no tiene el
+hueco vacío, y la vista de 6 modelos no cambió ni un píxel. `npm test`:
+109/109.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
