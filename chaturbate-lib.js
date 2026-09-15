@@ -405,39 +405,22 @@ function sumLateMinutes(days) {
   return total;
 }
 
-// Aviso anticipado (2026-09-15, pedido explicito del usuario): cuando a una
-// modelo le falta 1 hora o menos para cruzar el umbral de seguridad social
-// (pero todavia no lo cruzo), CEO y administrador -- y ella misma -- reciben
-// este aviso, para poder actuar ANTES de que pase, no solo enterarse despues
-// via el banner reactivo de "ya la cruzo". El texto es personalizable por
-// admin o ceo en cualquier momento (cb_attendance_settings.approaching_alert_message);
-// si no se personaliza, se usa este default. "{modelo}" se reemplaza por el
-// username; si el texto personalizado no trae "{modelo}", se le agrega el
-// nombre al final entre parentesis para que nunca quede ambiguo de quien se
-// trata (importante porque el mismo texto se reusa para cada modelo que
-// entre en la ventana).
-const DEFAULT_APPROACHING_ALERT_MESSAGE = '{modelo} está a menos de 1 hora de asumir su propia seguridad social esta quincena por acumulado de retraso.';
-
-// Aviso REACTIVO (ya cruzo el umbral, no antes) -- corregido 2026-09-16:
-// el texto original era fijo ("por incumplimiento de horario y acumulacion
-// de horas") y asumia siempre retraso acumulado gradual, pero no todos los
-// casos son eso -- una modelo puede cruzar el umbral de una sola vez por
-// una falta de dia completo (ver "Marcar falta"), no por llegar tarde
-// varios dias. Personalizable igual que el anticipado, mismo mecanismo de
-// reemplazo de "{modelo}" (`cb_attendance_settings.owes_alert_message`).
+// Aviso REACTIVO de seguridad social (ya cruzo el umbral) -- el aviso
+// ANTICIPADO de 1h antes que existio brevemente (2026-09-15) se elimino del
+// todo a pedido del usuario (2026-09-16): "esa opcion solo se soluciona con
+// la notificacion" -- o sea, esto solo, sin ventana previa. Y en vez de una
+// sola plantilla compartida por texto libre ("{modelo}" + fallback), el
+// mensaje ahora es PERSONALIZADO POR MODELO
+// (`cb_attendance_schedule.owes_message`, ver server.js) -- porque no todos
+// los casos son iguales: una modelo puede cruzar el umbral por retraso
+// acumulado dia a dia, otra por una sola falta de dia completo (ver "Marcar
+// falta"), y el texto correcto para cada una es distinto. Sin mensaje
+// personalizado para esa modelo, se usa este default.
 const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social.';
 
-function resolveAlertMessage(template, username, fallbackDefault) {
-  const t = (template && String(template).trim()) || fallbackDefault;
-  return t.indexOf('{modelo}') !== -1 ? t.split('{modelo}').join(username) : t + ' (' + username + ')';
-}
-
-function resolveApproachingAlertMessage(template, username) {
-  return resolveAlertMessage(template, username, DEFAULT_APPROACHING_ALERT_MESSAGE);
-}
-
 function resolveOwesAlertMessage(template, username) {
-  return resolveAlertMessage(template, username, DEFAULT_OWES_ALERT_MESSAGE);
+  const t = (template && String(template).trim()) || DEFAULT_OWES_ALERT_MESSAGE;
+  return t.indexOf('{modelo}') !== -1 ? t.split('{modelo}').join(username) : t + ' (' + username + ')';
 }
 
 // Un fallo de API externo con forma "HTTP <codigo> para <modelo>" es un
@@ -613,9 +596,7 @@ module.exports = {
   shiftLabel,
   computeLateMinutes,
   sumLateMinutes,
-  DEFAULT_APPROACHING_ALERT_MESSAGE,
   DEFAULT_OWES_ALERT_MESSAGE,
-  resolveApproachingAlertMessage,
   resolveOwesAlertMessage,
   getQuincena,
   getQuincenaHistory,

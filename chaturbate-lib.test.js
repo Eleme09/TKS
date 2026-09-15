@@ -641,30 +641,19 @@ describe('classifyBroadcastColor', () => {
   });
 });
 
-describe('resolveApproachingAlertMessage', () => {
-  test('sin plantilla personalizada, usa el default con el nombre reemplazado', () => {
-    const r = lib.resolveApproachingAlertMessage(null, 'amaranta_f00x');
-    assert.match(r, /^amaranta_f00x /);
-    assert.equal(r.indexOf('{modelo}'), -1);
-  });
-  test('plantilla personalizada con {modelo} lo reemplaza donde corresponda', () => {
-    const r = lib.resolveApproachingAlertMessage('Atención: {modelo} está por asumir su salud.', 'kitty_f00x');
-    assert.equal(r, 'Atención: kitty_f00x está por asumir su salud.');
-  });
-  test('plantilla personalizada sin {modelo} le agrega el nombre al final para no dejarlo ambiguo', () => {
-    const r = lib.resolveApproachingAlertMessage('Revisen a la modelo que va a cruzar el umbral.', 'jax_f00x');
-    assert.equal(r, 'Revisen a la modelo que va a cruzar el umbral. (jax_f00x)');
-  });
-});
-
 describe('resolveOwesAlertMessage', () => {
-  test('sin plantilla personalizada, usa su propio default (distinto del de approaching)', () => {
+  test('sin mensaje personalizado para esa modelo, usa el default con el nombre reemplazado', () => {
     const r = lib.resolveOwesAlertMessage(null, 'pinky_f00x');
     assert.match(r, /^pinky_f00x /);
     assert.match(r, /asume su propia seguridad social/);
+    assert.equal(r.indexOf('{modelo}'), -1);
   });
-  test('plantilla personalizada propia, independiente de la de approaching', () => {
+  test('mensaje personalizado por modelo con {modelo} lo reemplaza donde corresponda', () => {
     const r = lib.resolveOwesAlertMessage('{modelo} faltó un día completo y por eso asume su salud esta quincena.', 'conni_f00x');
     assert.equal(r, 'conni_f00x faltó un día completo y por eso asume su salud esta quincena.');
+  });
+  test('mensaje personalizado sin {modelo} le agrega el nombre al final para no dejarlo ambiguo', () => {
+    const r = lib.resolveOwesAlertMessage('Faltó por decisión propia.', 'jax_f00x');
+    assert.equal(r, 'Faltó por decisión propia. (jax_f00x)');
   });
 });

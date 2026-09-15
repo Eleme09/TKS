@@ -739,7 +739,6 @@
       </div>
 
       <div id="attRetrasoPanel" class="att-warning" style="display:none;"></div>
-      <div id="attApproachingBanner" class="att-warning" style="display:none;"></div>
       <div id="attWarning" class="att-warning" style="display:none;"></div>
 
       <a class="att-open-sheet" href="/asistencia.html" target="_blank" rel="noopener">
@@ -862,22 +861,12 @@
           <div id="attSchedList" style="margin-top:14px;"></div>
         </div>
 
-        <div class="card" id="attApproachingCard" style="display:none;">
-          <h3 class="card-title">Avisos de seguridad social</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Dos mensajes distintos, cada uno editable por separado — pensados para poder explicar bien el motivo, ya sea retraso acumulado día a día o una falta de día completo (ver "Marcar falta" en la hoja). Si dejas alguno vacío, se usa su texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
-
-          <label for="attApproachingMsg" style="margin-top:4px;">Aviso anticipado (1 hora antes de cruzar el umbral)</label>
-          <div class="meta-small" style="margin-bottom:6px;">Llega por push a administrador, CEO y a ella misma, para poder actuar antes de que pase.</div>
-          <textarea id="attApproachingMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} está a menos de 1 hora de asumir su propia seguridad social esta quincena por acumulado de retraso."></textarea>
-          <div class="row" style="margin-top:10px;">
-            <button id="btnAttApproachingSave" class="btn-primary" style="flex:1;">Guardar</button>
-            <button id="btnAttApproachingReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
-          </div>
-          <div id="attApproachingError" class="errbox"></div>
-          <div id="attApproachingList" style="margin-top:14px;"></div>
-
-          <label for="attOwesMsg" style="margin-top:20px;">Aviso al cruzar el umbral (ya asume su seguridad social)</label>
-          <div class="meta-small" style="margin-bottom:6px;">Este es el que ve ella (y administración) una vez ya pasó el límite — evalúa qué poner acá según el caso: no es lo mismo un retraso acumulado que una falta completa por decisión propia.</div>
+        <div class="card" id="attOwesMsgCard" style="display:none;">
+          <h3 class="card-title">Mensaje de seguridad social por modelo</h3>
+          <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
+          <label for="attOwesUser">Modelo</label>
+          <select id="attOwesUser"></select>
+          <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
           <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social."></textarea>
           <div class="row" style="margin-top:10px;">
             <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
@@ -1037,7 +1026,6 @@
     newsError: document.getElementById('newsError'),
     newsList: document.getElementById('newsList'),
     attRetrasoPanel: document.getElementById('attRetrasoPanel'),
-    attApproachingBanner: document.getElementById('attApproachingBanner'),
     attWarning: document.getElementById('attWarning'),
     attModelArea: document.getElementById('attModelArea'),
     attStaffArea: document.getElementById('attStaffArea'),
@@ -1077,12 +1065,8 @@
     btnAttThreshold: document.getElementById('btnAttThreshold'),
     attConfigError: document.getElementById('attConfigError'),
     attSchedList: document.getElementById('attSchedList'),
-    attApproachingCard: document.getElementById('attApproachingCard'),
-    attApproachingMsg: document.getElementById('attApproachingMsg'),
-    btnAttApproachingSave: document.getElementById('btnAttApproachingSave'),
-    btnAttApproachingReset: document.getElementById('btnAttApproachingReset'),
-    attApproachingError: document.getElementById('attApproachingError'),
-    attApproachingList: document.getElementById('attApproachingList'),
+    attOwesMsgCard: document.getElementById('attOwesMsgCard'),
+    attOwesUser: document.getElementById('attOwesUser'),
     attOwesMsg: document.getElementById('attOwesMsg'),
     btnAttOwesSave: document.getElementById('btnAttOwesSave'),
     btnAttOwesReset: document.getElementById('btnAttOwesReset'),
@@ -1710,25 +1694,8 @@
     el.attModelArea.style.display = isStaff ? 'none' : 'block';
     el.attStaffArea.style.display = isStaff ? 'block' : 'none';
     renderAttendanceWarning();
-    renderAttendanceApproachingBanner();
     renderAttendanceRetrasoPanel();
     if (isStaff) renderAttendanceStaff(); else renderAttendanceModel();
-  }
-
-  // Aviso anticipado (2026-09-15) solo para la modelo -- para administrador/
-  // ceo el mismo dato ya sale en la lista "Aviso anticipado de seguridad
-  // social" del Resumen, no hace falta duplicarlo en un banner arriba.
-  function renderAttendanceApproachingBanner() {
-    if (attData.role !== 'modelo') { el.attApproachingBanner.style.display = 'none'; return; }
-    const mine = attData.my_total;
-    if (!mine || !mine.approaching_social_security) { el.attApproachingBanner.style.display = 'none'; el.attApproachingBanner.innerHTML = ''; return; }
-    const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
-      + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
-      + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
-      + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
-    el.attApproachingBanner.innerHTML = icon + '<div><div class="att-warning-title">Estás cerca del límite</div>'
-      + '<div class="att-warning-body">' + escapeHtml(mine.approaching_message || '') + '</div></div>';
-    el.attApproachingBanner.style.display = 'flex';
   }
 
   // El aviso de seguridad social. Para la modelo habla de ella; para la
@@ -1978,22 +1945,12 @@
     const isCeo = attData.role === 'ceo';
     el.attConfigCard.style.display = isAdmin ? 'block' : 'none';
     el.attPendingCard.style.display = isAdmin ? 'block' : 'none';
-    el.attApproachingCard.style.display = (isAdmin || isCeo) ? 'block' : 'none';
+    el.attOwesMsgCard.style.display = (isAdmin || isCeo) ? 'block' : 'none';
     if (isAdmin || isCeo) {
-      if (document.activeElement !== el.attApproachingMsg) {
-        el.attApproachingMsg.value = attData.approaching_alert_message || '';
-      }
-      if (document.activeElement !== el.attOwesMsg) {
-        el.attOwesMsg.value = attData.owes_alert_message || '';
-      }
-      const approaching = (attData.totals || []).filter(function (t) { return t.approaching_social_security; });
-      el.attApproachingList.innerHTML = approaching.length
-        ? approaching.map(function (t) {
-            return '<div class="att-row"><div class="att-row-head"><span class="att-row-name">' + escapeHtml(t.username) + '</span>'
-              + '<span class="att-pill" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">próxima</span></div>'
-              + '<div class="meta-small">' + escapeHtml(t.approaching_message || '') + '</div></div>';
-          }).join('')
-        : '<div class="meta-small">Ninguna modelo está cerca del umbral ahora mismo.</div>';
+      const prevOwesUser = el.attOwesUser.value;
+      el.attOwesUser.innerHTML = (attData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      if (prevOwesUser && (attData.models || []).indexOf(prevOwesUser) !== -1) el.attOwesUser.value = prevOwesUser;
+      attFillOwesMsgForSelected();
     }
 
     if (isAdmin) el.attPendingList.innerHTML = attPendingHtml(attData.pending || []);
@@ -2014,9 +1971,7 @@
         + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
         + (t.owes_social_security
             ? '<span class="att-pill rechazada">asume seguridad social</span>'
-            : t.approaching_social_security
-              ? '<span class="att-pill" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">próxima a asumirla</span>'
-              : '<span class="att-pill validada">al día</span>')
+            : '<span class="att-pill validada">al día</span>')
         + '</div>'
         + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
         + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
@@ -2231,22 +2186,23 @@
     await refreshAttendance();
   }
 
-  async function attSaveApproachingMessage(message) {
-    attClearBox(el.attApproachingError);
-    const r = await fetch('/api/attendance/approaching-alert-message', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message }),
-    });
-    const data = await r.json().catch(function () { return {}; });
-    if (!r.ok) return attShowBox(el.attApproachingError, data.error || 'No se pudo guardar');
-    await refreshAttendance();
+  // Prellena el textarea con el mensaje YA guardado para la modelo elegida
+  // en el select — no toca el textarea si el admin/ceo está escribiendo en
+  // ese momento (mismo patrón que el resto de los campos de Asistencia).
+  function attFillOwesMsgForSelected() {
+    if (document.activeElement === el.attOwesMsg) return;
+    const username = el.attOwesUser.value;
+    const s = (attData.schedule || []).find(function (x) { return x.username === username; });
+    el.attOwesMsg.value = (s && s.owes_message) || '';
   }
 
   async function attSaveOwesMessage(message) {
     attClearBox(el.attOwesError);
+    const username = el.attOwesUser.value;
+    if (!username) return attShowBox(el.attOwesError, 'Elige una modelo');
     const r = await fetch('/api/attendance/owes-alert-message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message }),
+      body: JSON.stringify({ username: username, message: message }),
     });
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) return attShowBox(el.attOwesError, data.error || 'No se pudo guardar');
@@ -2257,8 +2213,7 @@
   el.btnAttExcuse.addEventListener('click', attUploadExcuse);
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);
-  el.btnAttApproachingSave.addEventListener('click', function () { attSaveApproachingMessage(el.attApproachingMsg.value); });
-  el.btnAttApproachingReset.addEventListener('click', function () { el.attApproachingMsg.value = ''; attSaveApproachingMessage(''); });
+  el.attOwesUser.addEventListener('change', attFillOwesMsgForSelected);
   el.btnAttOwesSave.addEventListener('click', function () { attSaveOwesMessage(el.attOwesMsg.value); });
   el.btnAttOwesReset.addEventListener('click', function () { el.attOwesMsg.value = ''; attSaveOwesMessage(''); });
   el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);

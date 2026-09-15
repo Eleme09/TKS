@@ -1473,6 +1473,52 @@ cruzó el umbral con el mensaje default; personalizado a mano explicando
 reflejó igual en la vista de admin y en la de la propia modelo. `npm
 test`: 111/111.
 
+## Aviso anticipado (1h antes) eliminado; mensaje de seguridad social pasa a ser por modelo (2026-09-16)
+
+Pedido explícito: "La opción de mandar mensaje antes de 1h eliminala. Esa
+opción solo se soluciona con la notificación y el mensaje debe ser
+personalizado a cada modelo." Se interpretó (y confirma con el diseño
+final) como dos cambios:
+
+1. **El aviso ANTICIPADO (1h antes de cruzar el umbral) se borró del
+   todo** — no se dejó dormido, se eliminó: `checkApproachingSocialSecurity`/
+   `startApproachingSocialSecurityChecking`/`sbClaimApproachingNotice`/
+   `sbUpdateApproachingAlertMessage` de `server.js`,
+   `resolveApproachingAlertMessage`/`DEFAULT_APPROACHING_ALERT_MESSAGE` de
+   `chaturbate-lib.js`, el endpoint `POST /api/attendance/approaching-alert-message`,
+   la card de configuración, el banner de la modelo y la lista en pantalla
+   de `index.html`. Tabla `cb_attendance_approaching_notice` y columna
+   `cb_attendance_settings.approaching_alert_message` borradas de Supabase
+   (`drop table`/`drop column`, no solo dejadas sin usar) — el pedido fue
+   "eliminala", no "escóndela", mismo criterio que
+   `ATTENDANCE_GRACE_MINUTES` en 2026-09-10. Sigue existiendo el aviso
+   REACTIVO (cuando YA cruza el umbral) — ese es "la notificación" a la
+   que se refería el pedido, ya la había push+en pantalla desde antes.
+
+2. **El mensaje del aviso reactivo pasó de una plantilla GLOBAL compartida
+   a un mensaje PERSONALIZADO POR MODELO.** Antes había un solo campo
+   `cb_attendance_settings.owes_alert_message` que aplicaba igual a las 7 —
+   ahora vive en `cb_attendance_schedule.owes_message` (columna nueva, una
+   por modelo). `POST /api/attendance/owes-alert-message` ahora recibe
+   `{username, message}` en vez de solo `{message}` (sigue admin O ceo);
+   sin mensaje asignado a esa modelo, se usa `DEFAULT_OWES_ALERT_MESSAGE`
+   (sin cambios). UI: la card pasó de "Avisos de seguridad social" (con
+   dos textareas) a **"Mensaje de seguridad social por modelo"**, con un
+   selector de modelo (igual patrón que "Horarios y umbral") + un solo
+   textarea que se prellena con el mensaje YA guardado de la modelo
+   elegida al cambiar el select. `resolveOwesAlertMessage` en
+   `chaturbate-lib.js` no cambió de firma — solo cambió DE DÓNDE viene el
+   `template` que recibe (antes `settings.owes_alert_message`, ahora
+   `scheduleByUser[username].owes_message`).
+
+Verificado end-to-end contra Supabase real (`SOLO_UI=1`, cuentas
+`qa_temp_pm_admin`/`_ceo`/`_model`, borradas al terminar): falta marcada →
+mensaje default; CEO personalizó el mensaje SOLO para esa modelo → otra
+modelo cualquiera siguió con `owes_message: null` (sin contaminarse);
+modelo vio su propio mensaje personalizado; modelo rechazada (403) al
+intentar el endpoint; `/api/attendance/approaching-alert-message` devuelve
+404 (ya no existe). `npm test`: 109/109.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
