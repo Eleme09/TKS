@@ -1771,6 +1771,19 @@ reales) en las dos resoluciones: la vista de una sola modelo ya no tiene el
 hueco vacío, y la vista de 6 modelos no cambió ni un píxel. `npm test`:
 109/109.
 
+## Cuarto arreglo fácil de la auditoría: índices faltantes en Supabase (2026-09-16)
+
+Migración pura de base de datos (`add_missing_foreign_key_indexes`, vía
+`apply_migration`), sin ningún cambio de código: se agregaron los 5 índices
+que el propio advisor de rendimiento de Supabase señalaba como faltantes
+(`cb_balance_resets.username`, `cb_balance_ticks.username`,
+`cb_news_comments.post_id`, `cb_shifts.claimed_by`,
+`cb_unhandled_events.username`). Sin riesgo — solo aceleran consultas
+futuras, no cambian ningún dato ni comportamiento. Confirmado con el
+advisor que la alerta de "llaves foráneas sin índice" ya no aparece (queda
+un aviso informativo de "índice sin uso todavía", esperable recién
+creados y sin tráfico real — se resuelve solo con el uso normal).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
