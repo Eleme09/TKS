@@ -519,6 +519,20 @@
     <div id="loginError" class="errbox"></div>
   </div>
 
+  <div class="card" id="forcePasswordCard" style="display:none;">
+    <div style="font-weight:600; margin-bottom:6px;">Debes cambiar tu contraseña para continuar</div>
+    <div class="meta-small" style="margin-bottom:14px;">Tu contraseña actual quedó por debajo del nuevo mínimo de seguridad. Crea una nueva de al menos 8 caracteres para seguir usando el sistema.</div>
+    <label for="fpcCurrent">Contraseña actual</label>
+    <input id="fpcCurrent" type="password" autocomplete="current-password">
+    <label for="fpcNew">Nueva contraseña</label>
+    <input id="fpcNew" type="password" autocomplete="new-password">
+    <label for="fpcConfirm">Repite la nueva contraseña</label>
+    <input id="fpcConfirm" type="password" autocomplete="new-password">
+    <div class="row"><button id="btnForcePasswordChange" style="flex:1;">Cambiar contraseña</button></div>
+    <div id="forcePasswordError" class="errbox"></div>
+    <div class="privacy-note"><a href="#" id="btnForcePasswordLogout">¿Cuenta equivocada? Salir</a></div>
+  </div>
+
   <div id="appArea" style="display:none;">
     <div class="topbar">
       <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span></div>
@@ -896,7 +910,7 @@
       </div>
       <div class="card" id="adminAccountsCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Cuentas administrativas</h3>
-        <div class="meta-small" style="margin-bottom:12px;">Cuentas CEO PLACER STUDIO — acceso de solo lectura a todas las modelos.</div>
+        <div class="meta-small" style="margin-bottom:12px;">Cuentas CEO PLACER STUDIO — puede gestionar el calendario de turnos, resetear contraseñas de modelos y cerrar sus sesiones. No puede tocar cuentas admin/CEO ni el resto de configuración de esta pestaña.</div>
         <div id="adminList"></div>
         <label for="ceoUser" style="margin-top:16px;">Nuevo usuario CEO</label>
         <input id="ceoUser" autocomplete="off">
@@ -952,6 +966,13 @@
     loginPass: document.getElementById('loginPass'),
     btnLogin: document.getElementById('btnLogin'),
     loginError: document.getElementById('loginError'),
+    forcePasswordCard: document.getElementById('forcePasswordCard'),
+    fpcCurrent: document.getElementById('fpcCurrent'),
+    fpcNew: document.getElementById('fpcNew'),
+    fpcConfirm: document.getElementById('fpcConfirm'),
+    btnForcePasswordChange: document.getElementById('btnForcePasswordChange'),
+    forcePasswordError: document.getElementById('forcePasswordError'),
+    btnForcePasswordLogout: document.getElementById('btnForcePasswordLogout'),
     appArea: document.getElementById('appArea'),
     whoUser: document.getElementById('whoUser'),
     whoRoleBadge: document.getElementById('whoRoleBadge'),
@@ -1325,6 +1346,10 @@
       const r = await fetch('/api/models');
       if (gen !== sessionGen) return; // la sesion cambio mientras esperabamos la respuesta
       if (r.status === 401) { showLogin(); return; }
+      if (r.status === 403) {
+        const errData = await r.json().catch(function () { return {}; });
+        if (errData.must_change_password) { handleMustChangePassword(); return; }
+      }
       const data = await r.json();
       if (gen !== sessionGen) return;
 
@@ -1466,7 +1491,7 @@
   }
 
   async function setModelPassword(username) {
-    const password = prompt('Nueva contraseña de acceso para "' + username + '" (mínimo 4 caracteres):');
+    const password = prompt('Nueva contraseña de acceso para "' + username + '" (mínimo 8 caracteres):');
     if (!password) return;
     const r = await fetch('/api/models/set-password', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1481,7 +1506,7 @@
   }
 
   async function setAdminPassword(username) {
-    const password = prompt('Nueva contraseña para la cuenta "' + username + '" (mínimo 4 caracteres). Úsalo si esa persona olvidó su contraseña:');
+    const password = prompt('Nueva contraseña para la cuenta "' + username + '" (mínimo 8 caracteres). Úsalo si esa persona olvidó su contraseña:');
     if (!password) return;
     const r = await fetch('/api/admins/set-password', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2673,6 +2698,10 @@
     const r = await fetch('/api/shifts');
     if (gen !== sessionGen) return;
     if (r.status === 401) return;
+    if (r.status === 403) {
+      const errData = await r.json().catch(function () { return {}; });
+      if (errData.must_change_password) { handleMustChangePassword(); return; }
+    }
     const data = await r.json();
     if (gen !== sessionGen) return;
     const shifts = data.shifts || [];
@@ -2865,7 +2894,7 @@
     const gender = el.ceoGender.value;
     if (!username || password.length < 4) {
       el.adminError.style.display = 'block';
-      el.adminError.textContent = 'Usuario y contraseña (mínimo 4 caracteres) son requeridos.';
+      el.adminError.textContent = 'Usuario y contraseña (mínimo 8 caracteres) son requeridos.';
       return;
     }
     el.adminError.style.display = 'none';
@@ -3073,11 +3102,94 @@
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     el.payslipUser.innerHTML = '';
     el.appArea.style.display = 'none';
+    el.forcePasswordCard.style.display = 'none';
     el.subtext.style.display = 'block';
     el.loginCard.style.display = 'block';
     el.loginBgCat.style.removeProperty('display');
     document.body.classList.remove('theme-modelos', 'theme-horas', 'theme-desprendibles', 'theme-cuentas', 'theme-noticias', 'theme-asistencia');
   }
+
+  let pendingForcePasswordSession = null;
+
+  // Pantalla bloqueante: se muestra en vez de la app cuando el servidor dice
+  // must_change_password=true (contraseña vieja por debajo del mínimo nuevo).
+  // No hay forma de saltarla salvo cambiar la contraseña — ver requireSession
+  // en server.js, que rechaza cualquier otra ruta mientras esto siga en true.
+  function showForcePasswordScreen(session) {
+    pendingForcePasswordSession = session;
+    el.subtext.style.display = 'none';
+    el.loginCard.style.display = 'none';
+    el.loginBgCat.style.display = 'none';
+    el.appArea.style.display = 'none';
+    el.forcePasswordCard.style.display = 'block';
+    el.fpcCurrent.value = '';
+    el.fpcNew.value = '';
+    el.fpcConfirm.value = '';
+    el.forcePasswordError.style.display = 'none';
+  }
+
+  // El servidor puede empezar a exigir el cambio de contraseña en medio de una
+  // sesion ya abierta (justo despues de este mismo despliegue, por ejemplo) --
+  // refresh()/refreshShifts() sondean cada 4s y son quienes primero lo notan.
+  // Se vuelve a pedir /api/me en vez de armar la sesion a mano porque el rol/
+  // genero no se guardan en ninguna variable global aparte.
+  async function handleMustChangePassword() {
+    const r = await fetch('/api/me');
+    if (r.ok) {
+      const session = await r.json();
+      showForcePasswordScreen(session);
+    } else {
+      showLogin();
+    }
+  }
+
+  el.btnForcePasswordChange.addEventListener('click', async function () {
+    el.forcePasswordError.style.display = 'none';
+    const currentPassword = el.fpcCurrent.value;
+    const newPassword = el.fpcNew.value;
+    const confirm = el.fpcConfirm.value;
+    if (!currentPassword || !newPassword) {
+      el.forcePasswordError.style.display = 'block';
+      el.forcePasswordError.textContent = 'Completa los tres campos.';
+      return;
+    }
+    if (newPassword.length < 8) {
+      el.forcePasswordError.style.display = 'block';
+      el.forcePasswordError.textContent = 'La nueva contraseña debe tener al menos 8 caracteres.';
+      return;
+    }
+    if (newPassword !== confirm) {
+      el.forcePasswordError.style.display = 'block';
+      el.forcePasswordError.textContent = 'Las dos contraseñas nuevas no coinciden.';
+      return;
+    }
+    el.btnForcePasswordChange.disabled = true;
+    try {
+      const r = await fetch('/api/me/change-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await r.json().catch(function () { return {}; });
+      if (!r.ok) {
+        el.forcePasswordError.style.display = 'block';
+        el.forcePasswordError.textContent = data.error || 'No se pudo cambiar la contraseña';
+        return;
+      }
+      el.forcePasswordCard.style.display = 'none';
+      const session = pendingForcePasswordSession;
+      pendingForcePasswordSession = null;
+      showApp({ ...session, must_change_password: false });
+    } finally {
+      el.btnForcePasswordChange.disabled = false;
+    }
+  });
+
+  el.btnForcePasswordLogout.addEventListener('click', async function (e) {
+    e.preventDefault();
+    pendingForcePasswordSession = null;
+    await fetch('/api/logout', { method: 'POST' });
+    showLogin();
+  });
 
   el.btnLogin.addEventListener('click', async function () {
     const username = el.loginUser.value.trim();
@@ -3096,7 +3208,9 @@
     }
     const data = await r.json();
     el.loginPass.value = '';
-    showApp({ username: data.username, role: data.role, gender: data.gender || null });
+    const session = { username: data.username, role: data.role, gender: data.gender || null };
+    if (data.must_change_password) { showForcePasswordScreen(session); return; }
+    showApp(session);
   });
 
   el.loginPass.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.btnLogin.click(); });
@@ -3126,7 +3240,7 @@
       const r = await fetch('/api/me');
       if (r.ok) {
         const session = await r.json();
-        showApp(session);
+        if (session.must_change_password) { showForcePasswordScreen(session); } else { showApp(session); }
       } else {
         showLogin();
       }

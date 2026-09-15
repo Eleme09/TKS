@@ -150,6 +150,7 @@ const ATTENDANCE_EXCUSE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'appli
 // franja caiga 5 minutos antes del vaciado.
 
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+const MIN_PASSWORD_LENGTH = 8;
 const SB_HEADERS = {
   apikey: SUPABASE_ANON_KEY,
   Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
@@ -264,28 +265,29 @@ function parseCookies(req) {
 // Supabase en cada request autenticado. Al "cerrar sesiones" el cambio tarda
 // hasta SESSION_VERSION_CACHE_MS en notarse en sesiones ya abiertas en otros
 // dispositivos, lo cual es aceptable para esta herramienta interna.
-const sessionVersionCache = new Map(); // key: type+':'+username -> { version, updatedAt }
+const sessionVersionCache = new Map(); // key: type+':'+username -> { version, mustChangePassword, updatedAt }
 const SESSION_VERSION_CACHE_MS = 15 * 1000;
 
-async function getCurrentSessionVersion(type, username) {
+async function getSessionAccountInfo(type, username) {
   const key = type + ':' + username;
   const cached = sessionVersionCache.get(key);
   const now = Date.now();
-  if (cached && now - cached.updatedAt < SESSION_VERSION_CACHE_MS) return cached.version;
+  if (cached && now - cached.updatedAt < SESSION_VERSION_CACHE_MS) return cached;
   const row = type === 'model' ? await sbFindModelAuth(username) : await sbFindAdmin(username);
-  const version = row ? (row.session_version || 1) : null;
-  if (version != null) sessionVersionCache.set(key, { version, updatedAt: now });
-  return version;
+  if (!row) return null;
+  const info = { version: row.session_version || 1, mustChangePassword: !!row.must_change_password, updatedAt: now };
+  sessionVersionCache.set(key, info);
+  return info;
 }
 
 async function getSession(req) {
   const cookies = parseCookies(req);
   const payload = verifySession(cookies.session);
   if (!payload) return null;
-  const currentVersion = await getCurrentSessionVersion(payload.type, payload.username);
-  if (currentVersion == null) return null; // la cuenta ya no existe
-  if ((payload.v || 1) < currentVersion) return null; // sesion cerrada remotamente
-  return payload;
+  const info = await getSessionAccountInfo(payload.type, payload.username);
+  if (!info) return null; // la cuenta ya no existe
+  if ((payload.v || 1) < info.version) return null; // sesion cerrada remotamente
+  return { ...payload, must_change_password: info.mustChangePassword };
 }
 
 function setSessionCookie(res, token) {
@@ -338,14 +340,14 @@ async function sbSaveCursor(username, nextUrl) {
 }
 
 async function sbFindAdmin(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender,hide_name,display_name,session_version', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username) + '&select=username,password_hash,role,gender,hide_name,display_name,session_version,must_change_password', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
 }
 
 async function sbFindModelAuth(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash,session_version', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash,session_version,must_change_password', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
@@ -369,7 +371,7 @@ async function sbSetAdminPassword(username, passwordHash) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
     method: 'PATCH',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ password_hash: passwordHash }),
+    body: JSON.stringify({ password_hash: passwordHash, must_change_password: false }),
   });
   return resp.ok;
 }
@@ -504,7 +506,7 @@ async function sbSetModelPassword(username, passwordHash) {
   await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
     method: 'PATCH',
     headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ password_hash: passwordHash }),
+    body: JSON.stringify({ password_hash: passwordHash, must_change_password: false }),
   }).catch(() => {});
 }
 
@@ -2154,10 +2156,20 @@ function clearLoginFailures(ip) {
   loginAttempts.delete(ip);
 }
 
+// Rutas que una cuenta con must_change_password=true puede seguir usando —
+// sin esto quedaría totalmente atrapada sin poder ni cambiar su contraseña
+// ni cerrar sesión. Todo lo demás (incluido /api/models, /api/attendance,
+// etc.) queda bloqueado con 403 hasta que cambie la contraseña.
+const PASSWORD_CHANGE_ALLOWED_PATHS = ['/api/me/change-password'];
+
 async function requireSession(req, res) {
   const session = await getSession(req);
   if (!session) {
     sendJson(res, 401, { error: 'No autenticado' });
+    return null;
+  }
+  if (session.must_change_password && PASSWORD_CHANGE_ALLOWED_PATHS.indexOf(req.url.split('?')[0]) === -1) {
+    sendJson(res, 403, { error: 'Debes cambiar tu contraseña antes de continuar', must_change_password: true });
     return null;
   }
   return session;
@@ -2204,7 +2216,7 @@ const server = http.createServer(async (req, res) => {
       clearLoginFailures(clientIp);
       const token = signSession({ type: 'admin', username: admin.username, role: admin.role, gender: admin.gender || null, v: admin.session_version || 1 });
       setSessionCookie(res, token);
-      return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username, gender: admin.gender || null });
+      return sendJson(res, 200, { ok: true, role: admin.role, username: admin.username, gender: admin.gender || null, must_change_password: !!admin.must_change_password });
     }
 
     const modelUsername = sanitizeUsername(usernameRaw);
@@ -2214,7 +2226,7 @@ const server = http.createServer(async (req, res) => {
         clearLoginFailures(clientIp);
         const token = signSession({ type: 'model', username: modelUsername, role: 'modelo', v: modelAuth.session_version || 1 });
         setSessionCookie(res, token);
-        return sendJson(res, 200, { ok: true, role: 'modelo', username: modelUsername });
+        return sendJson(res, 200, { ok: true, role: 'modelo', username: modelUsername, must_change_password: !!modelAuth.must_change_password });
       }
     }
 
@@ -2230,7 +2242,7 @@ const server = http.createServer(async (req, res) => {
   if (parsed.pathname === '/api/me' && req.method === 'GET') {
     const session = await getSession(req);
     if (!session) return sendJson(res, 401, { error: 'No autenticado' });
-    return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null });
+    return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null, must_change_password: !!session.must_change_password });
   }
 
   // Invalida todas las sesiones abiertas de esta cuenta (este dispositivo incluido).
@@ -2240,6 +2252,29 @@ const server = http.createServer(async (req, res) => {
     await sbBumpSessionVersion(session.type, session.username);
     await sbLogAudit(session, 'logout_everywhere', session.username);
     clearSessionCookie(res);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Cambio de contraseña por la propia cuenta (a diferencia de /api/admins/set-password
+  // y /api/models/set-password, que son un ADMIN reseteando la de otra cuenta). Es la
+  // unica ruta que sigue funcionando cuando must_change_password esta en true (ver
+  // requireSession) -- si no, una cuenta marcada quedaria bloqueada sin salida.
+  if (parsed.pathname === '/api/me/change-password' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+    const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (newPassword.length < MIN_PASSWORD_LENGTH) return sendJson(res, 400, { error: 'La nueva contraseña debe tener al menos ' + MIN_PASSWORD_LENGTH + ' caracteres' });
+    const row = session.type === 'model' ? await sbFindModelAuth(session.username) : await sbFindAdmin(session.username);
+    if (!row || !verifyPassword(currentPassword, row.password_hash)) return sendJson(res, 400, { error: 'Tu contraseña actual no es correcta' });
+    const ok = session.type === 'model'
+      ? await sbSetModelPassword(session.username, hashPassword(newPassword))
+      : await sbSetAdminPassword(session.username, hashPassword(newPassword));
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo cambiar la contraseña' });
+    sessionVersionCache.delete(session.type + ':' + session.username);
+    await sbLogAudit(session, 'self_change_password', session.username);
     return sendJson(res, 200, { ok: true });
   }
 
@@ -2338,7 +2373,7 @@ const server = http.createServer(async (req, res) => {
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
     const gender = body.gender === 'f' ? 'f' : body.gender === 'm' ? 'm' : null;
-    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Usuario y contraseña (min. 4 caracteres) son requeridos' });
+    if (!username || password.length < MIN_PASSWORD_LENGTH) return sendJson(res, 400, { error: 'Usuario y contraseña (mínimo ' + MIN_PASSWORD_LENGTH + ' caracteres) son requeridos' });
     const ok = await sbCreateAdmin(username, hashPassword(password), 'ceo', gender);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo crear (¿el usuario ya existe?)' });
     await sbLogAudit(session, 'create_account', username, { role: 'ceo' });
@@ -2365,7 +2400,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
-    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
+    if (!username || password.length < MIN_PASSWORD_LENGTH) return sendJson(res, 400, { error: 'Contraseña de al menos ' + MIN_PASSWORD_LENGTH + ' caracteres requerida' });
     const ok = await sbSetAdminPassword(username, hashPassword(password));
     if (!ok) return sendJson(res, 400, { error: 'No se pudo cambiar la contraseña' });
     await sbBumpSessionVersion('admin', username);
@@ -2382,7 +2417,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = sanitizeUsername(body.username);
     const password = typeof body.password === 'string' ? body.password : '';
-    if (!username || password.length < 4) return sendJson(res, 400, { error: 'Contraseña de al menos 4 caracteres requerida' });
+    if (!username || password.length < MIN_PASSWORD_LENGTH) return sendJson(res, 400, { error: 'Contraseña de al menos ' + MIN_PASSWORD_LENGTH + ' caracteres requerida' });
     await sbSetModelPassword(username, hashPassword(password));
     await sbBumpSessionVersion('model', username);
     await sbLogAudit(session, 'reset_model_password', username);

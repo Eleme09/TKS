@@ -1601,6 +1601,113 @@ verdad antes de guardarlo, así que un token inválido nunca se guarda
 silenciosamente). `renewStatsToken()` en `index.html`, vuelve a correr el
 chequeo solo al terminar para confirmar que la señal desapareció.
 
+## Auditoría de seguridad/código/UX + arreglos empezando por lo más fácil (2026-09-15/16)
+
+El usuario pidió una auditoría completa "como programador externo que nunca
+participó" — sin tocar código, solo diagnóstico. Se entregó como Artifact
+(informe en español, sin tecnicismos, verificado contra el Supabase real vía
+MCP —RLS, políticas, advisors— y con capturas reales de Chromium usando datos
+de prueba inventados, nunca datos reales). Encontró 4 críticos, 7 importantes,
+7 mejoras, 2 opcionales — texto completo del informe no vive en el repo (es
+un Artifact), pero el hallazgo #1 crítico (RLS completamente abierto al rol
+`anon` en las 24 tablas `cb_*`, `cmd: ALL, qual: true`) confirma por escrito
+lo que esta misma sección del archivo ya documentaba como "tradeoff
+aceptado" — no es nuevo, solo la primera vez que se verificó por escrito
+contra la configuración real en vez de asumirlo.
+
+El usuario pidió arreglar de más fácil a más difícil, sin pedir permiso en
+cada paso. Primer lote (commit de esta fecha):
+
+1. **Texto desactualizado de permisos del CEO en Cuentas** — la descripción
+   decía "acceso de solo lectura a todas las modelos", pero desde 2026-09-09
+   el CEO ya gestiona turnos y contraseñas/sesiones de modelos. Corregido el
+   texto para reflejar los permisos reales.
+2. **Mínimo de contraseña subido de 4 a 8 caracteres** — `MIN_PASSWORD_LENGTH`
+   (server.js) para las tres rutas que fijan contraseña
+   (`/api/admins/create`, `/api/admins/set-password`,
+   `/api/models/set-password`), copys del frontend actualizados a juego.
+3. **Cambio de contraseña obligatorio para las cuentas que ya existían**
+   (pedido explícito del usuario apenas vio el punto 2: "si las contraseñas
+   actuales no cumplen los parámetros, haz que se queden así forzadamente
+   hasta que se cambien"). Como las contraseñas se guardan hasheadas
+   (scrypt, un solo sentido), no hay forma de verificar retroactivamente si
+   una contraseña ya existente cumple los 8 caracteres — la única opción
+   honesta es marcar a TODAS las cuentas que ya existían y obligarlas a
+   cambiarla, aunque algunas ya cumplieran el mínimo por casualidad.
+   - Migración aplicada directo en Supabase (`must_change_password_flag`,
+     vía `apply_migration`, mismo patrón que otras migraciones incrementales
+     de este proyecto): columna `must_change_password boolean not null
+     default false` en `cb_admins` y `cb_models`, puesta en `true` para las
+     10 cuentas reales que ya existían (3 admin/CEO + 7 modelos). Cualquier
+     cuenta NUEVA nace con `false` por el default — nunca hace falta
+     tocarlo a mano al crear.
+   - `sbFindAdmin`/`sbFindModelAuth` ahora traen esta columna.
+     `sbSetAdminPassword`/`sbSetModelPassword` la ponen en `false` en el
+     mismo PATCH que cambia la contraseña — así CUALQUIER cambio de
+     contraseña (reset de un admin, o el cambio propio de abajo) la limpia
+     sola, sin una función aparte.
+   - `getSession` ahora devuelve `must_change_password` en el payload de
+     sesión, resuelto desde el mismo cache de `session_version` que ya
+     existía (`sessionVersionCache`, ahora guarda `{version,
+     mustChangePassword, updatedAt}` en vez de solo la versión) — no hubo
+     que agregar una consulta nueva a Supabase por request.
+   - `requireSession` bloquea con 403 (`{must_change_password: true}`)
+     CUALQUIER ruta mientras el flag siga en `true`, salvo la única lista
+     blanca: `/api/me/change-password` (nueva, ver abajo). Esto es lo que
+     lo hace "forzado" de verdad y no solo un aviso en pantalla — como pasa
+     por `requireSession`, alcanza automáticamente a `requireAdmin`/
+     `requireAdminOrCeo` también, sin tocarlos.
+   - **`POST /api/me/change-password`** (nueva): a diferencia de
+     `/api/admins|models/set-password` (un ADMIN reseteando la de OTRA
+     cuenta), esta es la propia cuenta cambiando la suya — pide la
+     contraseña ACTUAL y la verifica contra el hash antes de aceptar la
+     nueva (para que una sesión robada justo después del login no pueda
+     cambiarla sin saber la actual). Es la única ruta que sigue funcionando
+     con `must_change_password: true`.
+   - Frontend: card nueva `forcePasswordCard` (`index.html`), pantalla
+     bloqueante que reemplaza tanto el login como la app — se activa desde
+     dos lugares: la respuesta de `/api/login` y `/api/me` en `init()`
+     (recarga de página). **También cubre el caso de una sesión YA
+     abierta** en el momento del despliegue: `refresh()`/`refreshShifts()`
+     (los dos sondeos de 4s) revisan si la respuesta es 403 con
+     `must_change_password` y llaman a `handleMustChangePassword()`
+     (vuelve a pedir `/api/me` para reconstruir la sesión completa, porque
+     rol/género no se guardan en ninguna variable global aparte) en vez de
+     dejar la pantalla con datos viejos sin explicación. Un enlace "¿Cuenta
+     equivocada? Salir" evita que alguien quede atrapado si entró con una
+     cuenta que no era.
+   - **Verificación de esta sesión, con la misma limitación ya documentada
+     arriba (sin `env.bat`/credenciales de producción en este contenedor
+     remoto):** migración confirmada por consulta SQL directa (las 10
+     cuentas reales con el flag en `true`); `node -c` + `npm test` (109/109,
+     sin tests nuevos — es orquestación sobre patrones ya existentes, no
+     lógica pura nueva); flujo completo del frontend probado con Chromium +
+     respuestas simuladas (nunca contra Supabase real): pantalla bloqueante
+     se muestra, valida contraseña corta, valida que las dos nuevas
+     coincidan, y al tener éxito pasa a la app normal. **Lo que falta
+     probar de verdad** la próxima vez que haya sesión con credenciales
+     completas: el round-trip HTTP real contra Supabase (login con una
+     cuenta real → pantalla forzada → cambiarla → confirmar que
+     `must_change_password` quedó en `false` en la base).
+   - **Impacto real e inmediato en cuanto esto llegue a producción:** las
+     10 cuentas reales (Elemee, CAMILO, LUZ ADRIANA, y las 7 modelos) van a
+     quedar bloqueadas del sistema en su próxima acción hasta que cada una
+     cambie su contraseña — esto es exactamente lo que se pidió, pero hay
+     que avisarles de antemano para que no piensen que el sistema se
+     rompió.
+
+Quedan pendientes, en orden de dificultad creciente según la auditoría: el
+resto de arreglos fáciles (dejar de mandarle `studio_rate_usd_per_token` a
+las modelos, mensajes de error genéricos, cabeceras de seguridad básicas),
+luego los de dificultad media (arreglar el freno de login contra
+`X-Forwarded-For` falsificado, reorganizar Asistencia), y al final lo más
+difícil: cerrar el RLS abierto de Supabase (el hallazgo más crítico de
+todos, pero el que más riesgo de romper el sistema tiene si se hace mal,
+porque HOY el servidor entero depende de que el rol `anon` tenga acceso
+total — arreglarlo bien requiere migrar a la `service_role` key o escribir
+políticas por tabla calcadas a lo que el servidor realmente necesita, no un
+cambio de una línea).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
