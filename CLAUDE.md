@@ -1580,6 +1580,27 @@ temprano sin motivo → recibir el 400 → reintentar con motivo → ver la fila
 y el justificante en pantalla) contra una cuenta `qa_temp_*` real, antes de
 confiar en esto al 100%.
 
+## "Salud del sistema" ahora también arregla, no solo avisa (2026-09-15)
+
+Pedido explícito: "no quiero ver si tengo errores, quiero tener la forma
+manual de arreglarlos en caso tal de no tener cuota de claude." La card ya
+mostraba las 4 señales del vigía (solo lectura); de las 4, **solo una tiene
+arreglo real posible desde un botón**: balance de Chaturbate sin actualizar
+(token de Stats API vencido). Las otras tres no — un evento sin clasificar o
+una racha de errores necesitan un cambio de código, y Stripchat sin
+sincronizar necesita actualizar una variable de entorno en Render — ninguna
+de esas tres tiene un botón inventado, sería falsa sensación de arreglo.
+
+Cuando `staleBalances` trae una modelo, la línea ahora tiene un botón
+"Renovar token" que pide (con `prompt()`, mismo patrón ya usado en otros
+lados de esta app) el token nuevo de Stats API y llama al endpoint que YA
+existía y funcionaba pero estaba huérfano de UI desde que se borró la card
+"Automatizar Chaturbate por completo" (`POST
+/api/chaturbate-stats-token/set` — valida el token contra Chaturbate de
+verdad antes de guardarlo, así que un token inválido nunca se guarda
+silenciosamente). `renewStatsToken()` en `index.html`, vuelve a correr el
+chequeo solo al terminar para confirmar que la señal desapareció.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

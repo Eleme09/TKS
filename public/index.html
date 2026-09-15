@@ -922,7 +922,7 @@
       </div>
       <div class="card" id="systemHealthCard">
         <h3 style="margin:0 0 4px; font-family:var(--font-display); font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">Salud del sistema</h3>
-        <div class="meta-small" style="margin-bottom:12px;">El chequeo diario automático corre solo con una sesión de Claude activa. Si te quedas sin cuota y ese chequeo no corre ese día, revisa lo mismo aquí manualmente, cuando quieras.</div>
+        <div class="meta-small" style="margin-bottom:12px;">El chequeo diario automático corre solo con una sesión de Claude activa. Si te quedas sin cuota y ese chequeo no corre ese día, revisa lo mismo aquí manualmente, cuando quieras. Si sale un token vencido, lo puedes renovar directo desde acá.</div>
         <div class="row"><button id="btnSystemHealthCheck" class="btn-primary" style="flex:1;">Revisar ahora</button></div>
         <div id="systemHealthResult" class="meta-small" style="margin-top:10px;"></div>
       </div>
@@ -2568,7 +2568,8 @@
         });
       }
       (d.staleBalances || []).forEach(function (x) {
-        lines.push('⚠ <b>' + escapeHtml(x.username) + '</b> tiene seguimiento automático activo pero su balance no se actualiza desde ' + (x.last_balance_at ? new Date(x.last_balance_at).toLocaleString('es-CO') : 'nunca') + ' — posible token vencido.');
+        lines.push('⚠ <b>' + escapeHtml(x.username) + '</b> tiene seguimiento automático activo pero su balance no se actualiza desde ' + (x.last_balance_at ? new Date(x.last_balance_at).toLocaleString('es-CO') : 'nunca') + ' — posible token vencido. '
+          + '<span class="shift-mark-btn btn-renew-token" data-user="' + escapeHtml(x.username) + '" title="Pegar un token de Stats API nuevo para esta modelo">Renovar token</span>');
       });
       if (d.stripchatSync && d.stripchatSync.stale) {
         lines.push('⚠ Sincronización de Stripchat sin actualizar' + (d.stripchatSync.hours_since != null ? ' hace ' + d.stripchatSync.hours_since + 'h' : '') + ' — posible API key vencida.');
@@ -2576,11 +2577,35 @@
       el.systemHealthResult.innerHTML = lines.length
         ? lines.map(function (l) { return '<div style="padding:4px 0; color:var(--bad);">' + l + '</div>'; }).join('')
         : '<span style="color:var(--good, #4caf87);">✓ Todo normal — sin nada raro en las 4 señales.</span>';
+      el.systemHealthResult.querySelectorAll('.btn-renew-token').forEach(function (btn) {
+        btn.addEventListener('click', function () { renewStatsToken(btn.getAttribute('data-user')); });
+      });
     } catch (e) {
       el.systemHealthResult.textContent = 'Error revisando: ' + e.message;
     } finally {
       el.btnSystemHealthCheck.disabled = false;
     }
+  }
+
+  // Arreglo manual real para la única de las 4 señales que se puede resolver
+  // desde acá sin tocar código: balance de Chaturbate sin actualizar (token de
+  // Stats API vencido). Las otras 3 (evento sin clasificar, racha de errores,
+  // Stripchat sin sincronizar) necesitan un cambio de código o de variable de
+  // entorno en Render — no tienen arreglo posible desde un botón, así que no
+  // se les inventa uno acá.
+  async function renewStatsToken(username) {
+    const token = prompt('Pega el nuevo token de Stats API de ' + username + ' (chaturbate.com/statsapi/authtoken/):');
+    if (token === null) return;
+    const clean = token.trim();
+    if (!clean) return;
+    const r = await fetch('/api/chaturbate-stats-token/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, statsToken: clean }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) { alert(data.error || 'No se pudo renovar el token'); return; }
+    alert('Token renovado para ' + username + ' — balance actual: ' + data.currentBalance + ' tokens.');
+    runSystemHealthCheck();
   }
 
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
