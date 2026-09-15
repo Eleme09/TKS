@@ -352,7 +352,7 @@
   }
 
   function kindShort(kind) {
-    var map = { retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión', room: 'Room', salud: 'Salud', otro: 'Otro' };
+    var map = { retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión', room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.', otro: 'Otro' };
     return map[kind] || 'Otro';
   }
 
@@ -426,6 +426,7 @@
       if (d.official_source === 'falta') salida = '<span class="muted">—</span>';
       else if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
+      else if (d.exit_source === 'temprano') salida = hora(d.exit_at) + '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>';
       else salida = hora(d.exit_at);
 
       return '<tr>'

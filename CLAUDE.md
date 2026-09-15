@@ -1519,6 +1519,67 @@ modelo vio su propio mensaje personalizado; modelo rechazada (403) al
 intentar el endpoint; `/api/attendance/approaching-alert-message` devuelve
 404 (ya no existe). `npm test`: 109/109.
 
+## Salida temprano ya no cuenta como retraso — se marca aparte y exige motivo (2026-09-15)
+
+Pedido explícito: "no se valida como retardo [que] una modelo haya ido a
+trabajar y marque una hora diferente a la que sale. Se marca como salida
+temprano y el apartado de justificante deberá especificarse por que salió
+temprano" (el usuario había dicho "rechazo" primero, corrigió a "retardo"
+en el siguiente mensaje).
+
+`POST /api/attendance/exit` (server.js) ahora compara la hora real contra
+la hora de salida programada de esa modelo, usando `studioInstantAfter`
+(ya existía, mismo que usa `day/edit` para saber si una hora de salida
+escrita a mano cruza medianoche) con `entry_time` como referencia — así el
+turno de la tarde (16:00–00:00) compara bien contra medianoche del día
+siguiente. Si sale antes de esa hora:
+- El servidor devuelve 400 con `{early_exit: true}` y **no cierra la
+  jornada todavía** si no viene un `reason` en el body — el frontend
+  (`attRegisterExit` en `index.html`) atrapa ese flag y pide el motivo con
+  un `prompt()` (mismo patrón ya usado para "¿por qué rechazas esta
+  llegada?"), reintenta con `{reason}`.
+- Con motivo, la jornada cierra con `exit_source: 'temprano'` (nuevo valor,
+  junto a `null`/`'auto'` que ya existían) y el motivo se guarda como una
+  justificación más, `kind: 'salida_temprano'` (nuevo valor en el mismo
+  set de siempre: retraso/internet/conexion/room/salud/otro) — visible en
+  la misma lista de justificantes de siempre, nada nuevo que mantener.
+- **Esto NUNCA toca `late_minutes` ni la deuda de seguridad social** — esos
+  siguen midiéndose solo contra la hora de ENTRADA
+  (`computeLateMinutes`/`ATTENDANCE_SHIFTS.entry`), que es justo lo que el
+  usuario pidió al decir "no se valida como retardo". Sin horario asignado
+  (o sin `exit_time`) no hay nada contra qué comparar, así que se acepta
+  igual que siempre, sin marcar nada.
+
+UI: `index.html` y `asistencia.html` muestran "salida temprano" en chico
+bajo la hora de salida (mismo lugar donde ya se mostraba "automática" para
+`exit_source: 'auto'`), y el nuevo kind se agregó a los dos mapas de
+etiquetas (`attKindLabel`/`attKindShort` en `index.html`, `kindShort` en
+`asistencia.html` — tres lugares, ya es el patrón conocido de columnas
+pareadas de este archivo). No hay columna ni constraint nuevos en Supabase:
+`cb_attendance_days.exit_source` y `cb_attendance_justifications.kind` ya
+eran texto libre sin `CHECK` (confirmado contra el schema real vía MCP de
+Supabase), así que el valor nuevo entra sin migración.
+
+**Nivel de verificación de esta sesión, más bajo que el de sesiones
+anteriores — decirlo así de claro:** esta sesión corrió en un contenedor
+remoto sin `env.bat` ni las credenciales de producción (`SUPABASE_ANON_KEY`,
+`SESSION_SECRET`), así que **no se pudo** levantar una instancia
+`SOLO_UI=1` real y probar el endpoint HTTP completo con curl/cuentas
+`qa_temp_*`, como sí se hizo en sesiones anteriores documentadas arriba en
+este archivo. Lo que sí se verificó: `node -c` sobre los tres archivos
+tocados, `npm test` (109/109, sin tests nuevos — la lógica nueva es solo
+orquestación sobre funciones puras ya testeadas), un script Node aparte que
+llama a `studioInstantAfter` con los horarios reales de los dos turnos y
+confirma que la hora de corte cae donde debe (incluido el cruce de
+medianoche del turno tarde), y una consulta SQL directa contra el Supabase
+real (vía MCP) confirmando que `exit_source` y `cb_attendance_justifications.kind`
+no tienen ningún `CHECK constraint` que fuera a rechazar los valores nuevos.
+**Lo que falta por probar de verdad, la próxima vez que haya una sesión con
+las credenciales completas:** el flujo HTTP end-to-end (marcar salida
+temprano sin motivo → recibir el 400 → reintentar con motivo → ver la fila
+y el justificante en pantalla) contra una cuenta `qa_temp_*` real, antes de
+confiar en esto al 100%.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

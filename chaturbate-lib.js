@@ -283,7 +283,10 @@ function pickWorkDate(nowMs, entryTime, takenDates) {
 
 // Los dos turnos del estudio (definidos por el usuario 2026-09-04). El
 // retraso siempre se mide contra `entry` del turno que tenga asignado la
-// modelo. `exit` es informativo: la salida la anota ella y no se valida.
+// modelo. `exit` la anota ella y nadie la valida/aprueba -- pero si marca
+// antes de esa hora, el servidor SI la compara (ver /api/attendance/exit en
+// server.js) para exigirle un motivo y marcar la jornada como salida
+// temprano; eso nunca se suma al retraso de entrada, son cosas separadas.
 // El turno de la tarde termina a medianoche, o sea que cruza de dia — por eso
 // pickWorkDate compara contra el turno de hoy y el de ayer.
 const ATTENDANCE_SHIFTS = {

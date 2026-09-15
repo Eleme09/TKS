@@ -1667,7 +1667,7 @@
   function attKindLabel(kind) {
     const map = {
       retraso: 'Llegué tarde', internet: 'Se cayó el internet', conexion: 'Me conecté tarde',
-      room: 'Problema con el room', salud: 'Tema de salud', otro: 'Otro',
+      room: 'Problema con el room', salud: 'Tema de salud', salida_temprano: 'Salió temprano', otro: 'Otro',
     };
     return map[kind] || 'Otro';
   }
@@ -1677,7 +1677,7 @@
   function attKindShort(kind) {
     const map = {
       retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión',
-      room: 'Room', salud: 'Salud', otro: 'Otro',
+      room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.', otro: 'Otro',
     };
     return map[kind] || 'Otro';
   }
@@ -1894,6 +1894,8 @@
         salida = '<span class="muted">—</span>';
       } else if (d.exit_source === 'auto') {
         salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
+      } else if (d.exit_source === 'temprano') {
+        salida = attHora(d.exit_at) + '<div class="att-sub att-late">salida temprano</div>';
       } else {
         salida = attHora(d.exit_at);
       }
@@ -2051,13 +2053,23 @@
     await refreshAttendance();
   }
 
-  async function attRegisterExit() {
+  async function attRegisterExit(reason) {
     attClearBox(el.attMyError);
     const r = await fetch('/api/attendance/exit', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reason ? { reason: reason } : {}),
     });
     const data = await r.json().catch(function () { return {}; });
-    if (!r.ok) return attShowBox(el.attMyError, data.error || 'No se pudo registrar la salida');
+    if (!r.ok) {
+      if (data.early_exit) {
+        const motivo = prompt('Sales antes de tu hora de salida. ¿Por qué?');
+        if (motivo === null) return;
+        const clean = motivo.trim();
+        if (!clean) return attShowBox(el.attMyError, 'Escribe el motivo para poder salir antes de tu hora');
+        return attRegisterExit(clean);
+      }
+      return attShowBox(el.attMyError, data.error || 'No se pudo registrar la salida');
+    }
     await refreshAttendance();
   }
 

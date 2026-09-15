@@ -927,6 +927,13 @@ async function sbListAttendanceSchedule() {
   return r.ok ? r.json() : [];
 }
 
+async function sbFetchScheduleForUser(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule?username=eq.' + encodeURIComponent(username) + '&select=*', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows[0] || null;
+}
+
 async function sbUpsertAttendanceSchedule(username, entryTime, exitTime, shift) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule', {
     method: 'POST',
@@ -3149,16 +3156,38 @@ const server = http.createServer(async (req, res) => {
   }
 
   // La salida la anota ella y no necesita validacion (asi lo pidio el usuario).
+  // Salida temprano: si su horario dice que sale a las X y marca antes de esa
+  // hora, NO se cuenta como retardo (eso sigue siendo solo de la entrada, ver
+  // computeLateMinutes) -- se marca aparte como exit_source: 'temprano' y
+  // exige un motivo, que se guarda como una justificacion mas (kind
+  // 'salida_temprano'), visible en la misma lista de justificantes de
+  // siempre. Sin horario asignado (o sin exit_time) no hay nada contra que
+  // comparar, asi que se acepta como siempre.
   if (parsed.pathname === '/api/attendance/exit' && req.method === 'POST') {
     const session = await requireSession(req, res);
     if (!session) return;
     if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos anotan su salida' });
+    let body = {};
+    try { body = await readBody(req); } catch (e) { body = {}; }
     const now = Date.now();
     const open = await sbFetchOpenAttendanceDay(session.username, now);
     if (!open) return sendJson(res, 400, { error: 'No tienes una jornada abierta para cerrar' });
-    const updated = await sbUpdateAttendanceDay(open.id, { exit_at: new Date(now).toISOString() });
+    const hers = await sbFetchScheduleForUser(session.username);
+    let exitSource = null;
+    if (hers && hers.exit_time && hers.entry_time) {
+      const scheduledExitMs = studioInstantAfter(open.work_date, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time));
+      if (scheduledExitMs != null && now < scheduledExitMs) {
+        const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 1000) : '';
+        if (!reason) return sendJson(res, 400, { error: 'Sales antes de tu hora de salida — cuéntanos por qué', early_exit: true });
+        exitSource = 'temprano';
+        await sbInsertAttendanceJustification({ username: session.username, work_date: open.work_date, kind: 'salida_temprano', body: reason });
+      }
+    }
+    const patch = { exit_at: new Date(now).toISOString() };
+    if (exitSource) patch.exit_source = exitSource;
+    const updated = await sbUpdateAttendanceDay(open.id, patch);
     if (!updated) return sendJson(res, 500, { error: 'No se pudo registrar la salida' });
-    await sbLogAudit(session, 'attendance_exit', session.username, { work_date: open.work_date });
+    await sbLogAudit(session, 'attendance_exit', session.username, { work_date: open.work_date, exit_source: exitSource });
     return sendJson(res, 200, { ok: true, day: updated });
   }
 
@@ -3170,7 +3199,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
     if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
-    const kinds = ['retraso', 'internet', 'conexion', 'room', 'salud', 'otro'];
+    const kinds = ['retraso', 'internet', 'conexion', 'room', 'salud', 'salida_temprano', 'otro'];
     const kind = kinds.includes(body.kind) ? body.kind : 'otro';
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
     const ok = await sbInsertAttendanceJustification({ username: session.username, work_date: workDate, kind, body: text });
