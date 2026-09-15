@@ -2195,7 +2195,22 @@ async function requireAdminOrCeo(req, res) {
   return session;
 }
 
+// Cabeceras de seguridad basicas, en toda respuesta (API y estaticos). No
+// incluye Content-Security-Policy: index.html/asistencia.html dependen de un
+// <script> inline grande, y una CSP sin 'unsafe-inline' los rompería enteros
+// -- requeriria una migracion aparte (mover el JS a un archivo .js propio),
+// no un ajuste de una linea.
+function setSecurityHeaders(req, res) {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+}
+
 const server = http.createServer(async (req, res) => {
+  setSecurityHeaders(req, res);
   const parsed = url.parse(req.url, true);
 
   // ---- Auth ----
@@ -2361,7 +2376,8 @@ const server = http.createServer(async (req, res) => {
       ]);
       return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync });
     } catch (e) {
-      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+      console.error('Error en /api/system-health: ' + e.message);
+      return sendJson(res, 500, { error: 'Error consultando la base de datos' });
     }
   }
 
@@ -2526,11 +2542,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         models,
         dollar: { ...dollar, currency: CURRENCY },
-        studio_rate_usd_per_token: STUDIO_PAYOUT_RATE_USD_PER_TOKEN,
+        // Nunca mandarle esto a una modelo: revela el margen real del estudio
+        // por token (ver la nota junto a STUDIO_PAYOUT_RATE_USD_PER_TOKEN) --
+        // antes viajaba igual para los 3 roles y solo se escondía en pantalla,
+        // lo cual no protege nada si alguien mira la respuesta de la red.
+        ...(session.role === 'modelo' ? {} : { studio_rate_usd_per_token: STUDIO_PAYOUT_RATE_USD_PER_TOKEN }),
         session: { username: session.username, role: session.role, gender: session.gender || null },
       });
     } catch (e) {
-      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+      console.error('Error en /api/models: ' + e.message);
+      return sendJson(res, 500, { error: 'Error consultando la base de datos' });
     }
   }
 
@@ -2595,7 +2616,8 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, { username, periods: rows, currency: CURRENCY });
     } catch (e) {
-      return sendJson(res, 500, { error: 'Error consultando la base de datos: ' + e.message });
+      console.error('Error en /api/payslips para ' + username + ': ' + e.message);
+      return sendJson(res, 500, { error: 'Error consultando la base de datos' });
     }
   }
 

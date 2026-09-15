@@ -1708,6 +1708,40 @@ total — arreglarlo bien requiere migrar a la `service_role` key o escribir
 políticas por tabla calcadas a lo que el servidor realmente necesita, no un
 cambio de una línea).
 
+## Segundo lote de arreglos fáciles de la auditoría (2026-09-16)
+
+Siguiendo el orden "de lo más fácil a lo más difícil":
+
+- **`studio_rate_usd_per_token` ya no viaja a una sesión `modelo`** en
+  `/api/models` — antes se mandaba a los 3 roles y solo se escondía en
+  pantalla (ver la auditoría, hallazgo crítico #4). Ahora el propio servidor
+  omite el campo por completo cuando `session.role === 'modelo'`.
+- **Mensajes de error genéricos hacia el cliente**: los 3 lugares que
+  devolvían `e.message` crudo en la respuesta HTTP (`/api/models`,
+  `/api/payslips`, `/api/system-health`) ahora devuelven un mensaje fijo;
+  el detalle real solo queda en el log del servidor (`console.error`), no
+  en lo que ve quien hizo la petición.
+- **Cabeceras de seguridad básicas en toda respuesta**: `setSecurityHeaders`
+  (server.js, se llama una sola vez al inicio de cada request) agrega
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` y
+  `Referrer-Policy: strict-origin-when-cross-origin` siempre, más
+  `Strict-Transport-Security` solo cuando `x-forwarded-proto` dice `https`
+  (Render lo manda así — nunca forzar HSTS sobre HTTP plano, rompería
+  pruebas locales). **No se agregó Content-Security-Policy** a propósito:
+  `index.html`/`asistencia.html` dependen de un `<script>` inline enorme, y
+  una CSP sin `unsafe-inline` los rompería enteros — eso requeriría mover
+  todo ese JS a un archivo `.js` aparte primero, que es un cambio de otro
+  tamaño, no de esta tanda.
+
+Verificado: `node -c` + `npm test` (109/109) + una instancia `SOLO_UI=1`
+real con `curl -I` confirmando las 3 cabeceras siempre presentes y la
+cuarta apareciendo solo con `x-forwarded-proto: https`. No se pudo probar
+`studio_rate_usd_per_token` contra una sesión modelo real (misma limitación
+de esta sesión: sin credenciales de producción en este contenedor) — se
+revisó en cambio que el frontend nunca lee ese campo salvo dentro del
+`if (showSummary)` que ya es admin/ceo-only, así que quitarlo para modelo
+no le rompe nada a nadie.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
