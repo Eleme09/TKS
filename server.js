@@ -22,7 +22,7 @@ const {
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
-  resolveApproachingAlertMessage,
+  resolveApproachingAlertMessage, resolveOwesAlertMessage,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1070,7 +1070,7 @@ async function sbInsertAttendanceExcuse(row) {
   return rows.length ? rows[0] : null;
 }
 
-const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true, approaching_alert_message: null };
+const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true, approaching_alert_message: null, owes_alert_message: null };
 
 // Ventana del aviso anticipado (2026-09-15): "le falta 1 hora" en minutos.
 const APPROACHING_ALERT_WINDOW_MINUTES = 60;
@@ -1128,6 +1128,15 @@ async function sbUpdateApproachingAlertMessage(message) {
     method: 'POST',
     headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({ id: 1, approaching_alert_message: message, updated_at: new Date().toISOString() }),
+  });
+  return r.ok;
+}
+
+async function sbUpdateOwesAlertMessage(message) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ id: 1, owes_alert_message: message, updated_at: new Date().toISOString() }),
   });
   return r.ok;
 }
@@ -1226,6 +1235,9 @@ async function buildAttendancePayload(session) {
             scheduleByUser[username].exit_time)
         : 'sin asignar',
       owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
+      owes_message: (socialSecurityEnabled && lateMinutes >= threshold)
+        ? resolveOwesAlertMessage(settings.owes_alert_message, username)
+        : null,
       // La deuda en plata se cobra por hora alcanzada, no proporcional (ver
       // lateDebtCop). Con socialSecurityEnabled=true (Placer Studios) tiene
       // tope: pasado el umbral (`threshold`, 6h por defecto) la deuda pasa a
@@ -1256,6 +1268,7 @@ async function buildAttendancePayload(session) {
     late_hour_fee_cop: feeCop,
     social_security_enabled: socialSecurityEnabled,
     approaching_alert_message: settings.approaching_alert_message || null,
+    owes_alert_message: settings.owes_alert_message || null,
     shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
@@ -3438,6 +3451,24 @@ const server = http.createServer(async (req, res) => {
     const ok = await sbUpdateApproachingAlertMessage(message || null);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_approaching_message_set', null, { message: message || null });
+    return sendJson(res, 200, { ok: true, message: message || null });
+  }
+
+  // Mensaje del aviso REACTIVO (ya cruzó el umbral, asume su seguridad
+  // social) — corregido 2026-09-16: antes era un texto fijo que solo
+  // hablaba de "retraso acumulado", pero también aplica al cruzar el
+  // umbral de una sola vez por una falta de día completo (ver
+  // /api/attendance/day/no-show), así que admin o ceo pueden ajustar la
+  // explicación. Mismo patrón que approaching-alert-message.
+  if (parsed.pathname === '/api/attendance/owes-alert-message' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const message = typeof body.message === 'string' ? body.message.trim().slice(0, 500) : '';
+    const ok = await sbUpdateOwesAlertMessage(message || null);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_owes_message_set', null, { message: message || null });
     return sendJson(res, 200, { ok: true, message: message || null });
   }
 

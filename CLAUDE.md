@@ -1441,6 +1441,38 @@ callable directo (curl) mientras no se decida traer la UI de vuelta o
 armar una nueva. Si se confirma que el estudio no va a sumar modelos
 nunca más, ahí sí se puede borrar de raíz.
 
+## Corrección: el aviso REACTIVO de seguridad social también debe ser personalizable (2026-09-16)
+
+El usuario corrigió el alcance de la feature anterior: no bastaba con poder
+personalizar el aviso ANTICIPADO (1h antes) — el texto fijo que ya existía
+para cuando una modelo YA CRUZÓ el umbral ("por incumplimiento de horario y
+acumulación de horas...") asumía siempre retraso acumulado día a día, pero
+eso no es el único caso: con "Marcar falta" (sección de arriba) una modelo
+puede cruzar el umbral de una sola vez por faltar un día completo por
+decisión propia, no por acumular tarde tras tarde — y el texto tenía que
+poder explicar cuál de las dos cosas pasó.
+
+`resolveOwesAlertMessage` (`chaturbate-lib.js`, mismo mecanismo de
+`{modelo}` que `resolveApproachingAlertMessage`, factorizado en una función
+común `resolveAlertMessage(template, username, fallbackDefault)`) resuelve
+el mensaje de `cb_attendance_settings.owes_alert_message`
+(`POST /api/attendance/owes-alert-message`, admin O ceo, igual que el
+anticipado) con su propio default. `totals[].owes_message` en
+`buildAttendancePayload` reemplaza el texto fijo que antes tenía
+`renderAttendanceWarning()` en `index.html` — tanto la vista de la modelo
+(su propio mensaje) como la de staff (un mensaje resuelto por cada modelo
+que deba, ya no una sola frase con la lista de nombres pegada). UI: la
+card "Aviso anticipado de seguridad social" pasó a llamarse "Avisos de
+seguridad social", con dos textareas independientes (anticipado / al
+cruzar el umbral), cada uno con su Guardar y Restablecer predeterminado.
+
+Verificado end-to-end contra Supabase real (`SOLO_UI=1`, cuentas
+`qa_temp_owes_admin`/`_model`, borradas al terminar): una falta marcada
+cruzó el umbral con el mensaje default; personalizado a mano explicando
+"faltó un día completo por decisión propia, no por retraso acumulado" se
+reflejó igual en la vista de admin y en la de la propia modelo. `npm
+test`: 111/111.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

@@ -418,9 +418,26 @@ function sumLateMinutes(days) {
 // entre en la ventana).
 const DEFAULT_APPROACHING_ALERT_MESSAGE = '{modelo} está a menos de 1 hora de asumir su propia seguridad social esta quincena por acumulado de retraso.';
 
-function resolveApproachingAlertMessage(template, username) {
-  const t = (template && String(template).trim()) || DEFAULT_APPROACHING_ALERT_MESSAGE;
+// Aviso REACTIVO (ya cruzo el umbral, no antes) -- corregido 2026-09-16:
+// el texto original era fijo ("por incumplimiento de horario y acumulacion
+// de horas") y asumia siempre retraso acumulado gradual, pero no todos los
+// casos son eso -- una modelo puede cruzar el umbral de una sola vez por
+// una falta de dia completo (ver "Marcar falta"), no por llegar tarde
+// varios dias. Personalizable igual que el anticipado, mismo mecanismo de
+// reemplazo de "{modelo}" (`cb_attendance_settings.owes_alert_message`).
+const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social.';
+
+function resolveAlertMessage(template, username, fallbackDefault) {
+  const t = (template && String(template).trim()) || fallbackDefault;
   return t.indexOf('{modelo}') !== -1 ? t.split('{modelo}').join(username) : t + ' (' + username + ')';
+}
+
+function resolveApproachingAlertMessage(template, username) {
+  return resolveAlertMessage(template, username, DEFAULT_APPROACHING_ALERT_MESSAGE);
+}
+
+function resolveOwesAlertMessage(template, username) {
+  return resolveAlertMessage(template, username, DEFAULT_OWES_ALERT_MESSAGE);
 }
 
 // Un fallo de API externo con forma "HTTP <codigo> para <modelo>" es un
@@ -597,7 +614,9 @@ module.exports = {
   computeLateMinutes,
   sumLateMinutes,
   DEFAULT_APPROACHING_ALERT_MESSAGE,
+  DEFAULT_OWES_ALERT_MESSAGE,
   resolveApproachingAlertMessage,
+  resolveOwesAlertMessage,
   getQuincena,
   getQuincenaHistory,
   toDateStr,

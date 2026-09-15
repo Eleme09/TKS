@@ -656,3 +656,15 @@ describe('resolveApproachingAlertMessage', () => {
     assert.equal(r, 'Revisen a la modelo que va a cruzar el umbral. (jax_f00x)');
   });
 });
+
+describe('resolveOwesAlertMessage', () => {
+  test('sin plantilla personalizada, usa su propio default (distinto del de approaching)', () => {
+    const r = lib.resolveOwesAlertMessage(null, 'pinky_f00x');
+    assert.match(r, /^pinky_f00x /);
+    assert.match(r, /asume su propia seguridad social/);
+  });
+  test('plantilla personalizada propia, independiente de la de approaching', () => {
+    const r = lib.resolveOwesAlertMessage('{modelo} faltó un día completo y por eso asume su salud esta quincena.', 'conni_f00x');
+    assert.equal(r, 'conni_f00x faltó un día completo y por eso asume su salud esta quincena.');
+  });
+});
