@@ -1784,16 +1784,25 @@ advisor que la alerta de "llaves foráneas sin índice" ya no aparece (queda
 un aviso informativo de "índice sin uso todavía", esperable recién
 creados y sin tráfico real — se resuelve solo con el uso normal).
 
-## Copias de seguridad de Supabase — sin resolver, decisión pendiente del usuario (2026-09-16)
+## Copias de seguridad de Supabase — decisión del usuario: NO por ahora (2026-09-16)
 
 Confirmado con `get_organization` (MCP de Supabase): el proyecto real
 (`STUDIO`, org `aloxugskfwhhpnplondm`) está en el **plan gratuito** — sin
 copias de seguridad automáticas. Se le preguntó directo al usuario (subir a
-Pro ~US$25/mes con backups diarios, dejarlo así por ahora, o pensarlo) y
-eligió **pensarlo, seguir con el resto de la auditoría mientras tanto**.
-Queda como riesgo conocido y explícitamente aplazado, no resuelto — no
-asumir que ya se activó nada. Si se retoma, es una decisión de plata
-recurrente que solo el usuario aprueba, no algo para activar solo.
+Pro ~US$25/mes con backups diarios, dejarlo así por ahora, o pensarlo).
+**Respuesta explícita, misma fecha: "Elimina [esto de la lista de
+pendientes]. No lo haré o no lo haré hasta que realmente lo necesite. No
+quiero indicaciones de ello de momento."**
+
+Esto NO es un riesgo que quedó sin resolver por descuido — es una decisión
+tomada. **No lo vuelvas a sacar en ninguna lista de pendientes, auditoría,
+resumen de "qué falta", ni lo menciones proactivamente en ningún chat
+futuro.** El usuario ya conoce el riesgo (sin plan pago, un borrado
+accidental o un incidente de Supabase no tiene forma de recuperarse) y
+decidió asumirlo por ahora. Si algún día quiere retomarlo, lo va a pedir
+él mismo — hasta entonces, silencio total sobre este tema, incluida
+cualquier auditoría nueva que se le proponga a futuro (no listarlo ahí
+tampoco).
 
 ## Arreglo de dificultad media: freno de login esquivable + bug real de estabilidad encontrado de paso (2026-09-16)
 
