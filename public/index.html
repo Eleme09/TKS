@@ -227,16 +227,24 @@
   .stat.hero .v { font-size: 19px; color: var(--pink); }
   .stat.hero .k { color: var(--pink); opacity: 0.85; }
 
-  /* ---- Panel Nocturno: carrusel de KPIs (resumen del estudio) ---- */
-  .kpis { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; padding-bottom: 2px; margin: 0 -2px; }
-  .kpis::-webkit-scrollbar { display: none; }
-  .kpi { flex: 0 0 auto; scroll-snap-align: start; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 12px 16px; min-width: 128px; }
-  .kpi .k { font-size: 10px; color: var(--muted-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; white-space: nowrap; }
-  .kpi .v { font-size: 16px; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .kpi .v.small { font-size: 12.5px; font-weight: 600; font-family: var(--font-body); white-space: normal; }
-  .kpi.hero { min-width: 200px; border-color: var(--pink-line); background: linear-gradient(150deg, var(--pink-soft), var(--surface-2) 70%); }
+  /* ---- Panel Nocturno: KPIs del resumen del estudio ----
+     Empezo como carrusel de scroll horizontal; el usuario probo en su
+     telefono real y pidio que la info quedara a la mano sin deslizar --
+     ahora es una grilla fija (hero arriba de ancho completo, el resto
+     debajo en 2 columnas en movil / 4 en escritorio), todo visible de
+     una sola vez. */
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi { min-width: 0; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 12px 14px; }
+  .kpi .k { font-size: 10px; color: var(--muted-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+  .kpi .v { font-size: 15px; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .kpi .v.small { font-size: 12.5px; font-weight: 600; font-family: var(--font-body); }
+  .kpi.hero { grid-column: 1 / -1; border-color: var(--pink-line); background: linear-gradient(150deg, var(--pink-soft), var(--surface-2) 70%); }
   .kpi.hero .k { color: var(--pink); opacity: 0.85; }
-  .kpi.hero .v { color: var(--pink); font-size: 17px; white-space: normal; }
+  .kpi.hero .v { color: var(--pink); font-size: 17px; }
+  @media (min-width: 641px) {
+    .kpis { grid-template-columns: repeat(4, 1fr); }
+    .kpi.hero { grid-column: auto; }
+  }
 
   /* ---- Panel Nocturno: filas tipo extracto (lista de Modelos) ----
      Separado a proposito de .model/.model-grid/.stat de arriba: esos
@@ -299,6 +307,14 @@
   .btnAnon:hover { color: var(--text); }
   .btnAnon-ico { display: none; }
   .btnAnon-ico svg { display: block; }
+  /* Pedido explicito del usuario: quitar la etiqueta de texto de estos dos
+     botones especificamente (quedaba larga/torpe -- "cerrar mis sesiones en
+     todos lados" partida en 3 lineas) y dejar solo el icono, en cualquier
+     tamano de pantalla. El nombre accesible sigue en title/aria-label (los
+     mismos que ya se actualizan por JS en applyAnonButtonState). "Salir" no
+     se toca -- no fue parte del pedido. */
+  #btnToggleAnon .btnAnon-ico, #btnLogoutEverywhere .btnAnon-ico { display: inline-flex; }
+  #btnToggleAnon .btnAnon-txt, #btnLogoutEverywhere .btnAnon-txt { display: none; }
   .topbar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .btnBell { text-decoration: none; display: inline-flex; align-items: center; padding: 7px 8px; vertical-align: middle; }
   .btnBell svg { display: block; }
@@ -948,6 +964,10 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
             Hoy
           </button>
+          <button type="button" class="att-subnav-btn" data-attsub="historial">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3 8.5"/><path d="M12 8v4.5l3 2"/></svg>
+            Historial
+          </button>
           <button type="button" class="att-subnav-btn" data-attsub="config">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.6a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.7 7.7 0 0 0 1.7 1L11 21h4l.3-2.6a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.4Z"/></svg>
             Configuración
@@ -983,6 +1003,25 @@
           <div class="card">
             <h3 class="card-title">Justificaciones</h3>
             <div id="attStaffJustList"></div>
+          </div>
+        </div>
+
+        <div id="attSubHistorial" style="display:none;">
+          <div class="card">
+            <h3 class="card-title">Historial de quincenas</h3>
+            <div class="meta-small" style="margin-bottom:12px;">El registro de las quincenas ya cerradas — de solo lectura, para validar/corregir usa "Hoy".</div>
+            <div class="quincena-nav">
+              <button id="btnPrevAttHist" type="button">‹ Anterior</button>
+              <div class="center">
+                <div id="attHistPeriodLabel" class="period-label"></div>
+                <button id="btnTodayAttHist" type="button" class="today-link">ir a la actual</button>
+              </div>
+              <button id="btnNextAttHist" type="button">Siguiente ›</button>
+            </div>
+            <div id="attHistTotalsList" style="margin-top:12px;"></div>
+            <label for="attHistFilter" style="margin-top:16px;">Modelo</label>
+            <select id="attHistFilter"></select>
+            <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attHistTable"></table></div>
           </div>
         </div>
 
@@ -1269,7 +1308,15 @@
     attModelArea: document.getElementById('attModelArea'),
     attStaffArea: document.getElementById('attStaffArea'),
     attSubHoy: document.getElementById('attSubHoy'),
+    attSubHistorial: document.getElementById('attSubHistorial'),
     attSubConfig: document.getElementById('attSubConfig'),
+    attHistPeriodLabel: document.getElementById('attHistPeriodLabel'),
+    btnPrevAttHist: document.getElementById('btnPrevAttHist'),
+    btnNextAttHist: document.getElementById('btnNextAttHist'),
+    btnTodayAttHist: document.getElementById('btnTodayAttHist'),
+    attHistTotalsList: document.getElementById('attHistTotalsList'),
+    attHistFilter: document.getElementById('attHistFilter'),
+    attHistTable: document.getElementById('attHistTable'),
     attMyHint: document.getElementById('attMyHint'),
     attMyGrid: document.getElementById('attMyGrid'),
     attMyActions: document.getElementById('attMyActions'),
@@ -1961,21 +2008,42 @@
   // muestra nada (el usuario pidio que solo aparezca a quien debe pagar).
   function renderAttendanceWarning() {
     const owing = (attData.totals || []).filter(function (t) { return t.owes_social_security; });
-    if (!owing.length) { el.attWarning.style.display = 'none'; el.attWarning.innerHTML = ''; return; }
+    // Ventana de gracia (pedido 2026-09-16): la quincena que acaba de cerrar
+    // se paga 5 dias despues (el 20 o el 5) -- mientras no llegue ese dia, el
+    // aviso de quien cruzo el umbral en ESA quincena se mantiene, ademas del
+    // resumen normal de la quincena en curso (que sigue su propio conteo
+    // aparte). attData.carryover solo llega del servidor dentro de esa
+    // ventana de 5 dias y solo con quien de verdad debe.
+    const carry = attData.carryover;
+    if (!owing.length && !carry) { el.attWarning.style.display = 'none'; el.attWarning.innerHTML = ''; return; }
     const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
       + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
       + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
       + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
-    let body;
+    let body = '';
     if (attData.role === 'modelo') {
-      const mine = owing[0];
-      body = '<div class="att-warning-title">Seguridad social a tu cargo esta quincena</div>'
-        + '<div class="att-warning-body">' + escapeHtml(mine.owes_message || '') + '</div>';
+      if (owing.length) {
+        body += '<div class="att-warning-title">Seguridad social a tu cargo esta quincena</div>'
+          + '<div class="att-warning-body">' + escapeHtml(owing[0].owes_message || '') + '</div>';
+      }
+      const carryMine = carry ? carry.totals.find(function (t) { return t.username === attData.username; }) : null;
+      if (carryMine) {
+        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Seguridad social pendiente de la quincena pasada</div>'
+          + '<div class="att-warning-body">' + escapeHtml(carryMine.owes_message || '') + ' Se paga el ' + escapeHtml(carry.period.payout_label) + '.</div>';
+      }
     } else {
-      const rows = owing.map(function (t) {
-        return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
-      }).join('');
-      body = '<div class="att-warning-title">Asumen su seguridad social esta quincena</div>' + rows;
+      if (owing.length) {
+        const rows = owing.map(function (t) {
+          return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
+        }).join('');
+        body += '<div class="att-warning-title">Asumen su seguridad social esta quincena</div>' + rows;
+      }
+      if (carry) {
+        const rows = carry.totals.map(function (t) {
+          return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
+        }).join('');
+        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Pendiente de la quincena pasada (' + escapeHtml(carry.period.label) + ') — se paga el ' + escapeHtml(carry.period.payout_label) + '</div>' + rows;
+      }
     }
     el.attWarning.innerHTML = icon + '<div>' + body + '</div>';
     el.attWarning.style.display = 'flex';
@@ -2279,6 +2347,70 @@
     el.attStaffTable.innerHTML = attTableHtml(days, true, just);
   }
 
+  // Historial de quincenas ya cerradas (pedido 2026-09-16: no había ningún
+  // lugar para volver a ver una quincena pasada). Solo lectura, staff-only
+  // (administrador + ceo, mismo alcance que "Resumen de la quincena" y
+  // "Hojas de todas las modelos" de arriba) — no se refresca en el poll de
+  // 4s como el resto de Asistencia, solo al abrir el sub-tab o navegar de
+  // quincena, porque una quincena cerrada no cambia en vivo.
+  let attHistViewDate = null;
+  let attHistData = null;
+
+  function attHistDefaultDate() { return shiftQuincena(new Date(), -1); }
+
+  async function refreshAttendanceHistory() {
+    if (!attHistViewDate) attHistViewDate = attHistDefaultDate();
+    const startIso = getQuincenaDays(attHistViewDate).days[0].iso;
+    const isCurrent = isCurrentQuincena(attHistViewDate);
+    el.attHistPeriodLabel.textContent = quincenaLabel(attHistViewDate) + (isCurrent ? ' (actual)' : '');
+    el.btnTodayAttHist.style.display = isCurrent ? 'none' : 'inline-block';
+    el.btnNextAttHist.disabled = isCurrent;
+
+    const r = await fetch('/api/attendance/history?start=' + startIso);
+    if (!r.ok) {
+      attHistData = null;
+      el.attHistTotalsList.innerHTML = '<div class="meta-small">No se pudo cargar esta quincena.</div>';
+      el.attHistTable.innerHTML = '';
+      return;
+    }
+    attHistData = await r.json();
+    el.attHistTotalsList.innerHTML = (attHistData.totals || []).map(function (t) {
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
+        + (t.owes_social_security
+            ? '<span class="att-pill rechazada">asumió seguridad social</span>'
+            : '<span class="att-pill validada">al día</span>')
+        + '</div>'
+        + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
+        + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
+        + (t.debt_cop > 0
+            ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
+              + t.debt_hours + ' hora(s) completa(s))</div>'
+            : '')
+        + '</div>';
+    }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
+
+    const prevFilter = el.attHistFilter.value;
+    el.attHistFilter.innerHTML = '<option value="">Todas</option>'
+      + (attHistData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+    if (prevFilter) el.attHistFilter.value = prevFilter;
+    renderAttendanceHistoryTable();
+  }
+
+  function renderAttendanceHistoryTable() {
+    if (!attHistData) return;
+    const filter = el.attHistFilter.value;
+    const days = filter ? attHistData.days.filter(function (d) { return d.username === filter; }) : attHistData.days;
+    const just = filter ? attHistData.justifications.filter(function (j) { return j.username === filter; }) : attHistData.justifications;
+    el.attHistTable.innerHTML = attTableHtml(days, true, just);
+  }
+
+  el.btnPrevAttHist.addEventListener('click', function () { attHistViewDate = shiftQuincena(attHistViewDate || attHistDefaultDate(), -1); refreshAttendanceHistory(); });
+  el.btnNextAttHist.addEventListener('click', function () { attHistViewDate = shiftQuincena(attHistViewDate || attHistDefaultDate(), 1); refreshAttendanceHistory(); });
+  el.btnTodayAttHist.addEventListener('click', function () { attHistViewDate = new Date(); refreshAttendanceHistory(); });
+  el.attHistFilter.addEventListener('change', renderAttendanceHistoryTable);
+
   function attPendingHtml(pending) {
     if (!pending.length) return '<div class="meta-small">No hay llegadas esperando validación.</div>';
     return pending.map(function (p) {
@@ -2498,8 +2630,10 @@
       document.querySelectorAll('.att-subnav-btn').forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       const sub = btn.dataset.attsub;
-      el.attSubHoy.style.display = sub === 'config' ? 'none' : '';
+      el.attSubHoy.style.display = sub === 'hoy' ? '' : 'none';
+      el.attSubHistorial.style.display = sub === 'historial' ? '' : 'none';
       el.attSubConfig.style.display = sub === 'config' ? '' : 'none';
+      if (sub === 'historial') refreshAttendanceHistory();
     });
   });
   // Un justificante largo se muestra recortado a dos líneas; tocarlo lo abre.

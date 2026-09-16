@@ -382,6 +382,36 @@ describe('asistencia — quincena en fechas del estudio', () => {
   });
 });
 
+describe('asistencia — ventana de gracia del aviso de seguridad social (previousAttendancePeriod)', () => {
+  test('fecha en 15 paga el 20 del mismo mes', () => {
+    assert.equal(lib.quincenaPayoutDateStr('2026-09-15'), '2026-09-20');
+  });
+  test('fecha en el último día del mes paga el 5 del mes siguiente', () => {
+    assert.equal(lib.quincenaPayoutDateStr('2026-09-30'), '2026-10-05');
+  });
+  test('diciembre 31 paga el 5 de enero del año siguiente', () => {
+    assert.equal(lib.quincenaPayoutDateStr('2026-12-31'), '2027-01-05');
+  });
+  test('dentro de la quincena 16-30, la anterior es la 1-15 del mismo mes, paga el 20', () => {
+    assert.deepEqual(lib.previousAttendancePeriod('2026-09-18'), {
+      start: '2026-09-01', end: '2026-09-15', payoutDate: '2026-09-20',
+      label: '1 al 15 de septiembre 2026', payoutLabel: '20 de septiembre 2026',
+    });
+  });
+  test('dentro de la quincena 1-15, la anterior es la 16-fin del mes pasado, paga el 5 de este mes', () => {
+    assert.deepEqual(lib.previousAttendancePeriod('2026-09-03'), {
+      start: '2026-08-16', end: '2026-08-31', payoutDate: '2026-09-05',
+      label: '16 al 31 de agosto 2026', payoutLabel: '5 de septiembre 2026',
+    });
+  });
+  test('cruce de año: 1-15 de enero, la anterior es 16-31 de diciembre del año pasado', () => {
+    assert.deepEqual(lib.previousAttendancePeriod('2027-01-10'), {
+      start: '2026-12-16', end: '2026-12-31', payoutDate: '2027-01-05',
+      label: '16 al 31 de diciembre 2026', payoutLabel: '5 de enero 2027',
+    });
+  });
+});
+
 describe('asistencia — a qué turno pertenece una llegada (pickWorkDate)', () => {
   const at = (iso) => Date.parse(iso);
   test('llegada normal al turno del día: se queda en ese día', () => {

@@ -468,6 +468,59 @@ function studioQuincenaRange(dateStr) {
   return { start: year + '-' + pad(month) + '-16', end: year + '-' + pad(month) + '-' + pad(lastDay) };
 }
 
+// Suma/resta dias de calendario a un "YYYY-MM-DD", sin tocar zona horaria --
+// son dos fechas del estudio, la aritmetica es de calendario puro.
+function dateStrAddDays(dateStr, days) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Dado el "end" de una quincena de asistencia, la fecha en que esa quincena
+// se paga -- mismo dia 20/dia 5 que ya usa getQuincena para nomina (end en 15
+// paga el 20 del mismo mes; end en el ultimo dia del mes paga el 5 del mes
+// siguiente), pero como string simple para poder compararla contra la fecha
+// de HOY de asistencia sin mezclar el corte de 23:30 de nomina con el corte
+// de medianoche de asistencia.
+function quincenaPayoutDateStr(endDateStr) {
+  const [year, month, day] = String(endDateStr).split('-').map(Number);
+  const pad = (n) => String(n).padStart(2, '0');
+  if (day === 15) return year + '-' + pad(month) + '-20';
+  let payoutY = year, payoutM = month + 1;
+  if (payoutM > 12) { payoutM = 1; payoutY += 1; }
+  return payoutY + '-' + pad(payoutM) + '-05';
+}
+
+// La quincena de asistencia INMEDIATAMENTE ANTERIOR a la que contiene
+// `dateStr`, con la fecha en que esa quincena se paga. Pedido explicito del
+// usuario 2026-09-16: el aviso de "asume su propia seguridad social" no debe
+// desaparecer apenas arranca la quincena nueva -- la modelo que cruzo el
+// umbral sigue debiendo esa plata hasta que se le paga de verdad (5 dias
+// despues del corte: el 20 para la quincena 1-15, el 5 del mes siguiente
+// para la 16-fin de mes). buildAttendancePayload usa esto para decidir si
+// todavia hay que mostrar el aviso de la quincena que acaba de terminar,
+// ademas del resumen normal de la quincena en curso (las dos cosas conviven:
+// la nueva quincena sigue acumulando su propio retraso desde el dia 1/16).
+function previousAttendancePeriod(dateStr) {
+  const curr = studioQuincenaRange(dateStr);
+  if (!curr) return null;
+  const dayBefore = dateStrAddDays(curr.start, -1);
+  const prev = studioQuincenaRange(dayBefore);
+  if (!prev) return null;
+  const payoutDate = quincenaPayoutDateStr(prev.end);
+  const [sy, sm, sd] = prev.start.split('-').map(Number);
+  const ed = Number(prev.end.split('-')[2]);
+  const [py, pm, pd] = payoutDate.split('-').map(Number);
+  return {
+    start: prev.start,
+    end: prev.end,
+    payoutDate,
+    label: sd + ' al ' + ed + ' de ' + MESES[sm - 1] + ' ' + sy,
+    payoutLabel: pd + ' de ' + MESES[pm - 1] + ' ' + py,
+  };
+}
+
 // Solo los retrasos suman deuda de horario; llegar temprano NO descuenta
 // retrasos de otros dias (si no, una modelo podria "compensar" un retraso
 // grande llegando temprano varios dias y el control perderia sentido).
@@ -660,6 +713,9 @@ module.exports = {
   studioScheduledMs,
   studioWallToMs,
   studioQuincenaRange,
+  dateStrAddDays,
+  quincenaPayoutDateStr,
+  previousAttendancePeriod,
   pickWorkDate,
   lateDebtHours,
   lateDebtCop,

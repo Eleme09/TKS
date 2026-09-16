@@ -17,7 +17,7 @@ const {
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
-  studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
+  studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
   computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
@@ -1238,6 +1238,35 @@ async function buildAttendancePayload(session) {
     };
   });
 
+  // Ventana de gracia del aviso de seguridad social (pedido 2026-09-16): la
+  // quincena corta el 15/fin de mes pero se paga 5 dias despues (20 o 5) --
+  // la modelo que cruzo el umbral sigue debiendolo hasta ese pago real, asi
+  // que el aviso de la quincena que ACABA DE TERMINAR se mantiene visible
+  // ademas del resumen normal de la quincena en curso (que sigue su propio
+  // conteo desde cero, sin mezclarse). Solo hace la consulta extra dentro de
+  // esa ventana de 5 dias -- el resto del mes no cuesta nada de mas.
+  let carryover = null;
+  const prevPeriod = previousAttendancePeriod(today);
+  if (socialSecurityEnabled && prevPeriod && today <= prevPeriod.payoutDate) {
+    const prevDays = await sbListAttendanceDays(prevPeriod.start, prevPeriod.end, onlyMine);
+    const prevTotals = usernames.map((username) => {
+      const mine = prevDays.filter((d) => d.username === username);
+      const lateMinutes = sumLateMinutes(mine);
+      if (lateMinutes < threshold) return null;
+      return {
+        username,
+        late_minutes: lateMinutes,
+        owes_message: resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username),
+      };
+    }).filter(Boolean);
+    if (prevTotals.length) {
+      carryover = {
+        period: { start: prevPeriod.start, end: prevPeriod.end, label: prevPeriod.label, payout_date: prevPeriod.payoutDate, payout_label: prevPeriod.payoutLabel },
+        totals: prevTotals,
+      };
+    }
+  }
+
   const payload = {
     role: session.role,
     username: session.username,
@@ -1254,6 +1283,7 @@ async function buildAttendancePayload(session) {
     justifications,
     excuses,
     totals,
+    carryover,
   };
 
   if (isStaff) {
@@ -1265,6 +1295,71 @@ async function buildAttendancePayload(session) {
     payload.my_total = totals[0] || null;
   }
   return payload;
+}
+
+// Hoja de una quincena YA CERRADA (pedido 2026-09-16: "donde queda el
+// registro de las hojas de horas quincenales? debe haberlo" -- no habia
+// ningun lugar para volver a ver una quincena pasada, a diferencia de
+// Desprendibles que ya tenia historial). Reusa exactamente las mismas
+// consultas y formulas que buildAttendancePayload (sumLateMinutes,
+// lateDebtHours, lateDebtCopCapped/lateDebtCop) pero contra el rango de
+// `refDateStr` en vez de hoy, y sin nada que solo tenga sentido para el dia
+// en curso (pending, my_day, my_open_day, horas transmitidas). Es de solo
+// lectura -- nada de esto se puede validar/corregir desde aca, para eso esta
+// la vista del dia en curso.
+async function buildAttendanceHistoryPayload(session, refDateStr) {
+  const period = studioQuincenaRange(refDateStr);
+  if (!period) return null;
+  const isStaff = session.role === 'administrador' || session.role === 'ceo';
+  const onlyMine = isStaff ? null : session.username;
+
+  const [settings, schedule, days, justifications, models] = await Promise.all([
+    sbFetchAttendanceSettings(),
+    sbListAttendanceSchedule(),
+    sbListAttendanceDays(period.start, period.end, onlyMine),
+    sbListAttendanceJustifications(period.start, period.end, onlyMine),
+    isStaff ? sbFetchAllModels() : Promise.resolve([]),
+  ]);
+
+  const threshold = settings.late_threshold_minutes || ATTENDANCE_DEFAULTS.late_threshold_minutes;
+  const feeCop = settings.late_hour_fee_cop != null ? settings.late_hour_fee_cop : ATTENDANCE_DEFAULTS.late_hour_fee_cop;
+  const socialSecurityEnabled = settings.social_security_enabled !== false;
+  const scheduleByUser = {};
+  for (const s of schedule) scheduleByUser[s.username] = s;
+
+  const usernames = isStaff
+    ? models.filter((m) => m.role === 'modelo').map((m) => m.username)
+    : [session.username];
+  const totals = usernames.map((username) => {
+    const mine = days.filter((d) => d.username === username);
+    const lateMinutes = sumLateMinutes(mine);
+    const hers = scheduleByUser[username];
+    return {
+      username,
+      late_minutes: lateMinutes,
+      shift_label: hers
+        ? shiftLabel(hers.shift || shiftFromTimes(hers.entry_time, hers.exit_time), hers.entry_time, hers.exit_time)
+        : 'sin asignar',
+      owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
+      debt_hours: lateDebtHours(lateMinutes),
+      debt_cop: socialSecurityEnabled
+        ? lateDebtCopCapped(lateMinutes, feeCop, threshold)
+        : lateDebtCop(lateMinutes, feeCop),
+      days_validated: mine.filter((d) => d.status === 'validada').length,
+    };
+  });
+
+  return {
+    role: session.role,
+    period,
+    threshold_minutes: threshold,
+    late_hour_fee_cop: feeCop,
+    social_security_enabled: socialSecurityEnabled,
+    days,
+    justifications,
+    totals,
+    models: isStaff ? usernames : undefined,
+  };
 }
 
 // Avisos de llegada para administrador y CEO. Ademas del aviso por modelo, si
@@ -3122,6 +3217,22 @@ async function handleRequest(req, res) {
     const session = await requireSession(req, res);
     if (!session) return;
     const payload = await buildAttendancePayload(session);
+    return sendJson(res, 200, payload);
+  }
+
+  // Hoja de una quincena pasada -- ver buildAttendanceHistoryPayload. `start`
+  // es cualquier fecha YYYY-MM-DD dentro de esa quincena (el propio servidor
+  // calcula el rango real con studioQuincenaRange, el cliente no necesita
+  // acertarle al primer/ultimo dia exacto).
+  if (parsed.pathname === '/api/attendance/history' && req.method === 'GET') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const start = parsed.query.start;
+    if (typeof start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+      return sendJson(res, 400, { error: 'Fecha inválida' });
+    }
+    const payload = await buildAttendanceHistoryPayload(session, start);
+    if (!payload) return sendJson(res, 400, { error: 'Fecha inválida' });
     return sendJson(res, 200, payload);
   }
 
