@@ -22,23 +22,46 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 // a las 00:37 UTC (7:37 p.m. Colombia) el sistema ya mostraba la quincena
 // nueva con los totales en 0.
 //
-// CORREGIDO OTRA VEZ el mismo dia, a pedido explicito del usuario: el corte
-// real NO es medianoche Colombia -- es 23:30 Colombia (04:30 UTC), el mismo
-// instante en que Chaturbate vacia el balance de cada modelo
-// (CHATURBATE_CASHOUT_UTC_HOUR/MINUTE, ya usado para el sondeo denso antes
-// del retiro). Dia 15 cierra, y dia 16 arranca, exactamente ahi -- no a
-// medianoche. `payrollDateStr`/`payrollWallToMs` (justo arriba de esta
-// funcion) son el mismo mecanismo de siempre (offset fijo + getters UTC
-// sobre el instante desplazado) pero con ese corte en vez del de medianoche.
-// Asistencia sigue con medianoche Colombia (`studioDateStr`), sin tocar --
-// el ciclo de retiro de Chaturbate no tiene nada que ver con el horario de
-// entrada/salida de una modelo.
+// CORREGIDO OTRA VEZ el mismo dia (segunda vuelta): el usuario pidio primero
+// que el corte fuera 23:30 Colombia (el retiro automatico de Chaturbate) en
+// vez de medianoche -- eso ya NO es la frontera de quincena (ver mas abajo),
+// pero sigue siendo el corte de un DIA DE NOMINA cualquiera
+// (`payrollDateStr`/`toDateStr`, usado para etiquetar filas individuales
+// como `cb_chaturbate_period_base`/`cb_stripchat_earnings` -- eso no se
+// toco en esta vuelta).
+//
+// TERCERA VUELTA, mismo dia: la FRONTERA ENTRE DOS QUINCENAS ya no es 23:30
+// Colombia -- se estira hasta las 2:00 a.m. Colombia del dia siguiente
+// (dia 1 o dia 16). Pedido explicito del usuario: los tokens que se hagan
+// se pagan sin importar la hora, y no quiere que el turno de la tarde
+// (16:00-00:00, o cualquiera que se pase un poco) quede cortado justo
+// cuando la modelo todavia esta trabajando, solo porque Chaturbate ya vacio
+// el balance del dia. Con esto, una jornada que termina a las 00:30 o 01:45
+// del dia 16 sigue contando entera en la quincena 1-15 que esta cerrando.
+// Implementacion: se resuelve el dia/mes/año con `studioDateStr` (corte de
+// MEDIANOCHE Colombia, no el de nomina) y, si "ahora" cae en la madrugada
+// del dia 1 o 16 (antes de las 2 a.m.), se retrocede un dia antes de decidir
+// en que mitad del mes estamos -- asi el 15 completo (medianoche a
+// medianoche) MAS las dos primeras horas del 16 quedan en la misma
+// quincena. `start`/`end` se construyen directo con `studioWallToMs` a las
+// 2:00 a.m. exactas (ya no con el offset de nomina), lo que ademas los deja
+// automaticamente contiguos entre una quincena y la siguiente sin ningun
+// calculo extra. Asistencia sigue con su propia medianoche Colombia
+// (`studioQuincenaRange`), totalmente aparte -- el ciclo de pago no tiene
+// nada que ver con el horario de entrada/salida de una modelo.
 function getQuincena(now) {
-  const dateStr = payrollDateStr(now);
-  const parts = dateStr.split('-').map(Number);
-  const year = parts[0];
-  const month = parts[1] - 1;
-  const day = parts[2];
+  let dateStr = studioDateStr(now);
+  let parts = dateStr.split('-').map(Number);
+  let year = parts[0];
+  let month = parts[1] - 1;
+  let day = parts[2];
+  if ((day === 1 || day === 16) && studioTimeStr(now) < '02:00') {
+    dateStr = studioDateStr(now - 24 * 3600000);
+    parts = dateStr.split('-').map(Number);
+    year = parts[0];
+    month = parts[1] - 1;
+    day = parts[2];
+  }
   let startDay, endDay, payoutY = year, payoutM = month, payoutD;
   if (day <= 15) {
     startDay = 1;
@@ -51,15 +74,34 @@ function getQuincena(now) {
     payoutD = 5;
   }
   if (payoutM > 11) { payoutM -= 12; payoutY += 1; }
-  const start = payrollWallToMs(year, month, startDay, 0, 0, 0, 0);
-  const end = payrollWallToMs(year, month, endDay, 23, 59, 59, 999);
+  const start = studioWallToMs(year, month, startDay, 2, 0, 0, 0);
+  let endNextDay = endDay + 1, endNextMonth = month, endNextYear = year;
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  if (endNextDay > daysInMonth) {
+    endNextDay = 1;
+    endNextMonth += 1;
+    if (endNextMonth > 11) { endNextMonth = 0; endNextYear += 1; }
+  }
+  const end = studioWallToMs(endNextYear, endNextMonth, endNextDay, 2, 0, 0, 0) - 1;
   // El dia de pago es solo una etiqueta (20 o 5, calendario normal) -- no
-  // necesita alinearse al retiro de Chaturbate, por eso usa studioWallToMs
-  // (medianoche Colombia) y no payrollWallToMs.
+  // necesita alinearse a ningun corte especial.
   const payout = studioWallToMs(payoutY, payoutM, payoutD, 0, 0, 0, 0);
   const label = startDay + ' al ' + endDay + ' de ' + MESES[month] + ' ' + year;
   const payoutLabel = payoutD + ' de ' + MESES[payoutM] + ' ' + payoutY;
-  return { start, end, payout, label, payoutLabel };
+  const pad = (n) => String(n).padStart(2, '0');
+  // Etiquetas ESTABLES "YYYY-MM-DD" para las tablas de una fila por quincena
+  // (cb_stripchat_earnings, cb_chaturbate_extra_earnings,
+  // cb_chaturbate_period_base) -- construidas directo desde
+  // year/month/startDay/endDay, NO desde los timestamps start/end de arriba.
+  // Con la frontera ahora a las 2 a.m. (en vez de 23:30), toDateStr(end) ya
+  // NO da "el dia 15"/"el ultimo dia del mes" como antes -- daria el dia
+  // siguiente, rompiendo la clave contra filas historicas ya guardadas con
+  // la etiqueta vieja. period.startDate/period.endDate son el reemplazo
+  // correcto: usar SIEMPRE estos dos para esas tablas, nunca
+  // toDateStr(period.start)/toDateStr(period.end).
+  const startDate = year + '-' + pad(month + 1) + '-' + pad(startDay);
+  const endDate = year + '-' + pad(month + 1) + '-' + pad(endDay);
+  return { start, end, payout, label, payoutLabel, startDate, endDate };
 }
 
 // Devuelve las ultimas `count` quincenas, la actual primero.
@@ -74,20 +116,22 @@ function getQuincenaHistory(count, now) {
   return periods;
 }
 
-// Fecha YYYY-MM-DD en hora del estudio (misma que usa getQuincena para
-// construir start/end), para guardar/consultar en columnas `date` de
-// Postgres sin desfases de zona horaria.
+// Fecha YYYY-MM-DD del "dia de nomina" (corte 23:30 Colombia) al que
+// pertenece este instante -- para etiquetar filas individuales
+// (tips/balance-ticks) o cualquier instante suelto que NO sea period.end de
+// getQuincena.
 //
-// Es un alias de `payrollDateStr`, NO de `studioDateStr` -- a proposito.
-// Desde que getQuincena corta la quincena a las 23:30 Colombia (ver su
-// comentario), `period.start` de la quincena "1 al 15" es, en reloj real,
-// "31 a las 23:30" (el corte de la quincena anterior). Si esta funcion
-// devolviera la fecha LITERAL de ese instante (`studioDateStr` diria "31"),
-// las filas de `cb_chaturbate_period_base`/`cb_stripchat_earnings` quedarian
-// etiquetadas con el dia de corte en vez del dia de la quincena que la
-// gente espera ver ("2026-09-01"). `payrollDateStr` ya resuelve esto: usa el
-// mismo corte de 23:30 que getQuincena, asi que da la fecha correcta para
-// cualquier instante que venga de period.start/period.end.
+// Es un alias de `payrollDateStr`, NO de `studioDateStr` -- a proposito, ver
+// el comentario de payrollDateStr. OJO, esto YA NO sirve para
+// period.start/period.end de getQuincena desde que la frontera de quincena
+// se estiro a las 2 a.m. (2026-09-16, tercera vuelta): toDateStr(period.end)
+// daria el dia SIGUIENTE al que la quincena etiqueta de toda la vida (ej.
+// "16" en vez de "15"). Para eso usar period.startDate/period.endDate
+// (calculados aparte, dentro de getQuincena) -- toDateStr(period.start)
+// todavia coincide por las puras (2 a.m. sigue cayendo dentro de la
+// etiqueta de nomina del mismo dia), pero no hay que depender de esa
+// coincidencia: usar siempre period.startDate/period.endDate para las
+// tablas de una fila por quincena.
 function toDateStr(ms) {
   return payrollDateStr(ms);
 }

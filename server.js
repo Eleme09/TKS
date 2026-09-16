@@ -1919,8 +1919,8 @@ async function pollStripchatEarnings() {
   try {
     const models = await sbFetchAllModels();
     const period = getQuincena(Date.now());
-    const periodStartStr = toDateStr(period.start);
-    const periodEndStr = toDateStr(period.end);
+    const periodStartStr = period.startDate;
+    const periodEndStr = period.endDate;
     const rows = [];
     for (const m of models.filter((x) => x.role === 'modelo')) {
       const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
@@ -1941,10 +1941,10 @@ async function buildModelReports() {
   const [models, tips, stripchat, chaturbateExtra, balanceTicks, periodBases] = await Promise.all([
     sbFetchAllModels(),
     sbFetchTipsInRange(startIso, endIso),
-    sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
-    sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    sbFetchStripchatEarningsForPeriod(period.startDate, period.endDate),
+    sbFetchChaturbateExtraEarningsForPeriod(period.startDate, period.endDate),
     sbFetchBalanceTicksInRange(startIso, endIso),
-    sbFetchPeriodBaseForPeriod(toDateStr(period.start), toDateStr(period.end)),
+    sbFetchPeriodBaseForPeriod(period.startDate, period.endDate),
   ]);
 
   const tipsByUser = {};
@@ -2682,12 +2682,13 @@ async function handleRequest(req, res) {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
       const oldestStart = periods[periods.length - 1].start;
+      const oldestStartDate = periods[periods.length - 1].startDate;
       const [tips, stripchatRows, chaturbateExtraRows, balanceTicks, periodBases, dollar] = await Promise.all([
         sbFetchUserTipsSince(username, new Date(oldestStart).toISOString()),
-        sbFetchStripchatEarningsForUserSince(username, toDateStr(oldestStart)),
-        sbFetchChaturbateExtraEarningsForUserSince(username, toDateStr(oldestStart)),
+        sbFetchStripchatEarningsForUserSince(username, oldestStartDate),
+        sbFetchChaturbateExtraEarningsForUserSince(username, oldestStartDate),
         sbFetchUserBalanceTicksSince(username, new Date(oldestStart).toISOString()),
-        sbFetchPeriodBaseForUserSince(username, toDateStr(oldestStart)),
+        sbFetchPeriodBaseForUserSince(username, oldestStartDate),
         getDollarRate(),
       ]);
 
@@ -2695,8 +2696,8 @@ async function handleRequest(req, res) {
         const periodTips = tips
           .filter((t) => { const ts = new Date(t.created_at).getTime(); return ts >= p.start && ts <= p.end; });
         const chaturbateTipsTokens = periodTips.reduce((sum, t) => sum + t.tokens, 0);
-        const periodStartStr = toDateStr(p.start);
-        const periodEndStr = toDateStr(p.end);
+        const periodStartStr = p.startDate;
+        const periodEndStr = p.endDate;
         const chaturbateExtraTokens = chaturbateExtraRows
           .filter((r) => r.period_start === periodStartStr && r.period_end === periodEndStr)
           .reduce((sum, r) => sum + r.tokens, 0);
@@ -2749,7 +2750,7 @@ async function handleRequest(req, res) {
     const period = getQuincenaHistory(3, Date.now())[idx];
     const [models, rows] = await Promise.all([
       sbFetchAllModels(),
-      sbFetchStripchatEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+      sbFetchStripchatEarningsForPeriod(period.startDate, period.endDate),
     ]);
     const byUser = {};
     for (const r of rows) byUser[r.username] = r.tokens;
@@ -2779,8 +2780,8 @@ async function handleRequest(req, res) {
     const period = getQuincenaHistory(3, Date.now())[idx];
     const models = await sbFetchAllModels();
     const validUsernames = new Set(models.map((m) => m.username));
-    const periodStartStr = toDateStr(period.start);
-    const periodEndStr = toDateStr(period.end);
+    const periodStartStr = period.startDate;
+    const periodEndStr = period.endDate;
     const rows = [];
     for (const e of entries) {
       const username = sanitizeUsername(e.username);
@@ -2811,7 +2812,7 @@ async function handleRequest(req, res) {
     const [models, tips, extraRows] = await Promise.all([
       sbFetchAllModels(),
       sbFetchTipsInRange(new Date(period.start).toISOString(), new Date(period.end).toISOString()),
-      sbFetchChaturbateExtraEarningsForPeriod(toDateStr(period.start), toDateStr(period.end)),
+      sbFetchChaturbateExtraEarningsForPeriod(period.startDate, period.endDate),
     ]);
     const tipsByUser = {};
     for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
@@ -2849,8 +2850,8 @@ async function handleRequest(req, res) {
     const validUsernames = new Set(models.map((m) => m.username));
     const tipsByUser = {};
     for (const t of tips) tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
-    const periodStartStr = toDateStr(period.start);
-    const periodEndStr = toDateStr(period.end);
+    const periodStartStr = period.startDate;
+    const periodEndStr = period.endDate;
     const rows = [];
     for (const e of entries) {
       const username = sanitizeUsername(e.username);
@@ -2913,8 +2914,8 @@ async function handleRequest(req, res) {
     const rowsToSave = [];
     const results = [];
     for (const period of periods) {
-      const periodStartStr = toDateStr(period.start);
-      const periodEndStr = toDateStr(period.end);
+      const periodStartStr = period.startDate;
+      const periodEndStr = period.endDate;
       const covered = periodStartStr >= oldestDateStr;
       const csvTotal = sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr);
       results.push({ label: period.label, csvTotal, saved: covered });
