@@ -15,43 +15,61 @@
      e imprimirse por su cuenta, sin depender de que el resto de la app haya
      cargado. Si cambian los colores de marca, cambiarlos en los dos lados. */
   :root {
-    --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d;
-    --border: #242427; --border-soft: #1c1c1f;
-    --text: #f5f5f7; --muted: #9a9aa2; --muted-dim: #85858d;
-    --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4);
-    --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
-    --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
+    --bg: #08070a; --surface: #141119; --surface-2: #1c1822; --surface-3: #26202d;
+    --border: #2d2734; --border-strong: #423a4b; --border-soft: #1e1a24;
+    --text: #faf8fc; --muted: #ada4bb; --muted-dim: #948aa2;
+    --pink: #ff8fbe; --pink-2: #ff5fa6; --pink-soft: rgba(255,143,190,0.12); --pink-line: rgba(255,143,190,0.45);
+    --good: #6fe7b8; --good-soft: rgba(111,231,184,0.12);
+    --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.12);
     --font-display: 'Unbounded', 'Arial Narrow', sans-serif;
     --font-body: 'Hanken Grotesk', -apple-system, 'Segoe UI', sans-serif;
     --font-mono: 'Quicksand', 'Hanken Grotesk', sans-serif;
+    --r-sm: 13px; --r-md: 20px; --r-pill: 999px;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.05) inset, 0 26px 50px -30px rgba(0,0,0,0.75);
+    --shadow-btn: 0 10px 26px -8px rgba(255,95,166,0.55);
   }
   * { box-sizing: border-box; }
   html { background: var(--bg); }
   body {
     margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body);
     padding: calc(28px + env(safe-area-inset-top)) clamp(14px, 4vw, 44px) 60px;
+    position: relative; overflow-x: hidden;
   }
-  .wrap { max-width: 1180px; margin: 0 auto; }
-  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
-  h1 { font-family: var(--font-display); font-size: clamp(18px, 3.2vw, 25px); margin: 0 0 6px; letter-spacing: -0.01em; }
-  .sub { font-size: 12.5px; color: var(--muted); }
+  body::before {
+    content: ''; position: fixed; inset: -20% -30% auto -30%; height: 70vh; pointer-events: none; z-index: 0;
+    filter: blur(64px);
+    background: radial-gradient(46% 40% at 24% 12%, rgba(255,95,166,0.22), transparent 72%), radial-gradient(36% 30% at 80% 30%, rgba(255,255,255,0.05), transparent 72%);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; position: relative; z-index: 1; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 26px; }
+  .brandline { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+  .brandline img { width: 24px; height: 24px; border-radius: 7px; display: block; filter: drop-shadow(0 0 8px rgba(255,143,190,0.45)); }
+  .brandline span { font-family: var(--font-display); font-size: 12px; letter-spacing: 0.08em; color: var(--text); }
+  h1 { font-family: var(--font-display); font-size: clamp(20px, 3.4vw, 27px); margin: 0 0 6px; letter-spacing: -0.01em; font-weight: 600; }
+  .sub { font-size: 13px; color: var(--muted); }
   .back {
-    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
-    color: var(--pink); text-decoration: none; border: 1px solid var(--pink-line);
-    background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
-    padding: 9px 15px; border-radius: 10px; white-space: nowrap;
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+    color: #2c0a1b; text-decoration: none; border: none;
+    background: linear-gradient(135deg, var(--pink), var(--pink-2));
+    padding: 11px 18px; border-radius: var(--r-pill); white-space: nowrap; box-shadow: var(--shadow-btn);
+    display: inline-flex; align-items: center; transition: transform .16s ease, box-shadow .2s ease; cursor: pointer;
   }
+  .back:hover { transform: translateY(-1px); box-shadow: 0 14px 34px -8px rgba(255,95,166,0.7); }
   .card {
-    background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%);
-    border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 14px;
+    position: relative;
+    background:
+      linear-gradient(165deg, var(--surface), var(--surface-2) 140%) padding-box,
+      linear-gradient(150deg, var(--pink-line), rgba(255,255,255,0.05) 42%, transparent 78%) border-box;
+    border: 1px solid transparent; border-radius: var(--r-md); padding: 22px; margin-bottom: 16px;
+    box-shadow: var(--shadow-card);
   }
-  h2 { font-family: var(--font-display); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
-  label { display: block; font-size: 11px; color: var(--muted-dim); margin: 0 0 7px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700; }
+  h2 { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
+  label { display: block; font-size: 11px; color: var(--muted-dim); margin: 0 0 7px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; }
   select {
-    width: 100%; max-width: 340px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    width: 100%; max-width: 340px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--text); font-size: 16px; font-family: var(--font-body);
   }
-  .meta { font-size: 12px; color: var(--muted-dim); line-height: 1.55; }
+  .meta { font-size: 12.5px; color: var(--muted-dim); line-height: 1.6; }
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -68,7 +86,7 @@
   .early { color: var(--good); font-weight: 700; }
   .ontime { color: var(--muted); font-weight: 700; }
   .sub2 { font-size: 10px; color: var(--muted-dim); margin-top: 2px; white-space: nowrap; }
-  .pill { font-size: 10px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; display: inline-block; white-space: nowrap; }
+  .pill { font-size: 10px; padding: 4px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 800; display: inline-block; white-space: nowrap; }
   .pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
   .pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
   .pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
@@ -105,20 +123,25 @@
      tasa en chico debajo, sin parrafo explicativo. */
   .deuda-hero {
     background: var(--surface-2); border: 1px solid var(--border-soft);
-    border-radius: 12px; padding: 14px 16px;
+    border-radius: var(--r-sm); padding: 16px 18px;
   }
   .deuda-hero.debe { border-color: rgba(255,107,107,0.4); background: linear-gradient(180deg, rgba(255,107,107,0.12), var(--surface-2) 70%); }
-  .deuda-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-dim); font-weight: 700; margin-bottom: 6px; }
-  .deuda-v { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+  .deuda-k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-dim); font-weight: 700; margin-bottom: 7px; }
+  .deuda-v {
+    font-size: 28px; font-weight: 700; font-family: var(--font-display);
+    background: linear-gradient(120deg, #fff 10%, var(--pink) 85%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
   .deuda-hero.debe .deuda-k { color: var(--bad); opacity: 0.9; }
-  .deuda-hero.debe .deuda-v { color: var(--bad); }
+  .deuda-hero.debe .deuda-v { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--bad); }
   /* Controles de correccion: solo los ve el administrador. */
   .fix-btn {
-    font-family: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.03em; cursor: pointer; padding: 5px 9px; border-radius: 7px;
-    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    font-family: inherit; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.03em; cursor: pointer; padding: 7px 12px; border-radius: var(--r-pill);
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
+    transition: transform .16s ease, filter .15s ease;
   }
-  .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
+  .fix-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+  .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.3); }
   /* min-width para que los 3 botones (Editar hora / Reiniciar / Borrar) no
      queden apretados en una sola columna angosta, uno arriba del otro — con
      esto entran 2 por fila en vez de 3 filas sueltas. */
@@ -162,12 +185,46 @@
     .th-ico { display: none !important; }
     th, .muted, .meta { color: #444; }
   }
+
+  .ui-toast-host {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 200;
+    display: flex; flex-direction: column-reverse; gap: 8px; align-items: center; pointer-events: none; width: min(92vw, 420px);
+  }
+  .ui-toast {
+    pointer-events: auto; background: linear-gradient(165deg, var(--surface-3), var(--surface-2));
+    border: 1px solid var(--border-strong); border-radius: 14px; padding: 13px 16px; font-size: 13px;
+    color: var(--text); box-shadow: var(--shadow-card); display: flex; align-items: center; gap: 10px;
+    animation: toastIn .35s cubic-bezier(.2,.8,.3,1) both; line-height: 1.4;
+  }
+  .ui-toast.leaving { animation: toastOut .22s ease forwards; }
+  .ui-toast.error { border-color: rgba(255,107,107,0.45); }
+  .ui-toast-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: 0 0 auto; box-shadow: 0 0 8px var(--good); }
+  .ui-toast.error .ui-toast-dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(0.96); } }
+  .ui-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(4,3,6,0.72); backdrop-filter: blur(6px); z-index: 210;
+    display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn .18s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .ui-modal {
+    width: min(92vw, 380px); background: linear-gradient(165deg, var(--surface-3), var(--surface-2));
+    border: 1px solid var(--border-strong); border-radius: 24px; padding: 24px; box-shadow: var(--shadow-card);
+    animation: modalIn .28s cubic-bezier(.2,.8,.3,1) both;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .ui-modal-msg { font-size: 14.5px; line-height: 1.55; color: var(--text); white-space: pre-wrap; }
+  .ui-modal-actions { display: flex; gap: 10px; margin-top: 22px; }
+  .ui-modal-actions button { flex: 1; font-family: inherit; font-weight: 800; font-size: 13px; padding: 12px; border-radius: var(--r-pill); border: none; cursor: pointer; }
+  .ui-modal-ok { background: linear-gradient(135deg, var(--pink), var(--pink-2)); color: #2c0a1b; box-shadow: var(--shadow-btn); }
+  .ui-modal-cancel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong) !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <div>
+      <div class="brandline"><img src="/logo-icon.svg" alt=""><span>PLACER</span></div>
       <h1>Hoja de asistencia</h1>
       <div class="sub" id="sub">Cargando…</div>
     </div>
@@ -270,9 +327,63 @@
   </div>
 </div>
 
+<div id="uiToastHost" class="ui-toast-host" aria-live="polite"></div>
+<div id="uiModalBackdrop" class="ui-modal-backdrop" style="display:none;">
+  <div class="ui-modal" role="dialog" aria-modal="true">
+    <div class="ui-modal-msg" id="uiModalMsg"></div>
+    <div class="ui-modal-actions">
+      <button type="button" id="uiModalCancel" class="ui-modal-cancel">Cancelar</button>
+      <button type="button" id="uiModalOk" class="ui-modal-ok">Sí, continuar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
+
+  function uiToast(message, type) {
+    var host = document.getElementById('uiToastHost');
+    if (!host) return;
+    var t = document.createElement('div');
+    t.className = 'ui-toast' + (type === 'error' ? ' error' : '');
+    var dot = document.createElement('span');
+    dot.className = 'ui-toast-dot';
+    var text = document.createElement('span');
+    text.textContent = message;
+    t.appendChild(dot);
+    t.appendChild(text);
+    host.appendChild(t);
+    setTimeout(function () {
+      t.classList.add('leaving');
+      setTimeout(function () { t.remove(); }, 240);
+    }, type === 'error' ? 4200 : 3000);
+  }
+
+  function uiConfirm(message) {
+    return new Promise(function (resolve) {
+      var backdrop = document.getElementById('uiModalBackdrop');
+      var msgEl = document.getElementById('uiModalMsg');
+      var okBtn = document.getElementById('uiModalOk');
+      var cancelBtn = document.getElementById('uiModalCancel');
+      msgEl.textContent = message;
+      backdrop.style.display = 'flex';
+
+      function cleanup(result) {
+        backdrop.style.display = 'none';
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        backdrop.removeEventListener('click', onBackdrop);
+        resolve(result);
+      }
+      function onOk() { cleanup(true); }
+      function onCancel() { cleanup(false); }
+      function onBackdrop(e) { if (e.target === backdrop) onCancel(); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      backdrop.addEventListener('click', onBackdrop);
+    });
+  }
 
   var data = null;
   var el = {
@@ -757,12 +868,12 @@
   // borran datos y no hay deshacer (queda el rastro en el registro de
   // actividad, pero el dato en si no vuelve).
   async function postFix(url, payload, pregunta) {
-    if (!window.confirm(pregunta)) return;
+    if (!(await uiConfirm(pregunta))) return;
     var r = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
     var res = await r.json().catch(function () { return {}; });
-    if (!r.ok) { window.alert(res.error || 'No se pudo hacer'); return; }
+    if (!r.ok) { uiToast(res.error || 'No se pudo hacer', 'error'); return; }
     var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
     if (d) { data = d; render(); }
   }
