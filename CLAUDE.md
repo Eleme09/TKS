@@ -1845,6 +1845,85 @@ credenciales en este contenedor remoto) — se probó contra un servidor HTTP
 de mentira que imita las respuestas de Supabase, suficiente para ejercitar
 la lógica real de las dos rutas afectadas.
 
+## BUG REAL DE PLATA: la quincena cambiaba hasta 5 horas antes de tiempo (2026-09-16)
+
+Encontrado en vivo, no en una auditoría: el usuario notó que "Modelos" y el
+"Resumen del estudio" mostraban los totales de la quincena en 0 y avisó
+("Para seguir con lo previsto. Arregla los numeros de cada modelo y estudio
+a como estaban. Se ha perdido información en el cambio"). Diagnóstico
+verificado contra el Supabase real (no supuesto): eran las 00:37 UTC del
+2026-09-16, y `getQuincena` (`chaturbate-lib.js`) ya daba por iniciada la
+quincena "16-30" — pero en hora de Colombia todavía eran las 7:37 p.m. del
+día 15.
+
+**Causa raíz**: `getQuincena`/`toDateStr` calculaban el día/mes/año con
+`new Date(now).getFullYear()/getMonth()/getDate()` — getters que devuelven
+la fecha según la ZONA HORARIA DEL PROCESO DE NODE, no la de Colombia. En
+Render (y en cualquier contenedor sin `TZ` seteado, confirmado con
+`Intl.DateTimeFormat().resolvedOptions().timeZone` → `UTC`) esa zona es UTC.
+Asistencia ya tenía este mismo problema resuelto desde antes
+(`STUDIO_UTC_OFFSET_HOURS`/`studioDateStr`, sección "Asistencia" más arriba)
+— pero `getQuincena`, el que maneja la PLATA, nunca se corrigió con el mismo
+mecanismo. Nadie lo notó hasta ahora porque el síntoma solo se ve unos
+minutos/horas alrededor de cada corte de quincena (dos veces al mes).
+
+**Corregido en dos pasadas la misma sesión:**
+
+1. Primera pasada: `getQuincena` pasó a leer el día en hora de Colombia
+   (`studioDateStr`) en vez de la del servidor — mismo patrón que
+   Asistencia. Esto ya arreglaba el caso reportado.
+2. El usuario corrigió el corte exacto en el mismo hilo: **"la quincena
+   acaba 11:30 hora colombia"** — no medianoche. 11:30 p.m. Colombia = 04:30
+   UTC = el mismo instante en que Chaturbate vacía automáticamente el
+   balance de cada modelo (`CHATURBATE_CASHOUT_UTC_HOUR`/`MINUTE`, ya usado
+   para el sondeo denso antes del retiro — ver la sección de
+   automatización). Segunda pasada: se agregó `PAYROLL_DAY_OFFSET_HOURS`
+   (-4.5, en vez de los -5 de Colombia a secas) y
+   `payrollDateStr`/`payrollWallToMs` (mismo mecanismo de siempre: offset
+   fijo + getters UTC sobre el instante desplazado), y `getQuincena` corta
+   la quincena ahí: el día 15 termina y el 16 arranca exactamente a las
+   23:30 Colombia, no a medianoche. `toDateStr` es ahora un alias de
+   `payrollDateStr` (no de `studioDateStr`) — necesario porque, con este
+   corte, el instante real de "inicio" de la quincena 1-15 de un mes es
+   literalmente "31 a las 23:30" del mes anterior, y las columnas `date` de
+   `cb_chaturbate_period_base`/`cb_stripchat_earnings` necesitan seguir
+   etiquetadas "01", no "31".
+   **`fmtStripchatDateTime`** (server.js, arma el `periodStart`/`periodEnd`
+   que se le manda a la Studio API de Stripchat) tenía el mismo bug de fondo
+   (hora del servidor, no de Colombia) y se corrigió aparte — usa
+   `studioDateStr` (la fecha LITERAL del instante, no la etiqueta de
+   nómina), porque a Stripchat hay que mandarle el instante real, no cómo
+   decidimos etiquetarlo internamente.
+   **Ojo si se vuelve a tocar esto**: `toDateStr` (dinero, corte 23:30) y
+   `studioDateStr` (asistencia, corte medianoche) YA NO SON EQUIVALENTES a
+   propósito — dan una fecha distinta para cualquier instante entre las
+   23:30 y la medianoche Colombia. Asistencia sigue con medianoche sin
+   tocar: el ciclo de retiro de Chaturbate no tiene nada que ver con la
+   hora de entrada/salida de una modelo.
+
+**Impacto real confirmado con SQL directo contra la base de producción**
+(no fue un cálculo teórico): comparando `cb_tips` con el corte viejo
+(medianoche UTC, el bug) contra el corte correcto (23:30 Colombia), la
+quincena 1-15 de septiembre 2026 en curso tenía **pinky_f00x subvaluada en
+479 tokens** y jax_f00x en 60 — tokens que el bug ya había reasignado a la
+quincena siguiente, la que arranca hoy. Ningún dato se perdió en la base
+(`cb_tips` nunca se tocó) — el bug estaba solo en qué rango de fechas se
+consultaba para sumar cada quincena, así que se corrige solo con el
+despliegue, sin migración.
+
+**Tests**: se reescribieron los de `getQuincena`/`toDateStr` que
+construían su "now" con `new Date(y,m,d)` (constructor LOCAL — exactamente
+el antipatrón de este bug, así que sin darse cuenta probaban el
+comportamiento viejo) para usar `studioWallToMs`/`payrollWallToMs` en su
+lugar, más una regresión exacta del caso real (00:37 UTC del 16 = 7:37 p.m.
+Colombia del 15) y del corte exacto de las 23:30. `npm test`: 113/113.
+Verificado también con un script Node aparte contra la hora real del
+momento y con SQL directo contra Supabase (arriba). Misma limitación que
+el resto de esta sesión: sin `env.bat`/credenciales de producción en este
+contenedor remoto, no se pudo levantar una instancia `SOLO_UI=1` real y
+pegarle con curl — la verificación fue con los tests, un script aparte
+llamando a las funciones puras directamente, y SQL contra el Supabase real.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

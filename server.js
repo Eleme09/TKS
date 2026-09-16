@@ -16,6 +16,7 @@ const {
   CHATURBATE_CASHOUT_UTC_HOUR, CHATURBATE_CASHOUT_UTC_MINUTE, CASHOUT_WINDOW_MINUTES,
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
+  STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, pickWorkDate,
   computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
@@ -1770,14 +1771,21 @@ function startChaturbateBalancePolling() {
 // sumChaturbateCsvEarningsForPeriod ahora viven en chaturbate-lib.js — ver
 // el require de arriba.
 
-// "YYYY-MM-DD HH:MM:SS" en hora local, formato que pide la Studio API de
-// Stripchat para periodStart/periodEnd (misma convencion de hora local que ya
-// usa toDateStr, para que coincida exactamente con los limites de la quincena
-// tal como los construyo getQuincena).
+// "YYYY-MM-DD HH:MM:SS" en hora REAL de Colombia (el instante literal de
+// pared, no la etiqueta de la quincena), formato que pide la Studio API de
+// Stripchat para periodStart/periodEnd. OJO: usa `studioDateStr`, NO
+// `toDateStr` -- desde el arreglo de getQuincena del 2026-09-16 esas dos ya
+// no son lo mismo (`toDateStr`/`payrollDateStr` devuelve el dia de la
+// quincena, ej. "01", incluso para el instante de las 23:30 del dia anterior
+// que es cuando arranca de verdad); a Stripchat hay que mandarle el instante
+// real tal cual, no la etiqueta. Antes usaba d.getHours()/getMinutes()/
+// getSeconds() -- hora del SERVIDOR (UTC en Render) -- lo cual, junto con el
+// bug de getQuincena, hacia que el corte real consultado a Stripchat tambien
+// quedara varias horas antes de lo debido.
 function fmtStripchatDateTime(ms) {
-  const d = new Date(ms);
+  const d = new Date(ms + STUDIO_UTC_OFFSET_HOURS * 3600000);
   const pad = (n) => String(n).padStart(2, '0');
-  return toDateStr(ms) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  return studioDateStr(ms) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
 }
 
 // Consulta la Studio API oficial de Stripchat (docs.stripchat.com) por los

@@ -7,43 +7,79 @@ const assert = require('node:assert/strict');
 
 const lib = require('./chaturbate-lib');
 
+// Los "now" de estos tests se construyen con lib.studioWallToMs (hora REAL de
+// Colombia, UTC-5), no con `new Date(y,m,d)` local -- ese fue exactamente el
+// bug arreglado el 2026-09-16: `new Date(y,m,d)` construye en la zona horaria
+// del proceso (UTC en Render/CI), que NO es la de Colombia, así que un test
+// escrito así verificaba el comportamiento viejo (equivocado) sin darse
+// cuenta. Los resultados se leen con lib.toDateStr/lib.studioDateStr según
+// corresponda -- ver el comentario de toDateStr sobre por qué esas dos ya no
+// son lo mismo desde que la quincena corta a las 23:30, no a medianoche.
 describe('getQuincena', () => {
   test('día 1 del mes cae en la quincena 1-15, se paga el 20', () => {
-    const p = lib.getQuincena(new Date(2026, 8, 1).getTime()); // 1 sept 2026
-    assert.equal(new Date(p.start).getDate(), 1);
-    assert.equal(new Date(p.end).getDate(), 15);
-    assert.equal(new Date(p.payout).getDate(), 20);
-    assert.equal(new Date(p.payout).getMonth(), 8); // mismo mes (septiembre)
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 1, 12, 0, 0, 0)); // mediodía Colombia, 1 sept 2026
+    assert.equal(lib.toDateStr(p.start), '2026-09-01');
+    assert.equal(lib.toDateStr(p.end), '2026-09-15');
+    assert.equal(p.payout, lib.studioWallToMs(2026, 8, 20, 0, 0, 0, 0));
   });
 
-  test('día 15 todavía cae en la quincena 1-15 (límite inclusivo)', () => {
-    const p = lib.getQuincena(new Date(2026, 8, 15, 23, 59).getTime());
-    assert.equal(new Date(p.start).getDate(), 1);
-    assert.equal(new Date(p.end).getDate(), 15);
+  // Pedido explícito del usuario 2026-09-16: el corte real NO es medianoche
+  // Colombia, es 23:30 (mismo instante del retiro automático de Chaturbate).
+  test('el corte real de la quincena es 23:30 hora Colombia, no medianoche', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 1, 12, 0, 0, 0));
+    // El instante real de "inicio" de la quincena 1-15 de septiembre es
+    // 31 de agosto a las 23:30 Colombia -- el cierre de la quincena anterior.
+    assert.equal(lib.studioDateStr(p.start), '2026-08-31');
+    assert.equal(lib.studioTimeStr(p.start), '23:30');
+    // Y termina 1ms antes de las 23:30 del día 15, no a medianoche.
+    assert.equal(lib.studioDateStr(p.end), '2026-09-15');
+    assert.equal(lib.studioTimeStr(p.end), '23:29');
+  });
+
+  test('a las 23:29 hora Colombia del día 15 todavía es quincena 1-15', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 15, 23, 29, 0, 0));
+    assert.equal(lib.toDateStr(p.start), '2026-09-01');
+    assert.equal(lib.toDateStr(p.end), '2026-09-15');
+  });
+
+  test('a las 23:30 hora Colombia del día 15 ya es quincena 16-fin de mes', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 15, 23, 30, 0, 0));
+    assert.equal(lib.toDateStr(p.start), '2026-09-16');
   });
 
   test('día 16 cae en la quincena 16-fin de mes, se paga el 5 del mes siguiente', () => {
-    const p = lib.getQuincena(new Date(2026, 8, 16).getTime());
-    assert.equal(new Date(p.start).getDate(), 16);
-    assert.equal(new Date(p.payout).getDate(), 5);
-    assert.equal(new Date(p.payout).getMonth(), 9); // octubre
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 12, 0, 0, 0));
+    assert.equal(lib.toDateStr(p.start), '2026-09-16');
+    assert.equal(p.payout, lib.studioWallToMs(2026, 9, 5, 0, 0, 0, 0));
   });
 
   test('la quincena 16-fin llega hasta el último día real del mes (febrero, 28 días)', () => {
-    const p = lib.getQuincena(new Date(2026, 1, 20).getTime()); // feb 2026 (no bisiesto)
-    assert.equal(new Date(p.end).getDate(), 28);
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 1, 20, 12, 0, 0, 0)); // feb 2026 (no bisiesto)
+    assert.equal(lib.toDateStr(p.end), '2026-02-28');
   });
 
   test('diciembre 16-31 paga en enero del año siguiente', () => {
-    const p = lib.getQuincena(new Date(2026, 11, 20).getTime());
-    assert.equal(new Date(p.payout).getFullYear(), 2027);
-    assert.equal(new Date(p.payout).getMonth(), 0);
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 11, 20, 12, 0, 0, 0));
+    assert.equal(lib.studioDateStr(p.payout), '2027-01-05');
+  });
+
+  // Regresión del bug real de producción del 2026-09-16, corregido dos veces
+  // el mismo día: primero usaba la fecha del SERVIDOR (UTC) en vez de la de
+  // Colombia (la quincena cambiaba 5 horas antes de tiempo); después el
+  // usuario corrigió además que el corte real ni siquiera es medianoche
+  // Colombia, sino las 23:30 (el mismo instante del retiro automático de
+  // Chaturbate).
+  test('regresión 2026-09-16: 7:37pm hora Colombia del día 15 sigue en la quincena 1-15', () => {
+    const nowUtc = Date.UTC(2026, 8, 16, 0, 37, 0, 0); // 2026-09-16T00:37:00Z = 2026-09-15 19:37 Colombia
+    const p = lib.getQuincena(nowUtc);
+    assert.equal(lib.toDateStr(p.start), '2026-09-01');
+    assert.equal(lib.toDateStr(p.end), '2026-09-15');
   });
 });
 
 describe('getQuincenaHistory', () => {
   test('devuelve `count` quincenas consecutivas, la actual primero, sin huecos ni superposiciones', () => {
-    const periods = lib.getQuincenaHistory(6, new Date(2026, 8, 3).getTime());
+    const periods = lib.getQuincenaHistory(6, lib.studioWallToMs(2026, 8, 3, 12, 0, 0, 0));
     assert.equal(periods.length, 6);
     for (let i = 0; i < periods.length - 1; i++) {
       // la quincena siguiente (mas vieja) debe terminar justo antes de que
@@ -54,9 +90,17 @@ describe('getQuincenaHistory', () => {
 });
 
 describe('toDateStr', () => {
-  test('formatea YYYY-MM-DD con ceros a la izquierda', () => {
-    assert.equal(lib.toDateStr(new Date(2026, 0, 5).getTime()), '2026-01-05');
-    assert.equal(lib.toDateStr(new Date(2026, 8, 15).getTime()), '2026-09-15');
+  // toDateStr es un alias de payrollDateStr (corte 23:30 Colombia), no de
+  // studioDateStr (corte medianoche) -- por eso los "now" que representan el
+  // día de la quincena usan payrollWallToMs, no studioWallToMs.
+  test('formatea YYYY-MM-DD con ceros a la izquierda, en el día de nómina (corte 23:30 Colombia)', () => {
+    assert.equal(lib.toDateStr(lib.payrollWallToMs(2026, 0, 5, 12, 0, 0, 0)), '2026-01-05');
+    assert.equal(lib.toDateStr(lib.payrollWallToMs(2026, 8, 15, 12, 0, 0, 0)), '2026-09-15');
+  });
+
+  test('el día de nómina cambia a las 23:30 hora Colombia, no a medianoche', () => {
+    assert.equal(lib.toDateStr(lib.studioWallToMs(2026, 8, 15, 23, 29, 0, 0)), '2026-09-15');
+    assert.equal(lib.toDateStr(lib.studioWallToMs(2026, 8, 15, 23, 30, 0, 0)), '2026-09-16');
   });
 });
 

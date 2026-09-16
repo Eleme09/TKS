@@ -13,25 +13,53 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 
 // Quincena del estudio: dia 1-15 se paga el 20 del mismo mes;
 // dia 16-fin de mes se paga el 5 del mes siguiente.
+//
+// BUG REAL arreglado 2026-09-16: esto se calculaba con `new Date(now)` +
+// getters locales (getFullYear/getMonth/getDate), que devuelven el dia segun
+// la ZONA HORARIA DEL PROCESO DE NODE -- en Render eso es UTC, no Colombia.
+// Resultado: la quincena cambiaba a las 00:00 UTC = 7:00 p.m. hora Colombia,
+// 5 horas ANTES de lo que le tocaba. Detectado en vivo el mismo 2026-09-16:
+// a las 00:37 UTC (7:37 p.m. Colombia) el sistema ya mostraba la quincena
+// nueva con los totales en 0.
+//
+// CORREGIDO OTRA VEZ el mismo dia, a pedido explicito del usuario: el corte
+// real NO es medianoche Colombia -- es 23:30 Colombia (04:30 UTC), el mismo
+// instante en que Chaturbate vacia el balance de cada modelo
+// (CHATURBATE_CASHOUT_UTC_HOUR/MINUTE, ya usado para el sondeo denso antes
+// del retiro). Dia 15 cierra, y dia 16 arranca, exactamente ahi -- no a
+// medianoche. `payrollDateStr`/`payrollWallToMs` (justo arriba de esta
+// funcion) son el mismo mecanismo de siempre (offset fijo + getters UTC
+// sobre el instante desplazado) pero con ese corte en vez del de medianoche.
+// Asistencia sigue con medianoche Colombia (`studioDateStr`), sin tocar --
+// el ciclo de retiro de Chaturbate no tiene nada que ver con el horario de
+// entrada/salida de una modelo.
 function getQuincena(now) {
-  const d = new Date(now);
-  const year = d.getFullYear();
-  const month = d.getMonth();
-  const day = d.getDate();
-  let start, end, payout;
+  const dateStr = payrollDateStr(now);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1;
+  const day = parts[2];
+  let startDay, endDay, payoutY = year, payoutM = month, payoutD;
   if (day <= 15) {
-    start = new Date(year, month, 1, 0, 0, 0, 0);
-    end = new Date(year, month, 15, 23, 59, 59, 999);
-    payout = new Date(year, month, 20);
+    startDay = 1;
+    endDay = 15;
+    payoutD = 20;
   } else {
-    start = new Date(year, month, 16, 0, 0, 0, 0);
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    end = new Date(year, month, lastDay, 23, 59, 59, 999);
-    payout = new Date(year, month + 1, 5);
+    startDay = 16;
+    endDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    payoutM = month + 1;
+    payoutD = 5;
   }
-  const label = start.getDate() + ' al ' + end.getDate() + ' de ' + MESES[month] + ' ' + year;
-  const payoutLabel = payout.getDate() + ' de ' + MESES[payout.getMonth()] + ' ' + payout.getFullYear();
-  return { start: start.getTime(), end: end.getTime(), payout: payout.getTime(), label, payoutLabel };
+  if (payoutM > 11) { payoutM -= 12; payoutY += 1; }
+  const start = payrollWallToMs(year, month, startDay, 0, 0, 0, 0);
+  const end = payrollWallToMs(year, month, endDay, 23, 59, 59, 999);
+  // El dia de pago es solo una etiqueta (20 o 5, calendario normal) -- no
+  // necesita alinearse al retiro de Chaturbate, por eso usa studioWallToMs
+  // (medianoche Colombia) y no payrollWallToMs.
+  const payout = studioWallToMs(payoutY, payoutM, payoutD, 0, 0, 0, 0);
+  const label = startDay + ' al ' + endDay + ' de ' + MESES[month] + ' ' + year;
+  const payoutLabel = payoutD + ' de ' + MESES[payoutM] + ' ' + payoutY;
+  return { start, end, payout, label, payoutLabel };
 }
 
 // Devuelve las ultimas `count` quincenas, la actual primero.
@@ -46,12 +74,22 @@ function getQuincenaHistory(count, now) {
   return periods;
 }
 
-// Fecha YYYY-MM-DD en hora local (misma que usa getQuincena para construir
-// start/end), para guardar/consultar en columnas `date` de Postgres sin
-// desfases de zona horaria.
+// Fecha YYYY-MM-DD en hora del estudio (misma que usa getQuincena para
+// construir start/end), para guardar/consultar en columnas `date` de
+// Postgres sin desfases de zona horaria.
+//
+// Es un alias de `payrollDateStr`, NO de `studioDateStr` -- a proposito.
+// Desde que getQuincena corta la quincena a las 23:30 Colombia (ver su
+// comentario), `period.start` de la quincena "1 al 15" es, en reloj real,
+// "31 a las 23:30" (el corte de la quincena anterior). Si esta funcion
+// devolviera la fecha LITERAL de ese instante (`studioDateStr` diria "31"),
+// las filas de `cb_chaturbate_period_base`/`cb_stripchat_earnings` quedarian
+// etiquetadas con el dia de corte en vez del dia de la quincena que la
+// gente espera ver ("2026-09-01"). `payrollDateStr` ya resuelve esto: usa el
+// mismo corte de 23:30 que getQuincena, asi que da la fecha correcta para
+// cualquier instante que venga de period.start/period.end.
 function toDateStr(ms) {
-  const d = new Date(ms);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return payrollDateStr(ms);
 }
 
 function sanitizeUsername(u) {
@@ -146,6 +184,30 @@ function isNearChaturbateCashout(nowMs) {
   return minutesUntil >= 0 && minutesUntil <= CASHOUT_WINDOW_MINUTES;
 }
 
+// Corte de quincena (pedido explicito del usuario 2026-09-16, "la quincena
+// acaba 11:30 hora colombia" -- no medianoche): un "dia de nomina" empieza y
+// termina justo cuando Chaturbate vacia el balance (04:30 UTC = 23:30
+// Colombia), no a medianoche. Asi el dia 15 de la quincena queda cerrado
+// exactamente cuando Chaturbate mismo cierra su balance, en vez de un corte
+// a medianoche que no coincide con nada real. OJO: esto es SOLO para
+// dinero/quincena -- la jornada de asistencia de una modelo (turnos,
+// retrasos) sigue usando medianoche Colombia (`studioDateStr`), sin tocar,
+// porque ahi si importa el reloj de pared real, no el ciclo de Chaturbate.
+const PAYROLL_DAY_OFFSET_HOURS = -(CHATURBATE_CASHOUT_UTC_HOUR + CHATURBATE_CASHOUT_UTC_MINUTE / 60); // -4.5
+
+// "YYYY-MM-DD" del "dia de nomina" (ver comentario de arriba) al que
+// pertenece este instante.
+function payrollDateStr(ms) {
+  return new Date(ms + PAYROLL_DAY_OFFSET_HOURS * 3600000).toISOString().slice(0, 10);
+}
+
+// Instante real (ms) de un año/mes/dia/hora en el "reloj de nomina" (mismo
+// mecanismo que studioWallToMs, con el offset de nomina en vez del de
+// Colombia a secas).
+function payrollWallToMs(year, month, day, hour, minute, second, msPart) {
+  return Date.UTC(year, month, day, hour, minute, second, msPart) - PAYROLL_DAY_OFFSET_HOURS * 3600000;
+}
+
 // El "historial de transacciones" que Chaturbate deja descargar desde la
 // propia cuenta (boton "Descargar el historial de transacciones" en
 // Estadisticas de las fichas) trae TODAS las categorias por separado
@@ -219,6 +281,10 @@ function sumChaturbateCsvEarningsForPeriod(rows, periodStartStr, periodEndStr) {
 // el conteo de retrasos saldria mal. Por eso todo lo de asistencia se calcula
 // con un offset fijo de UTC-5: Colombia NO tiene horario de verano, asi que el
 // offset fijo es exacto todo el año, sin necesidad de math de zonas horarias.
+// Usado tambien por getQuincena/toDateStr (dinero) desde 2026-09-16 -- el
+// mismo problema de fondo (hora del servidor != hora de Colombia) tambien
+// hacia que la quincena cambiara 5 horas antes de tiempo, ver el comentario
+// junto a getQuincena mas arriba en este archivo.
 const STUDIO_UTC_OFFSET_HOURS = -5;
 
 // "YYYY-MM-DD" del dia laboral segun la hora del estudio, no la del servidor.
@@ -240,6 +306,13 @@ function studioScheduledMs(workDate, entryTime) {
   if (parts.some(isNaN) || clock.slice(0, 2).some(isNaN)) return null;
   return Date.UTC(parts[0], parts[1] - 1, parts[2], clock[0], clock[1], 0, 0)
     - STUDIO_UTC_OFFSET_HOURS * 3600000;
+}
+
+// Igual que studioScheduledMs pero con año/mes/dia/hora/min/seg/ms sueltos en
+// vez de strings -- lo usa getQuincena para construir el instante real de la
+// medianoche/fin de dia de Colombia sin pasar por ningun getter local.
+function studioWallToMs(year, month, day, hour, minute, second, msPart) {
+  return Date.UTC(year, month, day, hour, minute, second, msPart) - STUDIO_UTC_OFFSET_HOURS * 3600000;
 }
 
 // Minutos de retraso: positivo = llego tarde, negativo = llego temprano.
@@ -585,6 +658,7 @@ module.exports = {
   studioDateStr,
   studioTimeStr,
   studioScheduledMs,
+  studioWallToMs,
   studioQuincenaRange,
   pickWorkDate,
   lateDebtHours,
@@ -604,6 +678,9 @@ module.exports = {
   getQuincena,
   getQuincenaHistory,
   toDateStr,
+  payrollDateStr,
+  payrollWallToMs,
+  PAYROLL_DAY_OFFSET_HOURS,
   sanitizeUsername,
   hashPassword,
   verifyPassword,
