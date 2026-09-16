@@ -1784,6 +1784,17 @@ advisor que la alerta de "llaves foráneas sin índice" ya no aparece (queda
 un aviso informativo de "índice sin uso todavía", esperable recién
 creados y sin tráfico real — se resuelve solo con el uso normal).
 
+## Copias de seguridad de Supabase — sin resolver, decisión pendiente del usuario (2026-09-16)
+
+Confirmado con `get_organization` (MCP de Supabase): el proyecto real
+(`STUDIO`, org `aloxugskfwhhpnplondm`) está en el **plan gratuito** — sin
+copias de seguridad automáticas. Se le preguntó directo al usuario (subir a
+Pro ~US$25/mes con backups diarios, dejarlo así por ahora, o pensarlo) y
+eligió **pensarlo, seguir con el resto de la auditoría mientras tanto**.
+Queda como riesgo conocido y explícitamente aplazado, no resuelto — no
+asumir que ya se activó nada. Si se retoma, es una decisión de plata
+recurrente que solo el usuario aprueba, no algo para activar solo.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
