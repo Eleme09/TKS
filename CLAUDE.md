@@ -1795,6 +1795,56 @@ Queda como riesgo conocido y explícitamente aplazado, no resuelto — no
 asumir que ya se activó nada. Si se retoma, es una decisión de plata
 recurrente que solo el usuario aprueba, no algo para activar solo.
 
+## Arreglo de dificultad media: freno de login esquivable + bug real de estabilidad encontrado de paso (2026-09-16)
+
+**El freno de intentos de login (`getClientIp`) ya no se puede esquivar
+falsificando `X-Forwarded-For`.** Antes tomaba el PRIMER valor de esa
+cabecera (`fwd.split(',')[0]`) — pero ese primer valor lo puede escribir
+quien hace la petición, no el proxy de Render. Ahora toma el ÚLTIMO valor
+de la cadena, que es el que agrega el proxy de Render mismo (el único salto
+en el que se confía) — un atacante puede inventar cualquier valor al
+principio, pero no puede tocar lo que Render agrega al final. Si Render
+algún día reemplaza el header entero en vez de agregarle algo (cadena de
+un solo valor), esto se comporta exactamente igual que antes.
+
+**Verificado de verdad, no solo leído**: instancia `SOLO_UI=1` +  un
+servidor HTTP falso en el puerto 3096 haciendo de Supabase (devuelve `[]` a
+cualquier consulta, así el login llega hasta el freno de intentos sin
+necesitar credenciales reales). Con la IP real fija pero el primer salto de
+`X-Forwarded-For` cambiando en cada intento (simulando al atacante), el
+intento 7 ya da 429 — el freno agarra los 6 intentos como si vinieran todos
+de la misma IP, que es lo correcto. Una IP real distinta en paralelo no
+queda bloqueada por los intentos de la otra (control aparte).
+
+**Bug real de estabilidad encontrado de paso, no buscado — y arreglado
+también**: mientras se armaba la prueba de arriba, con el Supabase de
+mentira apagado (URL que no resuelve), un login tiró **todo el proceso de
+Node abajo**, no solo esa petición — `sbFindAdmin` hace un `fetch` a
+Supabase sin try/catch en `/api/login`, y como el handler de cada request
+nunca tenía nada que atajara una excepción escapada, Node mata el proceso
+entero ante una promesa rechazada sin manejar (comportamiento por defecto
+desde Node 15). En producción esto significa: si Supabase queda
+inalcanzable un instante (DNS, red, un incidente de su lado) justo cuando
+alguien intenta iniciar sesión, se cae el servidor COMPLETO — todas las
+modelos pierden su conexión en vivo de golpe, no solo esa petición.
+
+Arreglado sin reindentar las 1300+ líneas del manejador de rutas: el
+cuerpo entero (antes `http.createServer(async (req, res) => {...})`) pasó
+a ser una función nombrada `async function handleRequest(req, res) {...}`
+sin tocar una sola línea de adentro, y `http.createServer` ahora es un
+wrapper chiquito que la llama y atrapa cualquier error con `.catch(...)`,
+devolviendo un 500 limpio en vez de tirar el proceso. Reproducido el
+arreglo contra el mismo escenario que lo causó (Supabase inalcanzable): 8
+intentos de login dieron 500 limpio cada uno, y una petición normal
+después confirmó que el servidor seguía vivo y respondiendo.
+
+`node -c` + `npm test` (109/109, sin tests nuevos — ninguno de los dos
+arreglos es lógica pura, chaturbate-lib.js no cambió). No se probó contra
+el Supabase real de producción (misma limitación de esta sesión, sin
+credenciales en este contenedor remoto) — se probó contra un servidor HTTP
+de mentira que imita las respuestas de Supabase, suficiente para ejercitar
+la lógica real de las dos rutas afectadas.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

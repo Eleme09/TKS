@@ -2119,9 +2119,20 @@ const LOGIN_MAX_ATTEMPTS = 6;
 const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
 
+// El PRIMER valor de X-Forwarded-For lo pone quien hace la request -- un
+// atacante puede mandar su propio "X-Forwarded-For: 1.2.3.4" y, si el proxy
+// de Render AGREGA la IP real al final de la cadena en vez de reemplazarla
+// (comportamiento estándar de la mayoría de proxies, incluido Render), ese
+// valor inventado queda primero y el freno de intentos de login
+// (isLoginLocked/registerLoginFailure) lo lee como si cada intento viniera
+// de "otra persona" distinta, esquivando el límite. El ÚLTIMO valor es el
+// que agregó el proxy de Render mismo (el único salto en el que confiamos),
+// así que es el único que un atacante no puede falsificar. Si Render nunca
+// agrega nada (reemplaza el header entero), la cadena tiene un solo valor y
+// esto se comporta exactamente igual que antes -- sin regresión posible.
 function getClientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
-  if (fwd) return fwd.split(',')[0].trim();
+  if (fwd) { const parts = fwd.split(','); return parts[parts.length - 1].trim(); }
   return (req.socket && req.socket.remoteAddress) || 'unknown';
 }
 
@@ -2209,7 +2220,7 @@ function setSecurityHeaders(req, res) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   setSecurityHeaders(req, res);
   const parsed = url.parse(req.url, true);
 
@@ -3564,6 +3575,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   return serveStatic(req, res, parsed.pathname);
+}
+
+// Cualquier excepción que se escape de una ruta (ej. Supabase inalcanzable
+// por un DNS/red intermitente) ya no tira abajo el proceso entero -- antes
+// de esto, una falla así mataba el servidor completo y cortaba la conexión
+// en vivo de TODAS las modelos a la vez, no solo la de quien hizo esa
+// request. Reproducido de verdad probando el arreglo de getClientIp de
+// arriba contra un Supabase inalcanzable: el proceso moría con
+// "TypeError: fetch failed" sin nada que lo atajara.
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    console.error('Error no manejado en ' + req.method + ' ' + req.url + ': ' + e.message);
+    if (!res.headersSent) sendJson(res, 500, { error: 'Error interno del servidor' });
+    else res.end();
+  });
 });
 
 server.on('error', (err) => {
