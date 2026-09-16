@@ -400,6 +400,14 @@
   .att-shift-btn:hover { border-color: var(--pink-line); }
   .att-shift-btn.active { border-color: var(--pink); background: var(--pink-soft); color: var(--pink); }
   @media (max-width: 640px) { .att-shift-picker { grid-template-columns: 1fr; } }
+  .att-subnav { display: flex; gap: 8px; margin-bottom: 16px; position: sticky; top: 0; z-index: 3; background: var(--bg); padding-top: 2px; }
+  .att-subnav-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 12px 10px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--muted); font-size: 13.5px; font-weight: 700;
+  }
+  .att-subnav-btn svg { flex: 0 0 auto; }
+  .att-subnav-btn.active { border-color: var(--pink); background: var(--pink-soft); color: var(--pink); }
   .att-open-sheet {
     display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px;
     font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
@@ -828,83 +836,98 @@
 
       <!-- Vista de administración -->
       <div id="attStaffArea" style="display:none;">
-        <div class="card" id="attPendingCard">
-          <h3 class="card-title">Llegadas por validar</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Nada cuenta hasta que tú lo valides. Si la modelo sí estaba a la hora que reportó, confirma esa hora; si reportó pero no había llegado, usa “llegó ahora”.</div>
-          <div id="attPendingList"></div>
-          <div id="attPendingError" class="errbox"></div>
+        <div class="att-subnav" id="attSubnav">
+          <button type="button" class="att-subnav-btn active" data-attsub="hoy">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+            Hoy
+          </button>
+          <button type="button" class="att-subnav-btn" data-attsub="config">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.6a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.7 7.7 0 0 0 1.7 1L11 21h4l.3-2.6a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.4Z"/></svg>
+            Configuración
+          </button>
         </div>
 
-        <div class="card">
-          <h3 class="card-title">Resumen de la quincena</h3>
-          <div class="meta-small" id="attStaffPeriodHint" style="margin-bottom:12px;"></div>
-          <div id="attTotalsList"></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">Hojas de todas las modelos</h3>
-          <label for="attStaffFilter">Modelo</label>
-          <select id="attStaffFilter"></select>
-          <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">Excusas médicas</h3>
-          <div id="attStaffExcuseList"></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">Justificaciones</h3>
-          <div id="attStaffJustList"></div>
-        </div>
-
-        <div class="card" id="attConfigCard" style="display:none;">
-          <h3 class="card-title">Horarios y umbral</h3>
-          <div class="meta-small" style="margin-bottom:12px;">La hora de entrada de cada modelo es contra lo que se mide el retraso. El umbral es cuánto retraso acumulado en la quincena hace que la modelo asuma su propia seguridad social.</div>
-          <label for="attSchedUser">Modelo</label>
-          <select id="attSchedUser"></select>
-          <label>Turno</label>
-          <div class="att-shift-picker">
-            <button type="button" class="att-shift-btn" data-shift="manana">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
-              <span><b>Mañana</b><br>7:30 am – 3:30 pm</span>
-            </button>
-            <button type="button" class="att-shift-btn" data-shift="tarde">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
-              <span><b>Tarde</b><br>4:00 pm – 12:00 am</span>
-            </button>
+        <div id="attSubHoy">
+          <div class="card" id="attPendingCard">
+            <h3 class="card-title">Llegadas por validar</h3>
+            <div class="meta-small" style="margin-bottom:12px;">Nada cuenta hasta que tú lo valides. Si la modelo sí estaba a la hora que reportó, confirma esa hora; si reportó pero no había llegado, usa “llegó ahora”.</div>
+            <div id="attPendingList"></div>
+            <div id="attPendingError" class="errbox"></div>
           </div>
-          <div class="meta-small" style="margin-top:10px;">O escribe un horario distinto para esa modelo:</div>
-          <label for="attSchedTime">Entrada (personalizado)</label>
-          <input id="attSchedTime" type="time" step="60">
-          <label for="attSchedExit">Salida (personalizado)</label>
-          <input id="attSchedExit" type="time" step="60">
-          <div class="row" style="margin-top:10px;"><button id="btnAttSched" class="btn-primary" style="flex:1;">Guardar horario personalizado</button></div>
-          <label for="attThreshold" style="margin-top:18px;">Umbral de retraso acumulado (horas por quincena)</label>
-          <input id="attThreshold" type="number" min="0.5" max="200" step="0.5">
-          <label for="attFee">Cobro por cada hora completa de retraso (COP)</label>
-          <input id="attFee" type="number" min="0" step="1000">
-          <label style="display:flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer;">
-            <input id="attSocialSecurity" type="checkbox" style="width:auto;">
-            <span>Avisar cuando alguien pasa el umbral (aviso de seguridad social)</span>
-          </label>
-          <div class="row" style="margin-top:10px;"><button id="btnAttThreshold" class="btn-primary" style="flex:1;">Guardar umbral y tarifa</button></div>
-          <div id="attConfigError" class="errbox"></div>
-          <div id="attSchedList" style="margin-top:14px;"></div>
+
+          <div class="card">
+            <h3 class="card-title">Resumen de la quincena</h3>
+            <div class="meta-small" id="attStaffPeriodHint" style="margin-bottom:12px;"></div>
+            <div id="attTotalsList"></div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Hojas de todas las modelos</h3>
+            <label for="attStaffFilter">Modelo</label>
+            <select id="attStaffFilter"></select>
+            <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Excusas médicas</h3>
+            <div id="attStaffExcuseList"></div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Justificaciones</h3>
+            <div id="attStaffJustList"></div>
+          </div>
         </div>
 
-        <div class="card" id="attOwesMsgCard" style="display:none;">
-          <h3 class="card-title">Mensaje de seguridad social por modelo</h3>
-          <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
-          <label for="attOwesUser">Modelo</label>
-          <select id="attOwesUser"></select>
-          <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
-          <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social."></textarea>
-          <div class="row" style="margin-top:10px;">
-            <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
-            <button id="btnAttOwesReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
+        <div id="attSubConfig" style="display:none;">
+          <div class="card" id="attConfigCard" style="display:none;">
+            <h3 class="card-title">Horarios y umbral</h3>
+            <div class="meta-small" style="margin-bottom:12px;">La hora de entrada de cada modelo es contra lo que se mide el retraso. El umbral es cuánto retraso acumulado en la quincena hace que la modelo asuma su propia seguridad social.</div>
+            <label for="attSchedUser">Modelo</label>
+            <select id="attSchedUser"></select>
+            <label>Turno</label>
+            <div class="att-shift-picker">
+              <button type="button" class="att-shift-btn" data-shift="manana">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+                <span><b>Mañana</b><br>7:30 am – 3:30 pm</span>
+              </button>
+              <button type="button" class="att-shift-btn" data-shift="tarde">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+                <span><b>Tarde</b><br>4:00 pm – 12:00 am</span>
+              </button>
+            </div>
+            <div class="meta-small" style="margin-top:10px;">O escribe un horario distinto para esa modelo:</div>
+            <label for="attSchedTime">Entrada (personalizado)</label>
+            <input id="attSchedTime" type="time" step="60">
+            <label for="attSchedExit">Salida (personalizado)</label>
+            <input id="attSchedExit" type="time" step="60">
+            <div class="row" style="margin-top:10px;"><button id="btnAttSched" class="btn-primary" style="flex:1;">Guardar horario personalizado</button></div>
+            <label for="attThreshold" style="margin-top:18px;">Umbral de retraso acumulado (horas por quincena)</label>
+            <input id="attThreshold" type="number" min="0.5" max="200" step="0.5">
+            <label for="attFee">Cobro por cada hora completa de retraso (COP)</label>
+            <input id="attFee" type="number" min="0" step="1000">
+            <label style="display:flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer;">
+              <input id="attSocialSecurity" type="checkbox" style="width:auto;">
+              <span>Avisar cuando alguien pasa el umbral (aviso de seguridad social)</span>
+            </label>
+            <div class="row" style="margin-top:10px;"><button id="btnAttThreshold" class="btn-primary" style="flex:1;">Guardar umbral y tarifa</button></div>
+            <div id="attConfigError" class="errbox"></div>
+            <div id="attSchedList" style="margin-top:14px;"></div>
           </div>
-          <div id="attOwesError" class="errbox"></div>
+
+          <div class="card" id="attOwesMsgCard" style="display:none;">
+            <h3 class="card-title">Mensaje de seguridad social por modelo</h3>
+            <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
+            <label for="attOwesUser">Modelo</label>
+            <select id="attOwesUser"></select>
+            <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
+            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social."></textarea>
+            <div class="row" style="margin-top:10px;">
+              <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
+              <button id="btnAttOwesReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
+            </div>
+            <div id="attOwesError" class="errbox"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1068,6 +1091,8 @@
     attWarning: document.getElementById('attWarning'),
     attModelArea: document.getElementById('attModelArea'),
     attStaffArea: document.getElementById('attStaffArea'),
+    attSubHoy: document.getElementById('attSubHoy'),
+    attSubConfig: document.getElementById('attSubConfig'),
     attMyHint: document.getElementById('attMyHint'),
     attMyGrid: document.getElementById('attMyGrid'),
     attMyActions: document.getElementById('attMyActions'),
@@ -2273,6 +2298,20 @@
   el.btnAttOwesReset.addEventListener('click', function () { el.attOwesMsg.value = ''; attSaveOwesMessage(''); });
   el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
   el.attSchedUser.addEventListener('change', attMarcarTurnoActivo);
+  // Separa "uso diario" (validar, ver estado) de "configuración" (horarios,
+  // umbral, mensajes) dentro de la misma pestaña — antes era un solo scroll
+  // eterno con las dos cosas mezcladas. Los botones son estáticos en el HTML
+  // (no se regeneran en cada refresh), por eso el listener va aquí una sola
+  // vez y no dentro de renderAttendanceStaff.
+  document.querySelectorAll('.att-subnav-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.att-subnav-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      const sub = btn.dataset.attsub;
+      el.attSubHoy.style.display = sub === 'config' ? 'none' : '';
+      el.attSubConfig.style.display = sub === 'config' ? '' : 'none';
+    });
+  });
   // Un justificante largo se muestra recortado a dos líneas; tocarlo lo abre.
   document.addEventListener('click', function (e) {
     const cell = e.target.closest && e.target.closest('.att-just-cell');

@@ -1924,6 +1924,70 @@ contenedor remoto, no se pudo levantar una instancia `SOLO_UI=1` real y
 pegarle con curl — la verificación fue con los tests, un script aparte
 llamando a las funciones puras directamente, y SQL contra el Supabase real.
 
+## Reorganizar Asistencia — separar "Hoy" de "Configuración" (2026-09-16)
+
+Siguiente ítem de la lista pendiente de la auditoría (hallazgo "Mejoras #01":
+la pestaña Asistencia mezclaba uso diario con configuración en un solo
+scroll eterno). Dentro de `attStaffArea` (la vista de `administrador`/`ceo`
+— la vista de `modelo`, `attModelArea`, no tenía este problema y no se
+tocó) se agregó un sub-nav de dos botones (`.att-subnav`/`.att-subnav-btn`,
+`id="attSubnav"`, `sticky top:0` para que no se pierda al hacer scroll en
+una lista larga — recordar: **la app es primordialmente de celular**, así
+que los dos botones son grandes, con texto siempre visible, nunca
+solo-ícono, mismo criterio que el resto de la barra de pestañas):
+
+- **"Hoy"** (`#attSubHoy`, activo por defecto): Llegadas por validar,
+  Resumen de la quincena, Hojas de todas las modelos, Excusas médicas,
+  Justificaciones — todo lo que se usa día a día.
+- **"Configuración"** (`#attSubConfig`, oculto por defecto): Horarios y
+  umbral (`attConfigCard`, admin-only) y Mensaje de seguridad social por
+  modelo (`attOwesMsgCard`, admin+ceo) — lo que se toca una vez cada tanto.
+
+No se creó una pestaña nueva en la barra principal (la auditoría sugería
+explícitamente evitar eso) — es un sub-menú dentro de la pestaña
+Asistencia que solo alterna `display` vía CSS, sin re-pedir datos al
+servidor. El gateo de permisos por rol dentro de cada card
+(`attConfigCard`/`attOwesMsgCard` en `renderAttendanceStaff()`) no cambió
+— sigue decidiendo qué card se ve; el sub-nav solo decide qué SECCIÓN
+(Hoy/Configuración) está visible. El listener de los botones del sub-nav
+vive junto a los demás listeners estáticos de Asistencia (son botones
+fijos en el HTML, no se regeneran en cada refresh de 4s — agregarlo
+dentro de `renderAttendanceStaff()` habría duplicado el handler en cada
+poll).
+
+**Sobre el otro hallazgo relacionado ("Mejoras #02", tarjetas y tabla
+mostrando "lo mismo" dos veces):** revisado el código — no hay duplicación
+real que corregir. Las tarjetas de "Resumen de la quincena" (`attTotalsList`)
+muestran el retraso ACUMULADO de la quincena + la deuda; la tabla de
+"Hojas de todas las modelos" (`attStaffTable`) muestra el retraso DÍA POR
+DÍA junto con entrada/salida/transmitido/justificante — son dos niveles de
+detalle distintos (resumen vs. detalle diario), exactamente la separación
+que la propia auditoría recomendaba como solución. No se tocó nada ahí.
+
+**Verificación de esta sesión — misma limitación ya documentada arriba
+(sin `env.bat`/credenciales de producción en este contenedor remoto):**
+no se pudo levantar `SOLO_UI=1` contra el Supabase real. Se verificó en
+cambio con Chromium (Playwright) sirviendo `public/index.html` desde un
+servidor estático local y con todas las llamadas a `/api/*` interceptadas
+y respondidas con datos de prueba inventados (nunca datos reales) — se
+confirmó en viewport de celular (390×844) que: el sub-nav aparece debajo
+del banner de Asistencia, "Hoy" muestra las 5 cards de uso diario con
+"Configuración" oculta, tocar "Configuración" oculta "Hoy" y muestra
+exactamente lo que corresponde a cada rol (administrador: Horarios+umbral
+y Mensaje de seguridad social; CEO: solo Mensaje de seguridad social, sin
+Horarios+umbral), y volver a "Hoy" restaura el estado original sin dejar
+nada residual. `node -c` sobre el `<script>` inline extraído confirmó que
+no se rompió la sintaxis JS. `npm test`: 113/113 (sin tests nuevos — es un
+cambio de UI, `chaturbate-lib.js` no se tocó). **Falta por probar de
+verdad** la próxima vez que haya sesión con credenciales completas: el
+flujo real contra el Supabase de producción con las 6 modelos reales.
+
+Queda pendiente de la auditoría, en orden: el resto de "Mejoras" (algunas
+ya resueltas en sesiones previas — ver más arriba), y al final lo más
+difícil: cerrar el RLS abierto de Supabase (hallazgo crítico #01, sigue
+sin tocar — requiere migrar a `service_role` o escribir políticas por
+tabla, alto riesgo de romper el sistema si se hace mal).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
