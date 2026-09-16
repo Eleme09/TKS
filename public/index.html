@@ -87,7 +87,7 @@
     .spark { display: none; }
     body::after,
     body.theme-modelos::after, body.theme-horas::after, body.theme-desprendibles::after, body.theme-cuentas::after, body.theme-noticias::after, body.theme-asistencia::after { animation: none !important; }
-    .model, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .banner-icon *, .topbar, .tabnav, .badge.online, .brand-cat, .brand-word, .login-bg-cat, .ui-toast, .ui-modal, .ui-modal-backdrop { animation: none !important; }
+    .model, .mrow, .mrow-skel .skel-bar, .mrow-skel .skel-val, .card, .tabpanel, .shift-day, .admin-list-row, .section-banner, .banner-icon *, .topbar, .tabnav, .badge.online, .brand-cat, .brand-word, .login-bg-cat, .ui-toast, .ui-modal, .ui-modal-backdrop { animation: none !important; }
   }
   .wrap { width: 100%; max-width: 1180px; animation: fadeIn .4s ease; position: relative; z-index: 1; }
   @keyframes logoBreathe {
@@ -226,6 +226,50 @@
   .stat.hero { grid-column: 1 / -1; border-color: var(--pink-line); background: linear-gradient(180deg, var(--pink-soft), var(--surface-2) 65%); }
   .stat.hero .v { font-size: 19px; color: var(--pink); }
   .stat.hero .k { color: var(--pink); opacity: 0.85; }
+
+  /* ---- Panel Nocturno: carrusel de KPIs (resumen del estudio) ---- */
+  .kpis { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; padding-bottom: 2px; margin: 0 -2px; }
+  .kpis::-webkit-scrollbar { display: none; }
+  .kpi { flex: 0 0 auto; scroll-snap-align: start; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 12px 16px; min-width: 128px; }
+  .kpi .k { font-size: 10px; color: var(--muted-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; white-space: nowrap; }
+  .kpi .v { font-size: 16px; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kpi .v.small { font-size: 12.5px; font-weight: 600; font-family: var(--font-body); white-space: normal; }
+  .kpi.hero { min-width: 200px; border-color: var(--pink-line); background: linear-gradient(150deg, var(--pink-soft), var(--surface-2) 70%); }
+  .kpi.hero .k { color: var(--pink); opacity: 0.85; }
+  .kpi.hero .v { color: var(--pink); font-size: 17px; white-space: normal; }
+
+  /* ---- Panel Nocturno: filas tipo extracto (lista de Modelos) ----
+     Separado a proposito de .model/.model-grid/.stat de arriba: esos
+     siguen intactos para Desprendibles y otras listas que comparten esas
+     clases -- esto es solo para #models, aislado, para no arrastrar el
+     cambio a pantallas que no se tocaron en esta pasada. */
+  .mrow { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 14px 16px; transition: border-color .15s ease, transform .15s ease; animation: fadeUp .35s cubic-bezier(.2,.8,.3,1) both; }
+  .mrow:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .mrow:active { transform: scale(0.99); }
+  .mrow-top { display: flex; align-items: flex-start; gap: 10px; }
+  .mrow-top > .dot { margin-top: 6px; flex: 0 0 auto; }
+  .mrow .minfo { flex: 1; min-width: 0; }
+  .mrow .msub { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
+  .mrow .msub .badge { padding: 3px 9px; font-size: 9px; }
+  .mrow .msub-tok { font-family: var(--font-mono); }
+  .mrow .mval { flex: 0 0 auto; text-align: right; max-width: 54%; }
+  .mrow .mval .n { font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--pink); line-height: 1.4; }
+  .mrow .mrow-rate { margin-top: 10px; }
+  .mrow .conn { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+
+  /* ---- Panel Nocturno: skeleton de carga inicial (solo el primer refresh
+     tras iniciar sesion -- los polls de 4s siguientes ya no "saltan" porque
+     el diff de lastModelsHtml evita redibujar si no cambio nada real). ---- */
+  .mrow-skel { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 14px 16px; display: flex; gap: 10px; align-items: center; }
+  .mrow-skel .skel-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: 0 0 auto; }
+  .mrow-skel .skel-lines { flex: 1; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+  .mrow-skel .skel-bar, .mrow-skel .skel-val { border-radius: 5px; background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: rowShimmer 1.6s ease-in-out infinite; }
+  .mrow-skel .skel-bar { height: 10px; }
+  .mrow-skel .skel-bar.w60 { width: 60%; }
+  .mrow-skel .skel-bar.w35 { width: 35%; }
+  .mrow-skel .skel-val { width: 74px; height: 15px; flex: 0 0 auto; }
+  @keyframes rowShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
   .conn { font-size: 12px; color: var(--muted); margin-top: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .conn-actions { display: flex; gap: 8px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-dim); display: inline-block; margin-right: 6px; }
@@ -683,11 +727,11 @@
       <div class="card" id="summaryCard" style="display:none;">
         <h3 class="card-title">Resumen del estudio — quincena actual</h3>
         <div class="meta-small" id="sumMeta" style="margin-bottom:12px;"></div>
-        <div class="model-grid">
-          <div class="stat"><div class="k">En línea ahora</div><div class="v" id="sumOnline">0 / 0</div></div>
-          <div class="stat"><div class="k">Tokens (estudio)</div><div class="v" id="sumTokens">0</div></div>
-          <div class="stat"><div class="k">Va ganando más</div><div class="v small" id="sumTop">—</div></div>
-          <div class="stat hero"><div class="k">Desprendible del estudio (estimado)</div><div class="v" id="sumPayout">$0.00 USD ≈ $0 COP</div></div>
+        <div class="kpis">
+          <div class="kpi hero"><div class="k">Desprendible del estudio</div><div class="v" id="sumPayout">$0.00 USD ≈ $0 COP</div></div>
+          <div class="kpi"><div class="k">En línea ahora</div><div class="v" id="sumOnline">0 / 0</div></div>
+          <div class="kpi"><div class="k">Tokens (estudio)</div><div class="v" id="sumTokens">0</div></div>
+          <div class="kpi"><div class="k">Va ganando más</div><div class="v small" id="sumTop">—</div></div>
         </div>
       </div>
 
@@ -1458,6 +1502,19 @@
     return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
   }
 
+  // Placeholder de carga inicial de #models (una sola vez por login, ver
+  // showApp) -- nunca en los polls de 4s siguientes, esos ya no "saltan"
+  // porque el diff de lastModelsHtml evita redibujar si no cambio nada real.
+  function skeletonRowsHtml(n) {
+    let html = '';
+    for (let i = 0; i < n; i++) {
+      html += '<div class="mrow-skel"><span class="skel-dot"></span>' +
+        '<div class="skel-lines"><div class="skel-bar w60"></div><div class="skel-bar w35"></div></div>' +
+        '<div class="skel-val"></div></div>';
+    }
+    return html;
+  }
+
   function onlineBadge(online) {
     if (online.state === 'online') {
       const dur = online.since ? fmtDuration(Date.now() - online.since) : '';
@@ -1561,19 +1618,19 @@
             '</div>' +
           '</div>'
         ) : '';
+        const online = m.online && m.online.state === 'online';
         return '' +
-          '<div class="model" style="animation-delay:' + (idx * 45) + 'ms;">' +
-            '<div class="model-head">' +
-              '<div class="model-name-row"><div class="model-name">' + m.account + '</div><span class="role-badge modelo">modelo</span></div>' +
-              onlineBadge(m.online) +
-            '</div>' +
-            '<div class="model-grid">' +
-              '<div class="stat"><div class="k">Tokens (quincena)</div><div class="v" data-anim="tok-' + m.account + '"></div>' +
+          '<div class="mrow" style="animation-delay:' + (idx * 45) + 'ms;">' +
+            '<div class="mrow-top">' +
+              '<span class="dot' + (online ? ' on' : '') + '"></span>' +
+              '<div class="minfo">' +
+                '<div class="model-name-row"><div class="model-name">' + m.account + '</div></div>' +
+                '<div class="msub">' + onlineBadge(m.online) + '<span class="msub-tok"><span data-anim="tok-' + m.account + '"></span> tok.</span></div>' +
                 (m.stripchatTokensPeriod > 0 ? '<div class="meta-small">' + platformIconHtml('https://chaturbate.com/favicon.ico', 'CB', '#f47321') + ' ' + (m.chaturbateTokensPeriod || 0).toLocaleString('es-ES') + ' + ' + platformIconHtml('https://stripchat.com/favicon.ico', 'SC', '#c62143') + ' ' + m.stripchatTokensPeriod.toLocaleString('es-ES') + '</div>' : '') +
               '</div>' +
-              '<div class="stat hero"><div class="k">Desprendible estimado</div><div class="v" data-anim-usd="pay-' + m.account + '" data-cop="' + (m.payoutCOP != null ? fmtCOP(m.payoutCOP) : '') + '"></div></div>' +
+              '<div class="mval"><div class="n" data-anim-usd="pay-' + m.account + '" data-cop="' + (m.payoutCOP != null ? fmtCOP(m.payoutCOP) : '') + '"></div></div>' +
             '</div>' +
-            (data.dollar && data.dollar.rate != null ? '<div class="meta-small">Dólar: ' + fmtCOP(data.dollar.marketRate) + ' · Paxum: ' + fmtCOP(data.dollar.rate) + '</div>' : '') +
+            (data.dollar && data.dollar.rate != null ? '<div class="meta-small mrow-rate">Dólar: ' + fmtCOP(data.dollar.marketRate) + ' · Paxum: ' + fmtCOP(data.dollar.rate) + '</div>' : '') +
             controls +
           '</div>';
       }).join('');
@@ -3270,6 +3327,7 @@
     switchTab('modelos');
     shiftsViewDate = new Date();
 
+    if (lastModelsHtml === null) el.models.innerHTML = skeletonRowsHtml(3);
     refresh();
     refreshShifts();
     if (pollTimer) clearInterval(pollTimer);
