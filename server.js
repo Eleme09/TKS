@@ -2863,6 +2863,49 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, period: period.label, count: rows.length });
   }
 
+  // TEMPORAL (2026-09-17, borrar después de correrlo una vez): reconcilia el
+  // hueco que dejó la migración de la frontera de quincena a las 2 a.m.
+  // (commit faa284a, desplegado a las 18:54 hora Colombia del 2026-09-16).
+  // pollStripchatEarnings() nunca vuelve a tocar una quincena una vez que
+  // deja de ser "la actual" para getQuincena -- así que la fila de
+  // Stripchat de "1 al 15 de septiembre" quedó congelada con datos hasta
+  // las 23:27 Colombia del día 15 (el último poll antes de que el código
+  // VIEJO, con el corte en 23:30, la diera por cerrada), sin el tramo hasta
+  // las 2:00 a.m. del día 16 que la regla NUEVA ya le pertenece. Como
+  // "totalEarnings" de Stripchat es un total absoluto de la ventana pedida
+  // (no incremental), re-pedir la ventana completa y correcta y pisar la
+  // fila vieja resuelve el hueco sin necesidad de aislar el tramo exacto
+  // faltante. Un solo GET, admin-only, deja rastro en cb_audit_log.
+  if (parsed.pathname === '/api/debug/reconcile-stripchat-1015' && req.method === 'GET') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    if (!STRIPCHAT_ENABLED) return sendJson(res, 400, { error: 'Stripchat no está configurado (falta STRIPCHAT_API_KEY o STRIPCHAT_STUDIO_USERNAME)' });
+    try {
+      const period = getQuincenaHistory(3, Date.now())[1]; // la quincena inmediatamente anterior a la actual
+      const [models, before] = await Promise.all([
+        sbFetchAllModels(),
+        sbFetchStripchatEarningsForPeriod(period.startDate, period.endDate),
+      ]);
+      const beforeByUser = {};
+      for (const b of before) beforeByUser[b.username] = b.tokens;
+      const results = [];
+      for (const m of models.filter((x) => x.role === 'modelo')) {
+        const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
+        if (tokens == null) {
+          results.push({ username: m.username, before: beforeByUser[m.username] != null ? beforeByUser[m.username] : null, after: null, error: 'Stripchat API falló para esta modelo, no se tocó su fila' });
+          continue;
+        }
+        await sbUpsertStripchatEarningsBatch([{ username: m.username, period_start: period.startDate, period_end: period.endDate, tokens }], 'admin-reconcile-2am-boundary');
+        results.push({ username: m.username, before: beforeByUser[m.username] != null ? beforeByUser[m.username] : 0, after: tokens, delta: tokens - (beforeByUser[m.username] || 0) });
+      }
+      await sbLogAudit(session, 'stripchat_reconcile_2am_boundary', null, { period: period.label, results });
+      return sendJson(res, 200, { period: { label: period.label, start: period.startDate, end: period.endDate }, results });
+    } catch (e) {
+      console.error('Error reconciliando Stripchat 1-15 sept: ' + e.message);
+      return sendJson(res, 500, { error: e.message });
+    }
+  }
+
   // ---- Chaturbate: ingreso manual de lo que la Events API no reporta como
   // tip (privados, spy shows, fan club, contenido) ----
 
