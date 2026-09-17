@@ -2018,6 +2018,65 @@ async function buildModelReports() {
   });
 }
 
+// Desprendible del ESTUDIO por quincena, historico (pedido 2026-09-16, para
+// la pestaña Desprendibles) -- mismo calculo que buildModelReports ya hace
+// para la quincena ACTUAL (suma de tokens de TODAS las modelos x
+// STUDIO_PAYOUT_RATE_USD_PER_TOKEN, la tarifa del estudio, no la de cada
+// modelo), pero para las ultimas `count` quincenas. NUNCA se llama para una
+// sesion modelo (ver el call site en /api/payslips) -- revela el margen
+// real del estudio por token, mismo criterio que studio_rate_usd_per_token
+// en /api/models. Las 6 quincenas se resuelven en paralelo, no en serie.
+async function buildStudioPayoutHistory(count) {
+  const periods = getQuincenaHistory(count, Date.now());
+  const [models, dollar] = await Promise.all([sbFetchAllModels(), getDollarRate()]);
+  const modeloUsernames = models.filter((m) => m.role === 'modelo').map((m) => m.username);
+
+  return Promise.all(periods.map(async (p, idx) => {
+    const [tips, stripchat, chaturbateExtra, balanceTicks, periodBases] = await Promise.all([
+      sbFetchTipsInRange(new Date(p.start).toISOString(), new Date(p.end).toISOString()),
+      sbFetchStripchatEarningsForPeriod(p.startDate, p.endDate),
+      sbFetchChaturbateExtraEarningsForPeriod(p.startDate, p.endDate),
+      sbFetchBalanceTicksInRange(new Date(p.start).toISOString(), new Date(p.end).toISOString()),
+      sbFetchPeriodBaseForPeriod(p.startDate, p.endDate),
+    ]);
+    const tipsByUser = {}, tipRowsByUser = {};
+    for (const t of tips) {
+      tipsByUser[t.username] = (tipsByUser[t.username] || 0) + t.tokens;
+      (tipRowsByUser[t.username] = tipRowsByUser[t.username] || []).push(t);
+    }
+    const stripchatByUser = {};
+    for (const s of stripchat) stripchatByUser[s.username] = (stripchatByUser[s.username] || 0) + s.tokens;
+    const chaturbateExtraByUser = {};
+    for (const c of chaturbateExtra) chaturbateExtraByUser[c.username] = (chaturbateExtraByUser[c.username] || 0) + c.tokens;
+    const ticksByUser = {};
+    for (const b of balanceTicks) (ticksByUser[b.username] = ticksByUser[b.username] || []).push(b);
+    const baseByUser = {};
+    for (const b of periodBases) baseByUser[b.username] = b;
+
+    let totalTokens = 0;
+    for (const username of modeloUsernames) {
+      const chaturbateTokens = resolveChaturbateTokens({
+        base: baseByUser[username] || null,
+        ticks: ticksByUser[username] || [],
+        tips: tipRowsByUser[username] || [],
+        extraTokens: chaturbateExtraByUser[username] || 0,
+      });
+      totalTokens += chaturbateTokens + (stripchatByUser[username] || 0);
+    }
+    const payoutUSD = totalTokens * STUDIO_PAYOUT_RATE_USD_PER_TOKEN;
+    const payoutCOP = dollar.rate ? payoutUSD * dollar.rate : null;
+    return {
+      label: p.label,
+      payoutLabel: p.payoutLabel,
+      totalTokens,
+      payoutUSD,
+      payoutCOP,
+      copIsApproximate: idx !== 0,
+      closed: idx !== 0,
+    };
+  }));
+}
+
 function startTracker(username, token, savedCursor) {
   const existing = trackers.get(username);
   if (existing) {
@@ -2729,7 +2788,15 @@ async function handleRequest(req, res) {
         };
       });
 
-      return sendJson(res, 200, { username, periods: rows, currency: CURRENCY });
+      // Desprendible del ESTUDIO por quincena (pedido 2026-09-16) -- NUNCA
+      // para una sesion modelo: ni se calcula (evita el trabajo de más) ni
+      // se manda, mismo criterio que studio_rate_usd_per_token en
+      // /api/models ("no lo enseñes públicamente... para que alguien
+      // curioso pueda ver"). No depende de qué modelo esté elegida en el
+      // selector de arriba.
+      const studio = session.role === 'modelo' ? null : await buildStudioPayoutHistory(6);
+
+      return sendJson(res, 200, { username, periods: rows, currency: CURRENCY, ...(studio ? { studio } : {}) });
     } catch (e) {
       console.error('Error en /api/payslips para ' + username + ': ' + e.message);
       return sendJson(res, 500, { error: 'Error consultando la base de datos' });

@@ -854,6 +854,12 @@
         <div class="banner-phrase"></div>
       </div>
 
+      <details class="card" id="studioPayslipCard" style="display:none;">
+        <summary>Desprendible del estudio</summary>
+        <div class="meta-small" style="margin:8px 0 12px;">Historial de lo que recibe el estudio (tarifa distinta a la de cada modelo) — solo administrador y CEO ven esta tarjeta, y queda cerrada por defecto.</div>
+        <div id="studioPayslipList"></div>
+      </details>
+
       <div class="card">
         <h3 class="card-title">Desprendibles</h3>
         <div class="meta-small" style="margin-bottom:12px;">Historial de las últimas quincenas. El valor en COP de meses anteriores es aproximado a la tasa del dólar de hoy.</div>
@@ -1295,6 +1301,8 @@
     payslipModelPicker: document.getElementById('payslipModelPicker'),
     payslipUser: document.getElementById('payslipUser'),
     payslipsList: document.getElementById('payslipsList'),
+    studioPayslipCard: document.getElementById('studioPayslipCard'),
+    studioPayslipList: document.getElementById('studioPayslipList'),
     btnExportCsv: document.getElementById('btnExportCsv'),
     newsCreateCard: document.getElementById('newsCreateCard'),
     newsTitle: document.getElementById('newsTitle'),
@@ -1866,6 +1874,34 @@
 
     lastPayslipExport = { username: data.username || targetUser, periods: data.periods || [] };
     el.btnExportCsv.style.display = lastPayslipExport.periods.length ? 'inline-block' : 'none';
+
+    // El servidor omite "studio" por completo para una sesión modelo (nunca
+    // lo calcula ni lo manda) -- este chequeo es el reflejo de eso en el
+    // cliente, no la protección en sí. Queda cerrada (<details>) por
+    // defecto aunque sea admin/ceo, para que no quede a la vista de
+    // cualquiera que mire la pantalla de reojo.
+    if (data.studio && data.studio.length) {
+      el.studioPayslipCard.style.display = 'block';
+      el.studioPayslipList.innerHTML = data.studio.map(function (p, idx) {
+        const usd = fmtUSD(p.payoutUSD);
+        const cop = p.payoutCOP != null ? fmtCOP(p.payoutCOP) + (p.copIsApproximate ? ' (aprox.)' : '') : '—';
+        const stateBadge = p.closed ? '<span class="badge offline">Cerrada</span>' : '<span class="badge online">Actual</span>';
+        return '<div class="model" style="animation-delay:' + (idx * 40) + 'ms;">' +
+          '<div class="model-head">' +
+            '<div class="model-name-row"><div class="model-name">' + p.label + '</div></div>' +
+            stateBadge +
+          '</div>' +
+          '<div class="model-grid">' +
+            '<div class="stat"><div class="k">Tokens (estudio)</div><div class="v">' + p.totalTokens.toLocaleString('es-ES') + '</div></div>' +
+            '<div class="stat hero"><div class="k">Desprendible del estudio</div><div class="v">' + usd + '</div><div class="meta-small">' + cop + '</div></div>' +
+          '</div>' +
+          '<div class="meta-small" style="margin-top:10px;">Pago: ' + p.payoutLabel + '</div>' +
+        '</div>';
+      }).join('');
+    } else {
+      el.studioPayslipCard.style.display = 'none';
+      el.studioPayslipList.innerHTML = '';
+    }
   }
 
   let lastPayslipExport = null;
