@@ -1866,21 +1866,35 @@ function startChaturbateBalancePolling() {
 // sumChaturbateCsvEarningsForPeriod ahora viven en chaturbate-lib.js — ver
 // el require de arriba.
 
-// "YYYY-MM-DD HH:MM:SS" en hora REAL de Colombia (el instante literal de
-// pared, no la etiqueta de la quincena), formato que pide la Studio API de
-// Stripchat para periodStart/periodEnd. OJO: usa `studioDateStr`, NO
-// `toDateStr` -- desde el arreglo de getQuincena del 2026-09-16 esas dos ya
-// no son lo mismo (`toDateStr`/`payrollDateStr` devuelve el dia de la
-// quincena, ej. "01", incluso para el instante de las 23:30 del dia anterior
-// que es cuando arranca de verdad); a Stripchat hay que mandarle el instante
-// real tal cual, no la etiqueta. Antes usaba d.getHours()/getMinutes()/
-// getSeconds() -- hora del SERVIDOR (UTC en Render) -- lo cual, junto con el
-// bug de getQuincena, hacia que el corte real consultado a Stripchat tambien
-// quedara varias horas antes de lo debido.
+// "YYYY-MM-DD HH:MM:SS" del instante `ms` en UTC (SIN desplazar a Colombia),
+// que es lo que hay que mandarle a periodStart/periodEnd de la Studio API de
+// Stripchat.
+//
+// BUG REAL corregido 2026-09-17 -- mas viejo que el cambio de ayer (frontera
+// de quincena a las 2 a.m.), pero recien expuesto por el. La version
+// anterior mandaba la hora de PARED DE COLOMBIA como si fuera un timestamp
+// sin zona horaria (ej. "2026-09-16 02:00:00" para las 2 a.m. Colombia).
+// Pero Stripchat interpreta cualquier "YYYY-MM-DD HH:MM:SS" que le llega
+// COMO SI FUERA UTC -- lo confirma su propia respuesta, que devuelve el
+// mismo string etiquetado con "Z". Resultado: cada ventana pedida quedaba
+// corrida 5 HORAS ANTES de lo real (Colombia = UTC-5): "2026-09-16 02:00:00"
+// interpretado como UTC es, en Colombia, las 9 de la noche del dia 15 --
+// tragandose hasta 5h de actividad de la quincena ANTERIOR en cada sondeo.
+// Pasaba desapercibido en el uso normal porque en una quincena que dura dos
+// semanas esas 5h "de mas" al principio quedan compensadas por las 5h
+// "de menos" que faltan al final (el total completo no se nota tanto) --
+// hasta que la frontera de quincena se estiro a las 2 a.m. el 2026-09-16,
+// lo que hizo que esas 5h de corrimiento alcanzaran a tragarse actividad
+// real de la noche del 15 hacia la quincena 16-30, mostrando tokens en un
+// dia sin ninguna actividad real (confirmado por el usuario 2026-09-17:
+// "hoy no trabajo nadie"). El arreglo es formatear `ms` DIRECTO en UTC, sin
+// ningun desplazamiento -- asi lo que Stripchat interpreta como UTC
+// coincide exactamente con el instante real que se le queria pedir.
 function fmtStripchatDateTime(ms) {
-  const d = new Date(ms + STUDIO_UTC_OFFSET_HOURS * 3600000);
+  const d = new Date(ms);
   const pad = (n) => String(n).padStart(2, '0');
-  return studioDateStr(ms) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate())
+    + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
 }
 
 // Consulta la Studio API oficial de Stripchat (docs.stripchat.com) por los
