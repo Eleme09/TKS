@@ -1217,7 +1217,7 @@ async function buildAttendancePayload(session) {
         : 'sin asignar',
       owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
       owes_message: (socialSecurityEnabled && lateMinutes >= threshold)
-        ? resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username)
+        ? resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username, 'esta quincena')
         : null,
       // La deuda en plata se cobra por hora alcanzada, no proporcional (ver
       // lateDebtCop). Con socialSecurityEnabled=true (Placer Studios) tiene
@@ -1256,7 +1256,7 @@ async function buildAttendancePayload(session) {
       return {
         username,
         late_minutes: lateMinutes,
-        owes_message: resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username),
+        owes_message: resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username, 'la quincena pasada'),
       };
     }).filter(Boolean);
     if (prevTotals.length) {

@@ -589,10 +589,22 @@ function sumLateMinutes(days) {
 // acumulado dia a dia, otra por una sola falta de dia completo (ver "Marcar
 // falta"), y el texto correcto para cada una es distinto. Sin mensaje
 // personalizado para esa modelo, se usa este default.
-const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social.';
+//
+// `{periodo}` (agregado 2026-09-17): este mismo mensaje se reusa en DOS
+// contextos con periodos distintos -- el aviso normal (quincena EN CURSO) y
+// el "carryover" (deuda pendiente de la quincena que ACABA de cerrar, ver
+// buildAttendancePayload en server.js). Antes el texto tenia "esta quincena"
+// fijo, asi que bajo el titulo "pendiente de la quincena pasada" el cuerpo
+// seguia diciendo "esta quincena" -- contradictorio (reportado por el
+// usuario con captura real). Ahora el llamador pasa el periodo como tercer
+// argumento y el placeholder lo resuelve; sin `{periodo}` en el texto (un
+// mensaje personalizado viejo, o el fallback sin periodo) el comportamiento
+// es igual a antes.
+const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia acumulado {periodo} y asume su propia seguridad social.';
 
-function resolveOwesAlertMessage(template, username) {
-  const t = (template && String(template).trim()) || DEFAULT_OWES_ALERT_MESSAGE;
+function resolveOwesAlertMessage(template, username, periodo) {
+  let t = (template && String(template).trim()) || DEFAULT_OWES_ALERT_MESSAGE;
+  t = t.indexOf('{periodo}') !== -1 ? t.split('{periodo}').join(periodo || 'esta quincena') : t;
   return t.indexOf('{modelo}') !== -1 ? t.split('{modelo}').join(username) : t + ' (' + username + ')';
 }
 

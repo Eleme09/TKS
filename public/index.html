@@ -1069,11 +1069,11 @@
 
           <div class="card" id="attOwesMsgCard" style="display:none;">
             <h3 class="card-title">Mensaje de seguridad social por modelo</h3>
-            <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre.</div>
+            <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre y <code>{periodo}</code> donde quieras que diga "esta quincena" o "la quincena pasada" según corresponda — este mismo mensaje se muestra tanto apenas cruza el umbral como, unos días después, como recordatorio de que sigue pendiente de la quincena anterior.</div>
             <label for="attOwesUser">Modelo</label>
             <select id="attOwesUser"></select>
             <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
-            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado esta quincena y asume su propia seguridad social."></textarea>
+            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado {periodo} y asume su propia seguridad social."></textarea>
             <div class="row" style="margin-top:10px;">
               <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
               <button id="btnAttOwesReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
@@ -2067,7 +2067,7 @@
       const carryMine = carry ? carry.totals.find(function (t) { return t.username === attData.username; }) : null;
       if (carryMine) {
         body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Seguridad social pendiente de la quincena pasada</div>'
-          + '<div class="att-warning-body">' + escapeHtml(carryMine.owes_message || '') + ' Se paga el ' + escapeHtml(carry.period.payout_label) + '.</div>';
+          + '<div class="att-warning-body">' + escapeHtml(carryMine.owes_message || '') + '</div>';
       }
     } else {
       if (owing.length) {

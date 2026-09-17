@@ -776,4 +776,23 @@ describe('resolveOwesAlertMessage', () => {
     const r = lib.resolveOwesAlertMessage('Faltó por decisión propia.', 'jax_f00x');
     assert.equal(r, 'Faltó por decisión propia. (jax_f00x)');
   });
+  // Regresion 2026-09-17: el aviso de la quincena EN CURSO y el "carryover"
+  // (deuda pendiente de la quincena que acaba de cerrar) reusaban el mismo
+  // texto con "esta quincena" fijo -- bajo el titulo "quincena pasada" el
+  // cuerpo seguia diciendo "esta quincena", contradictorio (reportado con
+  // captura real). Ahora el llamador pasa el periodo como tercer argumento.
+  test('el default con periodo "la quincena pasada" no dice "esta quincena"', () => {
+    const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x', 'la quincena pasada');
+    assert.match(r, /^tamar4_f00x /);
+    assert.match(r, /acumulado la quincena pasada/);
+    assert.doesNotMatch(r, /esta quincena/);
+  });
+  test('sin periodo explícito, el default sigue diciendo "esta quincena" (compatibilidad)', () => {
+    const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
+    assert.match(r, /acumulado esta quincena/);
+  });
+  test('mensaje personalizado con {periodo} lo resuelve igual que {modelo}', () => {
+    const r = lib.resolveOwesAlertMessage('{modelo}: debe {periodo}.', 'kitty_f00x', 'la quincena pasada');
+    assert.equal(r, 'kitty_f00x: debe la quincena pasada.');
+  });
 });
