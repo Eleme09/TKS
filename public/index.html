@@ -2080,7 +2080,7 @@
         const rows = carry.totals.map(function (t) {
           return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
         }).join('');
-        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Pendiente de la quincena pasada (' + escapeHtml(carry.period.label) + ') — se paga el ' + escapeHtml(carry.period.payout_label) + '</div>' + rows;
+        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Pendiente de la quincena pasada (' + escapeHtml(carry.period.label) + ')</div>' + rows;
       }
     }
     el.attWarning.innerHTML = icon + '<div>' + body + '</div>';
