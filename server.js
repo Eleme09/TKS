@@ -3623,6 +3623,15 @@ async function handleRequest(req, res) {
     if (!workDate) return sendJson(res, 400, { error: 'Fecha inválida' });
     if (workDate > studioDateStr(Date.now())) return sendJson(res, 400, { error: 'No puedes marcar una falta en un día futuro' });
     const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
+    // Pedido explicito del usuario 2026-09-17: al marcar falta, si la modelo
+    // SI mando justificante (ej. una excusa medica), el dia queda tipificado
+    // como falta pero NO debe sumar hacia el umbral de seguridad social --
+    // separado de la falta SIN justificar, que si paga como esta estipulado
+    // (late_minutes = turno completo, cuenta normal en sumLateMinutes). Sin
+    // justificante es el comportamiento de siempre, sin cambios.
+    const justified = body.justified === true;
+    const justificationBody = typeof body.justification_body === 'string' ? body.justification_body.trim().slice(0, 400) : '';
+    if (justified && !justificationBody) return sendJson(res, 400, { error: 'Escribe el justificante antes de guardar' });
 
     const schedule = await sbListAttendanceSchedule();
     const hers = schedule.find((s) => s.username === username);
@@ -3636,10 +3645,14 @@ async function handleRequest(req, res) {
     const patch = {
       status: 'validada',
       official_at: null,
-      official_source: 'falta',
+      official_source: justified ? 'falta_justificada' : 'falta',
       exit_at: null,
       exit_source: null,
-      late_minutes: durationMin,
+      // Justificada: no penaliza -- 0 no suma nada en sumLateMinutes (solo
+      // suma late_minutes > 0), así que no afecta ni el umbral de seguridad
+      // social ni la deuda por retrasos. Sin justificar: el turno completo,
+      // como ya funcionaba.
+      late_minutes: justified ? 0 : durationMin,
       note: note || 'No se presentó',
       scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
       validated_at: new Date(now).toISOString(),
@@ -3651,7 +3664,10 @@ async function handleRequest(req, res) {
       ? await sbUpdateAttendanceDay(day.id, patch)
       : await sbInsertAttendanceDay({ username, work_date: workDate, reported_at: new Date(now).toISOString(), ...patch });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
-    await sbLogAudit(session, 'attendance_no_show', username, { work_date: workDate, note: patch.note, late_minutes: durationMin, antes });
+    if (justified) {
+      await sbInsertAttendanceJustification({ username, work_date: workDate, kind: 'falta', body: justificationBody });
+    }
+    await sbLogAudit(session, 'attendance_no_show', username, { work_date: workDate, note: patch.note, justified, late_minutes: patch.late_minutes, antes });
     return sendJson(res, 200, { ok: true, day: result });
   }
 

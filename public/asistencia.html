@@ -61,6 +61,12 @@
     background: var(--surface-2); color: var(--text); font-size: 16px; font-family: var(--font-body);
     transition: border-color .15s ease;
   }
+  textarea {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-size: 15px; font-family: var(--font-body);
+    resize: vertical; transition: border-color .15s ease;
+  }
+  textarea:focus, select:focus { outline: none; border-color: var(--pink, #ff8fbe); }
   .meta { font-size: 12px; color: var(--muted-dim); line-height: 1.55; }
 
   .table-wrap { overflow-x: auto; }
@@ -259,7 +265,7 @@
 
   <div class="card" id="faltaCard" style="display:none;">
     <h2>Marcar falta (no se presentó)</h2>
-    <div class="meta" style="margin-bottom:12px;">Cuenta como jornada completa de falta: se le suma todo su turno al retraso acumulado de la quincena. Invalida cualquier hora de entrada/salida que hubiera para ese día.</div>
+    <div class="meta" style="margin-bottom:12px;">Cuenta como jornada completa de falta e invalida cualquier hora de entrada/salida que hubiera para ese día. Sin justificante, se le suma todo su turno al retraso acumulado de la quincena (paga seguridad social como cualquier otro retraso). Con justificante, queda registrada igual como falta pero no penaliza.</div>
     <div class="manual-form">
       <div>
         <label for="faltaUser">Modelo</label>
@@ -280,6 +286,16 @@
       <div id="faltaMotivoOtroWrap" style="display:none;">
         <label for="faltaMotivoOtro">Especificar motivo</label>
         <input id="faltaMotivoOtro" type="text" maxlength="300">
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; text-transform:none; letter-spacing:normal;">
+          <input type="checkbox" id="faltaJustificada" style="width:auto;">
+          <span>¿Envió justificante? (si sí, no paga seguridad social por este día)</span>
+        </label>
+      </div>
+      <div id="faltaJustificanteWrap" style="display:none; grid-column: 1 / -1;">
+        <label for="faltaJustificanteTexto">Justificante</label>
+        <textarea id="faltaJustificanteTexto" rows="2" maxlength="400" placeholder="ej: incapacidad médica adjunta, avisó con anticipación por..."></textarea>
       </div>
     </div>
     <div class="fix-actions" style="margin-top:12px;">
@@ -393,6 +409,9 @@
     faltaMotivo: document.getElementById('faltaMotivo'),
     faltaMotivoOtroWrap: document.getElementById('faltaMotivoOtroWrap'),
     faltaMotivoOtro: document.getElementById('faltaMotivoOtro'),
+    faltaJustificada: document.getElementById('faltaJustificada'),
+    faltaJustificanteWrap: document.getElementById('faltaJustificanteWrap'),
+    faltaJustificanteTexto: document.getElementById('faltaJustificanteTexto'),
     btnFaltaGuardar: document.getElementById('btnFaltaGuardar'),
     faltaError: document.getElementById('faltaError'),
     tabla: document.getElementById('tabla'),
@@ -452,7 +471,7 @@
   }
 
   function kindShort(kind) {
-    var map = { retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión', room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.', otro: 'Otro' };
+    var map = { retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión', room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.', falta: 'Falta just.', otro: 'Otro' };
     return map[kind] || 'Otro';
   }
 
@@ -518,12 +537,14 @@
       var entrada;
       if (d.official_source === 'falta') {
         entrada = '<span class="tag" style="color:var(--bad, #ff6b6b);">' + escapeHtml(d.note || 'No se presentó') + '</span>';
+      } else if (d.official_source === 'falta_justificada') {
+        entrada = '<span class="muted">' + escapeHtml(d.note || 'No se presentó') + '</span><div class="sub2">justificada, no penaliza</div>';
       } else if (!d.official_at) entrada = '<span class="muted">—</span>';
       else if (d.official_source && d.official_source !== 'reportada') {
         entrada = hora(d.official_at) + '<div class="sub2">reportó ' + hora(d.reported_at) + '</div>';
       } else entrada = hora(d.official_at);
       var salida;
-      if (d.official_source === 'falta') salida = '<span class="muted">—</span>';
+      if (d.official_source === 'falta' || d.official_source === 'falta_justificada') salida = '<span class="muted">—</span>';
       else if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
       else if (d.exit_source === 'temprano') salida = hora(d.exit_at) + '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>';
@@ -677,6 +698,9 @@
   el.faltaMotivo.addEventListener('change', function () {
     el.faltaMotivoOtroWrap.style.display = el.faltaMotivo.value === 'otro' ? 'block' : 'none';
   });
+  el.faltaJustificada.addEventListener('change', function () {
+    el.faltaJustificanteWrap.style.display = el.faltaJustificada.checked ? 'block' : 'none';
+  });
 
   async function guardarFalta() {
     el.faltaError.style.display = 'none';
@@ -685,13 +709,23 @@
     if (!username || !workDate) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Elige modelo y día.'; return; }
     var note = el.faltaMotivo.value === 'otro' ? el.faltaMotivoOtro.value.trim() : el.faltaMotivo.value;
     if (el.faltaMotivo.value === 'otro' && !note) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Especifica el motivo.'; return; }
+    // Pedido 2026-09-17: separar la falta SIN justificar (paga seguridad
+    // social, como siempre) de la falta CON justificante (queda tipificada
+    // igual como falta, pero no penaliza) -- ver la nota junto a este mismo
+    // campo en server.js.
+    var justified = el.faltaJustificada.checked;
+    var justificationBody = justified ? el.faltaJustificanteTexto.value.trim() : '';
+    if (justified && !justificationBody) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Escribe el justificante antes de guardar.'; return; }
     var r = await fetch('/api/attendance/day/no-show', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, work_date: workDate, note: note }),
+      body: JSON.stringify({ username: username, work_date: workDate, note: note, justified: justified, justification_body: justificationBody }),
     });
     var res = await r.json().catch(function () { return {}; });
     if (!r.ok) { el.faltaError.style.display = 'block'; el.faltaError.textContent = res.error || 'No se pudo guardar'; return; }
     el.faltaMotivoOtro.value = '';
+    el.faltaJustificada.checked = false;
+    el.faltaJustificanteWrap.style.display = 'none';
+    el.faltaJustificanteTexto.value = '';
     var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
     if (d) { data = d; render(); }
   }

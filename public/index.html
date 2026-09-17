@@ -2008,7 +2008,8 @@
   function attKindLabel(kind) {
     const map = {
       retraso: 'Llegué tarde', internet: 'Se cayó el internet', conexion: 'Me conecté tarde',
-      room: 'Problema con el room', salud: 'Tema de salud', salida_temprano: 'Salió temprano', otro: 'Otro',
+      room: 'Problema con el room', salud: 'Tema de salud', salida_temprano: 'Salió temprano',
+      falta: 'Falta justificada', otro: 'Otro',
     };
     return map[kind] || 'Otro';
   }
@@ -2018,7 +2019,8 @@
   function attKindShort(kind) {
     const map = {
       retraso: 'Retraso', internet: 'Internet', conexion: 'Conexión',
-      room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.', otro: 'Otro',
+      room: 'Room', salud: 'Salud', salida_temprano: 'Salida temp.',
+      falta: 'Falta just.', otro: 'Otro',
     };
     return map[kind] || 'Otro';
   }
@@ -2242,6 +2244,8 @@
       let entrada;
       if (d.official_source === 'falta') {
         entrada = '<span class="att-late">' + escapeHtml(d.note || 'No se presentó') + '</span>';
+      } else if (d.official_source === 'falta_justificada') {
+        entrada = '<span class="muted">' + escapeHtml(d.note || 'No se presentó') + '</span><div class="att-sub">justificada, no penaliza</div>';
       } else if (!d.official_at) {
         entrada = '<span class="muted">—</span>';
       } else if (d.official_source && d.official_source !== 'reportada') {
@@ -2250,7 +2254,7 @@
         entrada = attHora(d.official_at);
       }
       let salida;
-      if (d.official_source === 'falta') {
+      if (d.official_source === 'falta' || d.official_source === 'falta_justificada') {
         salida = '<span class="muted">—</span>';
       } else if (!d.exit_at) {
         salida = '<span class="muted">—</span>';
