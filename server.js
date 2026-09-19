@@ -1649,6 +1649,15 @@ async function sbFetchStripchatEarningsForPeriod(periodStartStr, periodEndStr) {
   return r.ok ? r.json() : [];
 }
 
+// Filas creadas por la reconciliación anterior de la frontera de 2 a.m. no
+// son una fuente oficial de Stripchat. Se consultan una sola vez contra la
+// API y, al quedar marcadas como stripchat-api, no se vuelven a tocar.
+async function sbListStripchatPeriodsPendingApiReconcile() {
+  const qs = '?select=period_start,period_end&entered_by=eq.admin-reconcile-2am-boundary';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
 async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartStr) {
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
@@ -1928,19 +1937,39 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
 // modelos, de forma automatica. Se corre al iniciar el servidor y despues
 // cada STRIPCHAT_POLL_INTERVAL_MS. El formulario manual de pegar/procesar
 // sigue disponible como respaldo (por ejemplo si esta API llegara a fallar).
+async function syncStripchatEarningsForPeriod(period) {
+  const models = await sbFetchAllModels();
+  const rows = [];
+  for (const m of models.filter((x) => x.role === 'modelo')) {
+    const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
+    if (tokens != null) rows.push({ username: m.username, period_start: period.startDate, period_end: period.endDate, tokens });
+  }
+  if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
+  return rows.length;
+}
+
+async function reconcileStripchatPeriodsPendingApiReconcile() {
+  if (!STRIPCHAT_ENABLED) return;
+  try {
+    const rows = await sbListStripchatPeriodsPendingApiReconcile();
+    const keys = [...new Set(rows.map((r) => r.period_start + '|' + r.period_end))];
+    for (const key of keys) {
+      const [startDate] = key.split('|');
+      const [year, month, day] = startDate.split('-').map(Number);
+      const period = getQuincena(studioWallToMs(year, month - 1, day, 12, 0, 0, 0));
+      if (period.startDate !== startDate || period.endDate !== key.split('|')[1]) continue;
+      const count = await syncStripchatEarningsForPeriod(period);
+      console.log('Stripchat: reconciliadas ' + count + ' modelos para ' + period.label + ' desde la API oficial.');
+    }
+  } catch (e) {
+    console.error('Error reconciliando quincena cerrada de Stripchat: ' + e.message);
+  }
+}
+
 async function pollStripchatEarnings() {
   if (!STRIPCHAT_ENABLED) return;
   try {
-    const models = await sbFetchAllModels();
-    const period = getQuincena(Date.now());
-    const periodStartStr = period.startDate;
-    const periodEndStr = period.endDate;
-    const rows = [];
-    for (const m of models.filter((x) => x.role === 'modelo')) {
-      const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
-      if (tokens != null) rows.push({ username: m.username, period_start: periodStartStr, period_end: periodEndStr, tokens });
-    }
-    if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
+    await syncStripchatEarningsForPeriod(getQuincena(Date.now()));
   } catch (e) {
     console.error('Error en el sondeo de Stripchat: ' + e.message);
   }
@@ -3841,7 +3870,7 @@ server.listen(PORT, () => {
   reconnectAllModels();
   if (STRIPCHAT_ENABLED) {
     console.log('Integración con Stripchat activada (estudio: ' + STRIPCHAT_STUDIO_USERNAME + ') — se sincroniza sola cada ' + (STRIPCHAT_POLL_INTERVAL_MS / 60000) + ' min.');
-    pollStripchatEarnings();
+    pollStripchatEarnings().then(reconcileStripchatPeriodsPendingApiReconcile);
     setInterval(pollStripchatEarnings, STRIPCHAT_POLL_INTERVAL_MS);
   } else {
     console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
