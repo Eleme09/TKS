@@ -50,8 +50,18 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 // (`studioQuincenaRange`), totalmente aparte -- el ciclo de pago no tiene
 // nada que ver con el horario de entrada/salida de una modelo.
 function getQuincena(now) {
-  const dateStr = studioDateStr(now);
-  const parts = dateStr.split('-').map(Number);
+  // La fecha de referencia solo retrocede durante la gracia de cierre:
+  // 00:00–01:59 del día 1 o 16 aún pertenecen a la quincena anterior.
+  // A las 02:00 exactas empieza la nueva.
+  let dateStr = studioDateStr(now);
+  let parts = dateStr.split('-').map(Number);
+  const dayAtClock = parts[2];
+  const hourAtClock = Number(studioTimeStr(now).slice(0, 2));
+  if ((dayAtClock === 1 || dayAtClock === 16) && hourAtClock < 2) {
+    dateStr = dateStrAddDays(dateStr, -1);
+    parts = dateStr.split('-').map(Number);
+  }
+
   const year = parts[0];
   const month = parts[1] - 1;
   const day = parts[2];
@@ -74,9 +84,12 @@ function getQuincena(now) {
     payoutY += 1;
   }
 
-  // La quincena empieza a las 00:00 Colombia.
-  // SOLO el cierre de la quincena tiene gracia hasta las 02:00 del día siguiente.
-  const start = studioWallToMs(year, month, startDay, 0, 0, 0, 0);
+  // La quincena empieza a las 02:00 Colombia. El corte diario ordinario
+  // de Chaturbate es a las 23:30; en un cierre quincenal, el intervalo
+  // 23:30–02:00 queda deliberadamente en la quincena que termina. Es un
+  // margen documentado para reconciliar actividad que el retiro diario
+  // puede no reflejar de inmediato.
+  const start = studioWallToMs(year, month, startDay, 2, 0, 0, 0);
 
   let endNextDay = endDay + 1;
   let endNextMonth = month;
