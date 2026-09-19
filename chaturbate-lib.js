@@ -50,19 +50,14 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 // (`studioQuincenaRange`), totalmente aparte -- el ciclo de pago no tiene
 // nada que ver con el horario de entrada/salida de una modelo.
 function getQuincena(now) {
-  let dateStr = studioDateStr(now);
-  let parts = dateStr.split('-').map(Number);
-  let year = parts[0];
-  let month = parts[1] - 1;
-  let day = parts[2];
-  if ((day === 1 || day === 16) && studioTimeStr(now) < '02:00') {
-    dateStr = studioDateStr(now - 24 * 3600000);
-    parts = dateStr.split('-').map(Number);
-    year = parts[0];
-    month = parts[1] - 1;
-    day = parts[2];
-  }
+  const dateStr = studioDateStr(now);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1;
+  const day = parts[2];
+
   let startDay, endDay, payoutY = year, payoutM = month, payoutD;
+
   if (day <= 15) {
     startDay = 1;
     endDay = 15;
@@ -73,35 +68,71 @@ function getQuincena(now) {
     payoutM = month + 1;
     payoutD = 5;
   }
-  if (payoutM > 11) { payoutM -= 12; payoutY += 1; }
-  const start = studioWallToMs(year, month, startDay, 2, 0, 0, 0);
-  let endNextDay = endDay + 1, endNextMonth = month, endNextYear = year;
+
+  if (payoutM > 11) {
+    payoutM -= 12;
+    payoutY += 1;
+  }
+
+  // La quincena empieza a las 00:00 Colombia.
+  // SOLO el cierre de la quincena tiene gracia hasta las 02:00 del día siguiente.
+  const start = studioWallToMs(year, month, startDay, 0, 0, 0, 0);
+
+  let endNextDay = endDay + 1;
+  let endNextMonth = month;
+  let endNextYear = year;
+
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
   if (endNextDay > daysInMonth) {
     endNextDay = 1;
     endNextMonth += 1;
-    if (endNextMonth > 11) { endNextMonth = 0; endNextYear += 1; }
+
+    if (endNextMonth > 11) {
+      endNextMonth = 0;
+      endNextYear += 1;
+    }
   }
-  const end = studioWallToMs(endNextYear, endNextMonth, endNextDay, 2, 0, 0, 0) - 1;
-  // El dia de pago es solo una etiqueta (20 o 5, calendario normal) -- no
-  // necesita alinearse a ningun corte especial.
-  const payout = studioWallToMs(payoutY, payoutM, payoutD, 0, 0, 0, 0);
-  const label = startDay + ' al ' + endDay + ' de ' + MESES[month] + ' ' + year;
-  const payoutLabel = payoutD + ' de ' + MESES[payoutM] + ' ' + payoutY;
+
+  // Cierre especial: 02:00 a.m. Colombia del día siguiente.
+  const end = studioWallToMs(
+    endNextYear,
+    endNextMonth,
+    endNextDay,
+    2, 0, 0, 0
+  ) - 1;
+
+  const payout = studioWallToMs(
+    payoutY,
+    payoutM,
+    payoutD,
+    0, 0, 0, 0
+  );
+
+  const label =
+    startDay + ' al ' + endDay +
+    ' de ' + MESES[month] + ' ' + year;
+
+  const payoutLabel =
+    payoutD + ' de ' + MESES[payoutM] + ' ' + payoutY;
+
   const pad = (n) => String(n).padStart(2, '0');
-  // Etiquetas ESTABLES "YYYY-MM-DD" para las tablas de una fila por quincena
-  // (cb_stripchat_earnings, cb_chaturbate_extra_earnings,
-  // cb_chaturbate_period_base) -- construidas directo desde
-  // year/month/startDay/endDay, NO desde los timestamps start/end de arriba.
-  // Con la frontera ahora a las 2 a.m. (en vez de 23:30), toDateStr(end) ya
-  // NO da "el dia 15"/"el ultimo dia del mes" como antes -- daria el dia
-  // siguiente, rompiendo la clave contra filas historicas ya guardadas con
-  // la etiqueta vieja. period.startDate/period.endDate son el reemplazo
-  // correcto: usar SIEMPRE estos dos para esas tablas, nunca
-  // toDateStr(period.start)/toDateStr(period.end).
-  const startDate = year + '-' + pad(month + 1) + '-' + pad(startDay);
-  const endDate = year + '-' + pad(month + 1) + '-' + pad(endDay);
-  return { start, end, payout, label, payoutLabel, startDate, endDate };
+
+  const startDate =
+    year + '-' + pad(month + 1) + '-' + pad(startDay);
+
+  const endDate =
+    year + '-' + pad(month + 1) + '-' + pad(endDay);
+
+  return {
+    start,
+    end,
+    payout,
+    label,
+    payoutLabel,
+    startDate,
+    endDate
+  };
 }
 
 // Devuelve las ultimas `count` quincenas, la actual primero.
