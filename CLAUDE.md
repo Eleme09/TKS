@@ -2213,6 +2213,83 @@ probar de verdad** la próxima vez que haya sesión con credenciales
 completas: subir una excusa médica real desde el formulario fusionado y
 confirmar que se ve y se descarga bien en las dos vistas (modelo y staff).
 
+## "No quiero que aparezcan todas las modelos" — un solo select por vista, nunca "Todas" (2026-09-22)
+
+Segunda queja de UX de la misma conversación que trajo la fusión de arriba.
+Pedido explícito: "No quiero que aparezcan todas las modelos. Ni en
+justificaciones, ni de tablas, etcétera... detecta este problema en toda la
+web." Auditado el código real (no supuesto): Desprendibles (`payslipUser`)
+ya hacía esto bien desde antes — arranca en una modelo (la primera
+alfabética) y nunca ofrece "Todas". Asistencia era la única pestaña con el
+patrón contrario en 5 lugares. Confirmado con el usuario que Modelos
+(dashboard en vivo), Extras (calendario compartido) y Cuentas (gestión de
+cuentas/turnos) quedan afuera a propósito — ahí mostrar todas las modelos a
+la vez es el propósito de esa vista, no un descuido.
+
+Aplicado el mismo patrón de Desprendibles a los 5 puntos de Asistencia,
+usando una función compartida nueva `attPopulateModelSelect(selectEl,
+models, prevValue)` (`index.html`) — llena el `<select>` sin ninguna opción
+"Todas"/valor vacío, conserva la selección previa si sigue siendo válida, y
+si no hay ninguna cae en la primera modelo de la lista:
+
+1. **"Hojas de todas las modelos" → "Hoja de asistencia"** (`attStaffFilter`):
+   ya tenía el select, solo se le quitó `<option value="">Todas</option>` y
+   el default pasó de "sin selección" a la primera modelo.
+2. **"Resumen de la quincena"** (`attTotalsList`): no tenía ningún select —
+   mostraba las 7 modelos apiladas siempre. Se agregó `attTotalsFilter`
+   (nuevo) + `renderAttendanceTotalsList()` que filtra por la modelo
+   elegida, reusando el html de cada fila factorizado en `attTotalRowHtml(t,
+   pastTense)` (el `pastTense` es lo único que distinguía el texto de Hoy
+   —"asume"— del de Historial —"asumió"—, antes duplicado dos veces).
+3. **"Justificaciones"** (`attStaffJustList`): mismo caso, select nuevo
+   `attJustFilter` + `renderAttendanceStaffJustList()`. Con la lista ya
+   filtrada a una sola modelo, `attJustListHtml(list, withName)` se llama
+   con `withName=false` — repetir su nombre en cada fila ya es redundante.
+4. **"Historial de quincenas"** (`attHistFilter`): mismo fix que #1, y de
+   paso el resumen de arriba de esa card (`attHistTotalsList`, que
+   mostraba todas las modelos SIN filtro incluso con `attHistFilter` ya
+   existiendo para la tabla de abajo) también quedó atado al mismo select
+   — `renderAttendanceHistoryTotals()` nueva, y el listener de
+   `attHistFilter` ahora llama a las dos funciones (`renderAttendanceHistoryTotals`
+   + `renderAttendanceHistoryTable`). Antes eran incoherentes entre sí: la
+   tabla ya filtraba, el resumen de arriba no.
+5. **`public/asistencia.html`** (`el.filtro`, la hoja standalone): mismo
+   fix — sin `<option value="">Todas</option>`, cae a la primera modelo si
+   no hay nada más específico. Como `pintarTotales`/`pintarDeuda`/
+   `pintarTabla`/`descargarCsv` ya usaban `el.filtro.value` con un ternario
+   (`f ? ... : todos`), no hubo que tocar sus cuerpos — al ser `f` siempre
+   verdadero ahora (siempre hay una modelo seleccionada), esas ramas
+   "sin filtro" quedan sin uso en la práctica pero se dejaron en el código
+   como resguardo defensivo para el caso límite de que `data.models` venga
+   vacío (no hay ninguna modelo dada de alta todavía) — no se borraron
+   porque siguen siendo alcanzables en ese caso y no son código muerto en
+   sentido estricto. `el.sub` (el subtítulo de la página) se reordenó para
+   leer `el.filtro.value` DESPUÉS de poblarlo (antes se armaba antes y
+   siempre decía "Todas las modelos" para staff).
+
+**No tocado a propósito** (confirmado con el usuario en la ronda de
+diagnóstico anterior a este fix): Modelos, Extras y Cuentas siguen
+mostrando todas las modelos a la vez — es el propósito de esas tres
+pestañas, no la "bola grande" de la que se quejó.
+
+**Verificación de esta sesión — misma limitación de siempre en este
+contenedor remoto (sin `env.bat`/credenciales de producción, y esta vez
+tampoco hay Playwright instalado en el proyecto para simular el DOM):**
+no se pudo levantar `SOLO_UI=1` ni renderizar la página real con datos de
+prueba. Se verificó en cambio: `node -c` sobre `server.js` (sin cambios
+de servidor en este fix — es 100% frontend) y sobre los `<script>` inline
+extraídos de `index.html`/`asistencia.html` (sin errores de sintaxis);
+`npm test` 131/131 sin cambios (este fix no toca `chaturbate-lib.js`);
+lectura manual línea por línea del diff completo de los dos archivos HTML
+confirmando que cada `el.xxxFilter.value` que antes dependía de un string
+vacío ("Todas") para significar "sin filtro" ahora siempre recibe un
+username real. **Falta por probar de verdad** la próxima vez que haya
+sesión con credenciales/Playwright disponibles: abrir Asistencia como
+administrador contra el Supabase real y confirmar visualmente que las 4
+cards de `index.html` y la hoja standalone arrancan mostrando una sola
+modelo (no una lista larga) y que cambiar el select en cada una actualiza
+solo esa sección.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

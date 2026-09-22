@@ -619,22 +619,25 @@
   function render() {
     var staff = data.role === 'administrador' || data.role === 'ceo';
     var pedida = staff ? modeloDeLaUrl() : '';
-    el.sub.textContent = (staff ? (pedida || 'Todas las modelos') : data.username)
-      + ' · del ' + fecha(data.period.start) + ' al ' + fecha(data.period.end)
-      + ' · límite de retraso ' + horasMin(data.threshold_minutes);
-    el.warning.innerHTML = warningHtml();
 
     if (staff) {
       el.filterCard.style.display = 'block';
       var prev = el.filtro.value || pedida;
-      el.filtro.innerHTML = '<option value="">Todas</option>'
-        + (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+      // Pedido 2026-09-22: nunca mostrar todas las modelos a la vez — siempre
+      // una sola seleccionada, sin opción "Todas".
+      el.filtro.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
       // Solo si esa modelo existe: un ?modelo= inventado no debe dejar el
       // selector en un valor fantasma que muestre la hoja vacia sin explicar
       // por que.
       if (prev && (data.models || []).indexOf(prev) !== -1) el.filtro.value = prev;
+      else if ((data.models || []).length) el.filtro.value = data.models[0];
       el.totalsCard.style.display = 'block';
     }
+
+    el.sub.textContent = (staff ? (el.filtro.value || 'sin modelos') : data.username)
+      + ' · del ' + fecha(data.period.start) + ' al ' + fecha(data.period.end)
+      + ' · límite de retraso ' + horasMin(data.threshold_minutes);
+    el.warning.innerHTML = warningHtml();
     if (data.role === 'administrador') {
       el.manualCard.style.display = 'block';
       var prevManual = el.manualUser.value;

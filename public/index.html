@@ -981,11 +981,13 @@
           <div class="card">
             <h3 class="card-title">Resumen de la quincena</h3>
             <div class="meta-small" id="attStaffPeriodHint" style="margin-bottom:12px;"></div>
-            <div id="attTotalsList"></div>
+            <label for="attTotalsFilter">Modelo</label>
+            <select id="attTotalsFilter"></select>
+            <div id="attTotalsList" style="margin-top:12px;"></div>
           </div>
 
           <div class="card">
-            <h3 class="card-title">Hojas de todas las modelos</h3>
+            <h3 class="card-title">Hoja de asistencia</h3>
             <label for="attStaffFilter">Modelo</label>
             <select id="attStaffFilter"></select>
             <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
@@ -993,7 +995,9 @@
 
           <div class="card">
             <h3 class="card-title">Justificaciones</h3>
-            <div id="attStaffJustList"></div>
+            <label for="attJustFilter">Modelo</label>
+            <select id="attJustFilter"></select>
+            <div id="attStaffJustList" style="margin-top:12px;"></div>
           </div>
         </div>
 
@@ -1326,9 +1330,11 @@
     attPendingList: document.getElementById('attPendingList'),
     attPendingError: document.getElementById('attPendingError'),
     attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
+    attTotalsFilter: document.getElementById('attTotalsFilter'),
     attTotalsList: document.getElementById('attTotalsList'),
     attStaffFilter: document.getElementById('attStaffFilter'),
     attStaffTable: document.getElementById('attStaffTable'),
+    attJustFilter: document.getElementById('attJustFilter'),
     attStaffJustList: document.getElementById('attStaffJustList'),
     attConfigCard: document.getElementById('attConfigCard'),
     attSchedUser: document.getElementById('attSchedUser'),
@@ -2259,6 +2265,17 @@
     return head + rows;
   }
 
+  // Pedido 2026-09-22: nunca listar todas las modelos a la vez en Asistencia
+  // — siempre se elige una sola, igual que ya hacía Desprendibles
+  // (payslipUser). Sin opción "Todas": si el valor guardado ya no es válido
+  // (o no había ninguno), cae a la primera modelo de la lista.
+  function attPopulateModelSelect(selectEl, models, prevValue) {
+    const list = models || [];
+    selectEl.innerHTML = list.map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
+    if (prevValue && list.indexOf(prevValue) !== -1) selectEl.value = prevValue;
+    else if (list.length) selectEl.value = list[0];
+  }
+
   function attJustListHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
     return list.map(function (j) {
@@ -2302,33 +2319,15 @@
 
     el.attStaffPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end)
       + '. Límite de retraso acumulado: ' + attHorasMin(attData.threshold_minutes) + '.';
-    el.attTotalsList.innerHTML = (attData.totals || []).map(function (t) {
-      return '<div class="att-row">'
-        + '<div class="att-row-head">'
-        + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
-        + (t.owes_social_security
-            ? '<span class="att-pill rechazada">asume seguridad social</span>'
-            : '<span class="att-pill validada">al día</span>')
-        + '</div>'
-        + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
-        + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
-        + (t.debt_cop > 0
-            ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
-              + t.debt_hours + ' hora(s) completa(s))</div>'
-            : '')
-        + '<a class="att-sheet-link" href="/asistencia.html?modelo=' + encodeURIComponent(t.username) + '" target="_blank" rel="noopener">'
-        + '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-        + '<path d="M4 5h16v14H4z"/><path d="M4 9.5h16M9.5 9.5V19"/></svg> Ver su hoja</a>'
-        + '</div>';
-    }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
 
-    const prevFilter = el.attStaffFilter.value;
-    el.attStaffFilter.innerHTML = '<option value="">Todas</option>'
-      + (attData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
-    if (prevFilter) el.attStaffFilter.value = prevFilter;
+    attPopulateModelSelect(el.attTotalsFilter, attData.models, el.attTotalsFilter.value);
+    renderAttendanceTotalsList();
+
+    attPopulateModelSelect(el.attStaffFilter, attData.models, el.attStaffFilter.value);
     renderAttendanceStaffTable();
 
-    el.attStaffJustList.innerHTML = attJustListHtml(attData.justifications, true);
+    attPopulateModelSelect(el.attJustFilter, attData.models, el.attJustFilter.value);
+    renderAttendanceStaffJustList();
 
     if (isAdmin) {
       const prevSched = el.attSchedUser.value;
@@ -2355,10 +2354,42 @@
     el.attStaffTable.innerHTML = attTableHtml(days, true, just);
   }
 
+  function attTotalRowHtml(t, pastTense) {
+    return '<div class="att-row">'
+      + '<div class="att-row-head">'
+      + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
+      + (t.owes_social_security
+          ? '<span class="att-pill rechazada">' + (pastTense ? 'asumió' : 'asume') + ' seguridad social</span>'
+          : '<span class="att-pill validada">al día</span>')
+      + '</div>'
+      + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
+      + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
+      + (t.debt_cop > 0
+          ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
+            + t.debt_hours + ' hora(s) completa(s))</div>'
+          : '')
+      + '<a class="att-sheet-link" href="/asistencia.html?modelo=' + encodeURIComponent(t.username) + '" target="_blank" rel="noopener">'
+      + '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M4 5h16v14H4z"/><path d="M4 9.5h16M9.5 9.5V19"/></svg> Ver su hoja</a>'
+      + '</div>';
+  }
+
+  function renderAttendanceTotalsList() {
+    const filter = el.attTotalsFilter.value;
+    const totals = filter ? (attData.totals || []).filter(function (t) { return t.username === filter; }) : (attData.totals || []);
+    el.attTotalsList.innerHTML = totals.map(function (t) { return attTotalRowHtml(t, false); }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
+  }
+
+  function renderAttendanceStaffJustList() {
+    const filter = el.attJustFilter.value;
+    const just = filter ? (attData.justifications || []).filter(function (j) { return j.username === filter; }) : (attData.justifications || []);
+    el.attStaffJustList.innerHTML = attJustListHtml(just, !filter);
+  }
+
   // Historial de quincenas ya cerradas (pedido 2026-09-16: no había ningún
   // lugar para volver a ver una quincena pasada). Solo lectura, staff-only
   // (administrador + ceo, mismo alcance que "Resumen de la quincena" y
-  // "Hojas de todas las modelos" de arriba) — no se refresca en el poll de
+  // "Hoja de asistencia" de arriba) — no se refresca en el poll de
   // 4s como el resto de Asistencia, solo al abrir el sub-tab o navegar de
   // quincena, porque una quincena cerrada no cambia en vivo.
   let attHistViewDate = null;
@@ -2382,28 +2413,16 @@
       return;
     }
     attHistData = await r.json();
-    el.attHistTotalsList.innerHTML = (attHistData.totals || []).map(function (t) {
-      return '<div class="att-row">'
-        + '<div class="att-row-head">'
-        + '<span class="att-row-name">' + escapeHtml(t.username) + '</span>'
-        + (t.owes_social_security
-            ? '<span class="att-pill rechazada">asumió seguridad social</span>'
-            : '<span class="att-pill validada">al día</span>')
-        + '</div>'
-        + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
-        + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
-        + (t.debt_cop > 0
-            ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
-              + t.debt_hours + ' hora(s) completa(s))</div>'
-            : '')
-        + '</div>';
-    }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
-
-    const prevFilter = el.attHistFilter.value;
-    el.attHistFilter.innerHTML = '<option value="">Todas</option>'
-      + (attHistData.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
-    if (prevFilter) el.attHistFilter.value = prevFilter;
+    attPopulateModelSelect(el.attHistFilter, attHistData.models, el.attHistFilter.value);
+    renderAttendanceHistoryTotals();
     renderAttendanceHistoryTable();
+  }
+
+  function renderAttendanceHistoryTotals() {
+    if (!attHistData) return;
+    const filter = el.attHistFilter.value;
+    const totals = filter ? (attHistData.totals || []).filter(function (t) { return t.username === filter; }) : (attHistData.totals || []);
+    el.attHistTotalsList.innerHTML = totals.map(function (t) { return attTotalRowHtml(t, true); }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
   }
 
   function renderAttendanceHistoryTable() {
@@ -2417,7 +2436,7 @@
   el.btnPrevAttHist.addEventListener('click', function () { attHistViewDate = shiftQuincena(attHistViewDate || attHistDefaultDate(), -1); refreshAttendanceHistory(); });
   el.btnNextAttHist.addEventListener('click', function () { attHistViewDate = shiftQuincena(attHistViewDate || attHistDefaultDate(), 1); refreshAttendanceHistory(); });
   el.btnTodayAttHist.addEventListener('click', function () { attHistViewDate = new Date(); refreshAttendanceHistory(); });
-  el.attHistFilter.addEventListener('change', renderAttendanceHistoryTable);
+  el.attHistFilter.addEventListener('change', function () { renderAttendanceHistoryTotals(); renderAttendanceHistoryTable(); });
 
   function attPendingHtml(pending) {
     if (!pending.length) return '<div class="meta-small">No hay llegadas esperando validación.</div>';
@@ -2619,6 +2638,8 @@
   el.btnAttOwesSave.addEventListener('click', function () { attSaveOwesMessage(el.attOwesMsg.value); });
   el.btnAttOwesReset.addEventListener('click', function () { el.attOwesMsg.value = ''; attSaveOwesMessage(''); });
   el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
+  el.attTotalsFilter.addEventListener('change', renderAttendanceTotalsList);
+  el.attJustFilter.addEventListener('change', renderAttendanceStaffJustList);
   el.attSchedUser.addEventListener('change', attMarcarTurnoActivo);
   // Separa "uso diario" (validar, ver estado) de "configuración" (horarios,
   // umbral, mensajes) dentro de la misma pestaña — antes era un solo scroll
