@@ -131,12 +131,17 @@ const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
 // durante 17 minutos, lo que probablemente estiro el bloqueo.
 const BALANCE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
 
-// Excusas medicas: el archivo se guarda en base64 dentro de la propia tabla
-// (cb_attendance_excuses) en vez de en un bucket aparte. Para el volumen real
-// de esto — una excusa suelta cada tanto, 6 modelos — es mas simple y no suma
-// infraestructura nueva. El tope de 2.5 MB existe para que la base no se llene
-// con fotos de 12 MP; si alguna vez esto crece mucho, la senal para mudarlo a
-// almacenamiento de archivos es el tamaño de esa tabla.
+// Excusas medicas (2026-09-22, fusionado con Justificaciones -- ver
+// CLAUDE.md): antes vivian en su propia tabla/tarjeta separada
+// (cb_attendance_excuses), duplicando el mismo concepto que una
+// justificacion normal ("por que paso algo raro un dia"). Ahora una
+// justificacion puede llevar, opcionalmente, un archivo adjunto -- las
+// columnas excuse_* de cb_attendance_justifications. El archivo se guarda en
+// base64 dentro de la misma fila en vez de en un bucket aparte: para el
+// volumen real de esto (una excusa suelta cada tanto, 7 modelos) es mas
+// simple y no suma infraestructura nueva. El tope de 2.5 MB existe para que
+// la base no se llene con fotos de 12 MP; si alguna vez esto crece mucho, la
+// senal para mudarlo a almacenamiento de archivos es el tamaño de esa tabla.
 const ATTENDANCE_EXCUSE_MAX_BYTES = Math.round(2.5 * 1024 * 1024);
 // base64 infla ~33%, y ademas viaja dentro de un JSON: se deja margen.
 const ATTENDANCE_EXCUSE_BODY_LIMIT = 5 * 1024 * 1024;
@@ -1013,8 +1018,16 @@ async function sbFetchOpenAttendanceDay(username, nowMs) {
   return rows.length ? rows[0] : null;
 }
 
+// El archivo adjunto (excuse_content_base64) NO se pide aca a proposito:
+// esta lista se carga cada vez que se refresca Asistencia (cada 4s), y
+// arrastrar los adjuntos completos en cada refresco haria la respuesta
+// enorme. `excuse_filename`/`excuse_mime_type`/`excuse_size_bytes` alcanzan
+// para que el frontend muestre el link de descarga; el contenido se pide
+// aparte, solo cuando alguien abre un adjunto puntual (mismo patron que ya
+// usaba la vieja cb_attendance_excuses antes de fusionarse aca).
 async function sbListAttendanceJustifications(fromDate, toDate, username) {
-  let qs = '?select=*&work_date=gte.' + encodeURIComponent(fromDate) + '&work_date=lte.' + encodeURIComponent(toDate);
+  let qs = '?select=id,username,work_date,kind,body,created_at,excuse_filename,excuse_mime_type,excuse_size_bytes'
+    + '&work_date=gte.' + encodeURIComponent(fromDate) + '&work_date=lte.' + encodeURIComponent(toDate);
   if (username) qs += '&username=eq.' + encodeURIComponent(username);
   qs += '&order=created_at.desc';
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications' + qs, { headers: SB_HEADERS });
@@ -1049,35 +1062,6 @@ async function sbInsertAttendanceJustification(row) {
     body: JSON.stringify(row),
   });
   return r.ok;
-}
-
-// El archivo en si (content_base64) NO se pide aca a proposito: la lista de
-// excusas se carga cada vez que se abre la pestaña, y arrastrar los adjuntos
-// completos en cada refresco haria la respuesta enorme. El contenido se pide
-// aparte, solo cuando alguien abre una excusa puntual.
-async function sbListAttendanceExcuses(username, limit) {
-  let qs = '?select=id,username,work_date,filename,mime_type,size_bytes,note,created_at&order=created_at.desc&limit=' + (limit || 60);
-  if (username) qs += '&username=eq.' + encodeURIComponent(username);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
-}
-
-async function sbFetchAttendanceExcuse(id) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
-  if (!r.ok) return null;
-  const rows = await r.json();
-  return rows.length ? rows[0] : null;
-}
-
-async function sbInsertAttendanceExcuse(row) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_excuses', {
-    method: 'POST',
-    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
-    body: JSON.stringify(row),
-  });
-  if (!r.ok) return null;
-  const rows = await r.json();
-  return rows.length ? rows[0] : null;
 }
 
 const ATTENDANCE_DEFAULTS = { late_threshold_minutes: 360, late_hour_fee_cop: 10000, social_security_enabled: true };
@@ -1142,12 +1126,11 @@ async function buildAttendancePayload(session) {
   const isStaff = session.role === 'administrador' || session.role === 'ceo';
   const onlyMine = isStaff ? null : session.username;
 
-  const [settings, schedule, days, justifications, excuses, models] = await Promise.all([
+  const [settings, schedule, days, justifications, models] = await Promise.all([
     sbFetchAttendanceSettings(),
     sbListAttendanceSchedule(),
     sbListAttendanceDays(period.start, period.end, onlyMine),
     sbListAttendanceJustifications(period.start, period.end, onlyMine),
-    sbListAttendanceExcuses(onlyMine, 60),
     isStaff ? sbFetchAllModels() : Promise.resolve([]),
   ]);
 
@@ -1281,7 +1264,6 @@ async function buildAttendancePayload(session) {
     schedule,
     days,
     justifications,
-    excuses,
     totals,
     carryover,
   };
@@ -3510,20 +3492,65 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, day: updated });
   }
 
+  // El archivo adjunto es opcional (fusionado con lo que antes era "Excusa
+  // médica" aparte, ver CLAUDE.md 2026-09-22) -- por eso siempre se usa el
+  // limite de cuerpo mas grande (ATTENDANCE_EXCUSE_BODY_LIMIT), haya o no
+  // archivo esta vez.
   if (parsed.pathname === '/api/attendance/justification' && req.method === 'POST') {
     const session = await requireSession(req, res);
     if (!session) return;
     if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos escriben justificaciones' });
     let body;
-    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    try { body = await readBody(req, ATTENDANCE_EXCUSE_BODY_LIMIT); } catch (e) { return sendJson(res, 400, { error: 'Archivo demasiado grande o inválido' }); }
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
     if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
     const kinds = ['retraso', 'internet', 'conexion', 'room', 'salud', 'salida_temprano', 'otro'];
     const kind = kinds.includes(body.kind) ? body.kind : 'otro';
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
-    const ok = await sbInsertAttendanceJustification({ username: session.username, work_date: workDate, kind, body: text });
+    const row = { username: session.username, work_date: workDate, kind, body: text };
+    const hasFile = typeof body.excuse_content_base64 === 'string' && body.excuse_content_base64.length > 0;
+    if (hasFile) {
+      const filename = typeof body.excuse_filename === 'string' ? body.excuse_filename.trim().slice(0, 200) : '';
+      const mime = typeof body.excuse_mime_type === 'string' ? body.excuse_mime_type.trim().slice(0, 100) : '';
+      if (!filename) return sendJson(res, 400, { error: 'Falta el nombre del archivo' });
+      if (!ATTENDANCE_EXCUSE_MIMES.includes(mime)) return sendJson(res, 400, { error: 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF' });
+      const sizeBytes = Math.floor(body.excuse_content_base64.length * 3 / 4);
+      if (sizeBytes > ATTENDANCE_EXCUSE_MAX_BYTES) return sendJson(res, 400, { error: 'El archivo no puede pesar más de 2.5 MB' });
+      row.excuse_filename = filename;
+      row.excuse_mime_type = mime;
+      row.excuse_size_bytes = sizeBytes;
+      row.excuse_content_base64 = body.excuse_content_base64;
+    }
+    const ok = await sbInsertAttendanceJustification(row);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar la justificación' });
+    if (hasFile) {
+      await sbLogAudit(session, 'attendance_justification_excuse_upload', session.username, { filename: row.excuse_filename, size_bytes: row.excuse_size_bytes });
+      sendPushToRole(['administrador', 'ceo'], session.username + ' subió una excusa médica.', { tag: 'placer-asistencia-excusa' }).catch(() => {});
+    }
     return sendJson(res, 200, { ok: true });
+  }
+
+  // Bajar el archivo adjunto de una justificación (antes /api/attendance/excuse,
+  // fusionado 2026-09-22 -- ver CLAUDE.md).
+  if (parsed.pathname === '/api/attendance/justification/excuse' && req.method === 'GET') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const id = Number(parsed.query.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const row = await sbFetchAttendanceJustification(id);
+    if (!row || !row.excuse_content_base64) return sendJson(res, 404, { error: 'No existe' });
+    // Una modelo solo puede abrir sus propios adjuntos.
+    if (session.role === 'modelo' && row.username !== session.username) {
+      return sendJson(res, 403, { error: 'No autorizado' });
+    }
+    const buf = Buffer.from(row.excuse_content_base64, 'base64');
+    res.writeHead(200, {
+      'Content-Type': row.excuse_mime_type || 'application/octet-stream',
+      'Content-Length': buf.length,
+      'Content-Disposition': 'inline; filename="' + encodeURIComponent(row.excuse_filename || 'archivo') + '"',
+      'Cache-Control': 'private, no-store',
+    });
+    return res.end(buf);
   }
 
   // Bajar un justificante. Solo administrador: el CEO ve la hoja pero no la
@@ -3738,52 +3765,6 @@ async function handleRequest(req, res) {
     if (!ok) return sendJson(res, 400, { error: 'Esa modelo todavía no tiene horario asignado — asígnale uno primero' });
     await sbLogAudit(session, 'attendance_owes_message_set', username, { message: message || null });
     return sendJson(res, 200, { ok: true, username, message: message || null });
-  }
-
-  if (parsed.pathname === '/api/attendance/excuse' && req.method === 'POST') {
-    const session = await requireSession(req, res);
-    if (!session) return;
-    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos suben excusas' });
-    let body;
-    try { body = await readBody(req, ATTENDANCE_EXCUSE_BODY_LIMIT); } catch (e) { return sendJson(res, 400, { error: 'Archivo demasiado grande o inválido' }); }
-    const filename = typeof body.filename === 'string' ? body.filename.trim().slice(0, 200) : '';
-    const mime = typeof body.mime_type === 'string' ? body.mime_type.trim().slice(0, 100) : '';
-    const content = typeof body.content_base64 === 'string' ? body.content_base64 : '';
-    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
-    if (!filename || !content) return sendJson(res, 400, { error: 'Falta el archivo' });
-    if (!ATTENDANCE_EXCUSE_MIMES.includes(mime)) return sendJson(res, 400, { error: 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF' });
-    const sizeBytes = Math.floor(content.length * 3 / 4);
-    if (sizeBytes > ATTENDANCE_EXCUSE_MAX_BYTES) return sendJson(res, 400, { error: 'El archivo no puede pesar más de 2.5 MB' });
-    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
-    const row = await sbInsertAttendanceExcuse({
-      username: session.username, work_date: workDate, filename, mime_type: mime,
-      size_bytes: sizeBytes, content_base64: content, note: note || null,
-    });
-    if (!row) return sendJson(res, 500, { error: 'No se pudo guardar la excusa' });
-    await sbLogAudit(session, 'attendance_excuse_upload', session.username, { filename, size_bytes: sizeBytes });
-    sendPushToRole(['administrador', 'ceo'], session.username + ' subió una excusa médica.', { tag: 'placer-asistencia-excusa' }).catch(() => {});
-    return sendJson(res, 200, { ok: true, id: row.id });
-  }
-
-  if (parsed.pathname === '/api/attendance/excuse' && req.method === 'GET') {
-    const session = await requireSession(req, res);
-    if (!session) return;
-    const id = Number(parsed.query.id);
-    if (!id) return sendJson(res, 400, { error: 'id inválido' });
-    const excuse = await sbFetchAttendanceExcuse(id);
-    if (!excuse) return sendJson(res, 404, { error: 'No existe' });
-    // Una modelo solo puede abrir sus propias excusas.
-    if (session.role === 'modelo' && excuse.username !== session.username) {
-      return sendJson(res, 403, { error: 'No autorizado' });
-    }
-    const buf = Buffer.from(excuse.content_base64, 'base64');
-    res.writeHead(200, {
-      'Content-Type': excuse.mime_type || 'application/octet-stream',
-      'Content-Length': buf.length,
-      'Content-Disposition': 'inline; filename="' + encodeURIComponent(excuse.filename) + '"',
-      'Cache-Control': 'private, no-store',
-    });
-    return res.end(buf);
   }
 
   if (parsed.pathname === '/api/attendance/schedule' && req.method === 'POST') {

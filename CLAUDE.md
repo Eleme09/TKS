@@ -2125,6 +2125,94 @@ días antes) que:
 nivel de verificación ya hecho en la cuarta vuelta (ver sección de arriba)
 más este merge explícito.
 
+## Fusionadas "Excusas médicas" + "Justificaciones" en Asistencia (2026-09-22)
+
+El usuario se quejó del desorden general de la app ("la distribución de la
+página está demasiado mala, hay cosas repetidas... funciones que no van...
+una bola grande que se sigue extendiendo"). Se auditó el código de verdad
+(no la opinión de una sesión anterior) y se encontró que el problema real
+estaba acotado a la pestaña Asistencia, no a toda la app: "Excusas médicas"
+y "Justificaciones" eran dos sistemas paralelos (dos tablas, dos
+formularios, dos listas) para la misma idea de fondo — explicar por qué
+pasó algo raro un día. El usuario confirmó la dirección propuesta ("empieza
+a corregir").
+
+**Fusión real, no solo visual** — se unificó también la base de datos:
+- `cb_attendance_justifications` ganó 4 columnas nuevas, todas opcionales:
+  `excuse_filename`, `excuse_mime_type`, `excuse_size_bytes`,
+  `excuse_content_base64`. Una justificación ahora puede llevar, o no, un
+  archivo adjunto — ya no hace falta un sistema aparte solo para eso.
+- Las 4 filas reales que existían en `cb_attendance_excuses` (todas de
+  kitty_f00x, ninguna con `note`) se migraron a `cb_attendance_justifications`
+  con `kind: 'salud'` y `body: 'Excusa médica'` (no había texto de nota que
+  preservar), conservando `created_at`/`work_date`/el archivo tal cual.
+  Verificado fila por fila (largo del base64 igual al original) antes de
+  borrar la tabla vieja. **`cb_attendance_excuses` ya no existe** — no se
+  dejó dormida a propósito, a diferencia de otros dormidos de este proyecto
+  (Stripchat paste/parse, CSV, chaturbate-extra): esos eran fallbacks
+  operativos que alguien podría necesitar reactivar; esto era duplicación
+  de estructura pura, sin ningún caso de uso futuro razonable para
+  mantenerla aparte.
+- `schema.sql` actualizado a juego (columnas `excuse_*` en la tabla de
+  justificaciones, tabla/policy/índice de `cb_attendance_excuses`
+  eliminados) — sin esto, montar el proyecto desde cero habría creado una
+  tabla que ya no existe en producción.
+
+**server.js:**
+- `sbListAttendanceJustifications` pasó de `select=*` a una lista explícita
+  de columnas que **excluye `excuse_content_base64`** — mismo patrón
+  cauteloso que ya usaba la vieja `sbListAttendanceExcuses` (esta lista se
+  recarga cada 4s con el poll normal de Asistencia; arrastrar el archivo
+  completo en cada refresco habría inflado la respuesta). El frontend
+  recibe `excuse_filename`/`excuse_mime_type`/`excuse_size_bytes` (alcanza
+  para mostrar el link) y pide el contenido real aparte.
+- `POST /api/attendance/justification` ahora acepta, opcionalmente,
+  `excuse_filename`/`excuse_mime_type`/`excuse_content_base64` — misma
+  validación de siempre (2.5 MB, solo JPG/PNG/WEBP/PDF). Si viene archivo,
+  push a administrador/ceo (`tag: 'placer-asistencia-excusa'`, igual que
+  antes) y `sbLogAudit('attendance_justification_excuse_upload', ...)`.
+- Nuevo `GET /api/attendance/justification/excuse?id=N` (reemplaza al viejo
+  `GET /api/attendance/excuse`) sirve el archivo con el mismo chequeo de
+  dueño (una modelo solo abre los suyos). Los dos endpoints viejos
+  (`POST`/`GET /api/attendance/excuse`) se borraron del todo — la tabla que
+  usaban ya no existe, dejarlos habría sido código muerto que además
+  tiraría error si alguien los llamara.
+- `buildAttendancePayload` ya no trae `excuses` por separado.
+
+**Frontend (`index.html` + `asistencia.html`):**
+- Vista de la modelo: las cards "Justificaciones" y "Excusa médica" se
+  fusionaron en una sola — el formulario de justificación ahora tiene un
+  campo de archivo opcional ("Adjuntar archivo (opcional)"), sin un campo
+  de nota aparte (el textarea "Qué pasó" ya cumple ese rol). Con esto la
+  vista de la modelo bajó de 4 tarjetas a 3 (Mi jornada / Justificaciones /
+  Mi quincena) — no se le agregó un sub-menú (a diferencia de lo que se
+  había insinuado en la conversación con el usuario): con solo 3 tarjetas
+  ya no hace falta, y meter un sub-menú ahí habría sido justo el tipo de
+  "opción de más" que el usuario dijo no querer seguir viendo.
+- Vista de staff: "Excusas médicas" y "Justificaciones" (dentro del sub-nav
+  "Hoy") se fusionaron en una sola card "Justificaciones" — bajó de 5 a 4
+  tarjetas en esa sección.
+- `asistencia.html`: mismo merge en su sección de solo lectura (dos
+  `<h2>` separados → uno solo, "Justificantes escritos").
+- `attJustListHtml`/`justificantesHtml` ahora muestran un link de descarga
+  al final de cada fila cuando `excuse_filename` está presente;
+  `attExcuseListHtml`/`excusasHtml` se borraron (ya no tienen ningún caso
+  de uso).
+
+**Verificación de esta sesión — misma limitación de siempre en este
+contenedor remoto (sin `env.bat`/credenciales de producción):** no se pudo
+levantar `SOLO_UI=1` y probar el flujo HTTP completo con curl. Se verificó
+en cambio: la migración de las 4 filas reales contra Supabase (antes/
+después, largo de base64 igual); el nombre exacto de las columnas nuevas
+contra el schema real vía MCP (para que el `select` explícito de
+`sbListAttendanceJustifications` no tuviera un typo silencioso); `node -c`
+sobre `server.js` y los `<script>` inline de `index.html`/`asistencia.html`;
+`npm test` 131/131 (sin tests nuevos — este cambio es orquestación server/
+frontend y un `select` de columnas, no lógica pura nueva). **Falta por
+probar de verdad** la próxima vez que haya sesión con credenciales
+completas: subir una excusa médica real desde el formulario fusionado y
+confirmar que se ve y se descarga bien en las dos vistas (modelo y staff).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

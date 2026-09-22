@@ -339,31 +339,25 @@ create table if not exists public.cb_attendance_days (
 );
 create index if not exists cb_attendance_days_user_date on public.cb_attendance_days (username, work_date desc);
 
+-- excuse_* son opcionales: una justificacion puede llevar un archivo adjunto
+-- (ej. la foto/PDF de una incapacidad medica) en vez de vivir en una tabla
+-- aparte -- fusionado 2026-09-22, ver CLAUDE.md. El archivo va en base64 en
+-- la propia fila (tope 2.5 MB por archivo, validado en el servidor); para el
+-- volumen real de esto es mas simple que montar un bucket aparte, y si la
+-- tabla crece mucho esa es la señal para mudarlo.
 create table if not exists public.cb_attendance_justifications (
-  id         bigserial primary key,
-  username   text not null,
-  work_date  date not null,
-  kind       text not null default 'otro',   -- retraso | conexion | room | salud | otro
-  body       text not null,
-  created_at timestamptz not null default now()
+  id                     bigserial primary key,
+  username               text not null,
+  work_date              date not null,
+  kind                   text not null default 'otro',   -- retraso | conexion | room | salud | otro
+  body                   text not null,
+  created_at             timestamptz not null default now(),
+  excuse_filename        text,
+  excuse_mime_type       text,
+  excuse_size_bytes      int,
+  excuse_content_base64  text
 );
 create index if not exists cb_attendance_just_user_date on public.cb_attendance_justifications (username, work_date desc);
-
--- El archivo va en base64 en la propia fila (tope 2.5 MB por archivo, validado
--- en el servidor). Para el volumen real de esto es mas simple que montar un
--- bucket aparte; si la tabla crece mucho, esa es la señal para mudarlo.
-create table if not exists public.cb_attendance_excuses (
-  id             bigserial primary key,
-  username       text not null,
-  work_date      date,
-  filename       text not null,
-  mime_type      text not null,
-  size_bytes     int  not null,
-  content_base64 text not null,
-  note           text,
-  created_at     timestamptz not null default now()
-);
-create index if not exists cb_attendance_excuses_user on public.cb_attendance_excuses (username, created_at desc);
 
 -- Fila unica (id = 1). El umbral es cuanto retraso acumulado en la quincena
 -- hace que la modelo asuma su propia seguridad social (6 h, confirmado por el
@@ -413,7 +407,6 @@ alter table public.cb_api_errors                   enable row level security;
 alter table public.cb_attendance_schedule          enable row level security;
 alter table public.cb_attendance_days              enable row level security;
 alter table public.cb_attendance_justifications    enable row level security;
-alter table public.cb_attendance_excuses           enable row level security;
 alter table public.cb_attendance_settings          enable row level security;
 alter table public.cb_attendance_daily_notice      enable row level security;
 
@@ -437,7 +430,6 @@ create policy cb_api_errors_anon_all                on public.cb_api_errors     
 create policy cb_attendance_schedule_anon_all       on public.cb_attendance_schedule       for all to anon using (true) with check (true);
 create policy cb_attendance_days_anon_all           on public.cb_attendance_days           for all to anon using (true) with check (true);
 create policy cb_attendance_just_anon_all           on public.cb_attendance_justifications for all to anon using (true) with check (true);
-create policy cb_attendance_excuses_anon_all        on public.cb_attendance_excuses        for all to anon using (true) with check (true);
 create policy cb_attendance_settings_anon_all       on public.cb_attendance_settings       for all to anon using (true) with check (true);
 create policy cb_attendance_daily_notice_anon_all   on public.cb_attendance_daily_notice   for all to anon using (true) with check (true);
 

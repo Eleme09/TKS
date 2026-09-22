@@ -325,11 +325,6 @@
     <h2>Justificantes escritos</h2>
     <div id="justificantes"></div>
   </div>
-
-  <div class="card">
-    <h2>Excusas médicas</h2>
-    <div id="excusas"></div>
-  </div>
 </div>
 
 <div id="uiToastHost" class="ui-toast-host" aria-live="polite"></div>
@@ -417,7 +412,6 @@
     tabla: document.getElementById('tabla'),
     totalsCard: document.getElementById('totalsCard'),
     totales: document.getElementById('totales'),
-    excusas: document.getElementById('excusas'),
     deudaRegla: document.getElementById('deudaRegla'),
     tablaDeuda: document.getElementById('tablaDeuda'),
     deudaTotal: document.getElementById('deudaTotal'),
@@ -577,28 +571,19 @@
   function justificantesHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
     return list.map(function (j) {
+      var kb = j.excuse_filename ? Math.max(1, Math.round((j.excuse_size_bytes || 0) / 1024)) : 0;
       return '<div class="row-item">'
         + '<div class="row-head">'
         + '<span class="row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + '<span class="tag">' + kindShort(j.kind) + '</span></span>'
         + '<span class="meta">' + fecha(j.work_date) + '</span>'
         + '</div>'
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
+        + (j.excuse_filename
+            ? '<a class="file" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">' + escapeHtml(j.excuse_filename) + ' (' + kb + ' KB)</a>'
+            : '')
         + (data.role === 'administrador'
             ? '<div class="fix-actions" style="margin-top:8px;"><button type="button" class="fix-btn danger" data-borrar-just="' + j.id + '">Bajar este justificante</button></div>'
             : '')
-        + '</div>';
-    }).join('');
-  }
-
-  function excusasHtml(list, withName) {
-    if (!list || !list.length) return '<div class="meta">Sin excusas subidas.</div>';
-    return list.map(function (e) {
-      var kb = Math.max(1, Math.round((e.size_bytes || 0) / 1024));
-      return '<div class="row-item">'
-        + '<div class="row-head"><span class="row-name">' + (withName ? escapeHtml(e.username) + ' · ' : '') + fecha(e.work_date) + '</span>'
-        + '<span class="meta">' + kb + ' KB</span></div>'
-        + '<a class="file" href="/api/attendance/excuse?id=' + e.id + '" target="_blank" rel="noopener">' + escapeHtml(e.filename) + '</a>'
-        + (e.note ? '<div class="meta" style="margin-top:6px;">' + escapeHtml(e.note) + '</div>' : '')
         + '</div>';
     }).join('');
   }
@@ -731,8 +716,8 @@
   }
   el.btnFaltaGuardar.addEventListener('click', guardarFalta);
 
-  // Los acumulados y las excusas siguen al filtro: al abrir la hoja de una
-  // modelo puntual no tiene sentido seguir listando a todas.
+  // Los acumulados y los justificantes siguen al filtro: al abrir la hoja de
+  // una modelo puntual no tiene sentido seguir listando a todas.
   function pintarTotales() {
     var f = el.filtro.value;
     var totals = f ? (data.totals || []).filter(function (t) { return t.username === f; }) : (data.totals || []);
@@ -820,9 +805,7 @@
     var f = staff ? el.filtro.value : '';
     var days = f ? data.days.filter(function (d) { return d.username === f; }) : data.days;
     var justs = f ? data.justifications.filter(function (j) { return j.username === f; }) : data.justifications;
-    var excusas = f ? (data.excuses || []).filter(function (e) { return e.username === f; }) : data.excuses;
     el.tabla.innerHTML = tablaHtml(days, staff, justs);
-    el.excusas.innerHTML = excusasHtml(excusas, staff && !f);
     el.justificantes.innerHTML = justificantesHtml(justs, staff && !f);
     pintarDeuda();
     if (staff) pintarTotales();

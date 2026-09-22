@@ -927,7 +927,7 @@
 
         <div class="card">
           <h3 class="card-title">Justificaciones</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Si llegaste tarde, te conectaste tarde o tuviste un problema con el room, cuéntalo aquí. Si no escribes nada, no pasa nada — es opcional.</div>
+          <div class="meta-small" style="margin-bottom:12px;">Si llegaste tarde, te conectaste tarde, tuviste un problema con el room o un tema de salud, cuéntalo aquí. Si es una excusa médica, puedes adjuntar la foto o el PDF (máximo 2.5 MB, solo la ven tú y la administración). Si no escribes nada, no pasa nada — es opcional.</div>
           <label for="attJustKind">Motivo</label>
           <select id="attJustKind">
             <option value="retraso">Llegué tarde</option>
@@ -939,21 +939,11 @@
           </select>
           <label for="attJustBody">Qué pasó</label>
           <textarea id="attJustBody" rows="3" placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
+          <label for="attJustFile">Adjuntar archivo (opcional)</label>
+          <input id="attJustFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
           <div class="row" style="margin-top:10px;"><button id="btnAttJust" class="btn-primary" style="flex:1;">Enviar justificación</button></div>
           <div id="attJustError" class="errbox"></div>
           <div id="attMyJustList" style="margin-top:14px;"></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">Excusa médica</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Sube una foto o el PDF de tu incapacidad. Máximo 2.5 MB. Solo la ves tú y la administración.</div>
-          <label for="attExcuseFile">Archivo</label>
-          <input id="attExcuseFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
-          <label for="attExcuseNote">Nota (opcional)</label>
-          <input id="attExcuseNote" placeholder="ej: incapacidad por 2 días" autocomplete="off" maxlength="200">
-          <div class="row" style="margin-top:10px;"><button id="btnAttExcuse" class="btn-primary" style="flex:1;">Subir excusa</button></div>
-          <div id="attExcuseError" class="errbox"></div>
-          <div id="attMyExcuseList" style="margin-top:14px;"></div>
         </div>
 
         <div class="card">
@@ -999,11 +989,6 @@
             <label for="attStaffFilter">Modelo</label>
             <select id="attStaffFilter"></select>
             <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
-          </div>
-
-          <div class="card">
-            <h3 class="card-title">Excusas médicas</h3>
-            <div id="attStaffExcuseList"></div>
           </div>
 
           <div class="card">
@@ -1331,14 +1316,10 @@
     attMyError: document.getElementById('attMyError'),
     attJustKind: document.getElementById('attJustKind'),
     attJustBody: document.getElementById('attJustBody'),
+    attJustFile: document.getElementById('attJustFile'),
     btnAttJust: document.getElementById('btnAttJust'),
     attJustError: document.getElementById('attJustError'),
     attMyJustList: document.getElementById('attMyJustList'),
-    attExcuseFile: document.getElementById('attExcuseFile'),
-    attExcuseNote: document.getElementById('attExcuseNote'),
-    btnAttExcuse: document.getElementById('btnAttExcuse'),
-    attExcuseError: document.getElementById('attExcuseError'),
-    attMyExcuseList: document.getElementById('attMyExcuseList'),
     attMyPeriodHint: document.getElementById('attMyPeriodHint'),
     attMyTable: document.getElementById('attMyTable'),
     attPendingCard: document.getElementById('attPendingCard'),
@@ -1348,7 +1329,6 @@
     attTotalsList: document.getElementById('attTotalsList'),
     attStaffFilter: document.getElementById('attStaffFilter'),
     attStaffTable: document.getElementById('attStaffTable'),
-    attStaffExcuseList: document.getElementById('attStaffExcuseList'),
     attStaffJustList: document.getElementById('attStaffJustList'),
     attConfigCard: document.getElementById('attConfigCard'),
     attSchedUser: document.getElementById('attSchedUser'),
@@ -2164,7 +2144,6 @@
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
 
     el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false);
-    el.attMyExcuseList.innerHTML = attExcuseListHtml(attData.excuses, false);
   }
 
   // Encabezado de columna: texto en pantalla ancha, ícono en móvil. El usuario
@@ -2283,27 +2262,17 @@
   function attJustListHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
     return list.map(function (j) {
+      const kb = j.excuse_filename ? Math.max(1, Math.round((j.excuse_size_bytes || 0) / 1024)) : 0;
       return '<div class="att-row">'
         + '<div class="att-row-head">'
         + '<span class="att-row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + attKindLabel(j.kind) + '</span>'
         + '<span class="meta-small">' + attFechaCorta(j.work_date) + '</span>'
         + '</div>'
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
-        + '</div>';
-    }).join('');
-  }
-
-  function attExcuseListHtml(list, withName) {
-    if (!list || !list.length) return '<div class="meta-small">Sin excusas subidas.</div>';
-    return list.map(function (e) {
-      const kb = Math.max(1, Math.round((e.size_bytes || 0) / 1024));
-      return '<div class="att-row">'
-        + '<div class="att-row-head">'
-        + '<span class="att-row-name">' + (withName ? escapeHtml(e.username) + ' · ' : '') + attFechaCorta(e.work_date) + '</span>'
-        + '<span class="meta-small">' + kb + ' KB</span>'
-        + '</div>'
-        + '<a class="att-file-link" href="/api/attendance/excuse?id=' + e.id + '" target="_blank" rel="noopener">' + escapeHtml(e.filename) + '</a>'
-        + (e.note ? '<div class="meta-small" style="margin-top:6px;">' + escapeHtml(e.note) + '</div>' : '')
+        + (j.excuse_filename
+            ? '<a class="att-file-link" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">'
+              + escapeHtml(j.excuse_filename) + ' (' + kb + ' KB)</a>'
+            : '')
         + '</div>';
     }).join('');
   }
@@ -2359,7 +2328,6 @@
     if (prevFilter) el.attStaffFilter.value = prevFilter;
     renderAttendanceStaffTable();
 
-    el.attStaffExcuseList.innerHTML = attExcuseListHtml(attData.excuses, true);
     el.attStaffJustList.innerHTML = attJustListHtml(attData.justifications, true);
 
     if (isAdmin) {
@@ -2532,38 +2500,31 @@
     attClearBox(el.attJustError);
     const body = el.attJustBody.value.trim();
     if (!body) return attShowBox(el.attJustError, 'Escribe qué pasó');
+    const file = el.attJustFile.files && el.attJustFile.files[0];
+    const payload = { kind: el.attJustKind.value, body: body };
+    if (file) {
+      if (file.size > 2.5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 2.5 MB');
+      const base64 = await new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      }).catch(function () { return null; });
+      if (!base64) return attShowBox(el.attJustError, 'No se pudo leer el archivo');
+      payload.excuse_filename = file.name;
+      payload.excuse_mime_type = file.type;
+      payload.excuse_content_base64 = base64;
+    }
+    el.btnAttJust.disabled = true;
     const r = await fetch('/api/attendance/justification', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: el.attJustKind.value, body: body }),
+      body: JSON.stringify(payload),
     });
+    el.btnAttJust.disabled = false;
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) return attShowBox(el.attJustError, data.error || 'No se pudo guardar');
     el.attJustBody.value = '';
-    await refreshAttendance();
-  }
-
-  async function attUploadExcuse() {
-    attClearBox(el.attExcuseError);
-    const file = el.attExcuseFile.files && el.attExcuseFile.files[0];
-    if (!file) return attShowBox(el.attExcuseError, 'Elige un archivo primero');
-    if (file.size > 2.5 * 1024 * 1024) return attShowBox(el.attExcuseError, 'El archivo no puede pesar más de 2.5 MB');
-    const base64 = await new Promise(function (resolve, reject) {
-      const reader = new FileReader();
-      reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    }).catch(function () { return null; });
-    if (!base64) return attShowBox(el.attExcuseError, 'No se pudo leer el archivo');
-    el.btnAttExcuse.disabled = true;
-    const r = await fetch('/api/attendance/excuse', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, mime_type: file.type, content_base64: base64, note: el.attExcuseNote.value.trim() }),
-    });
-    el.btnAttExcuse.disabled = false;
-    const data = await r.json().catch(function () { return {}; });
-    if (!r.ok) return attShowBox(el.attExcuseError, data.error || 'No se pudo subir la excusa');
-    el.attExcuseFile.value = '';
-    el.attExcuseNote.value = '';
+    el.attJustFile.value = '';
     await refreshAttendance();
   }
 
@@ -2652,7 +2613,6 @@
   }
 
   el.btnAttJust.addEventListener('click', attSendJustification);
-  el.btnAttExcuse.addEventListener('click', attUploadExcuse);
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);
   el.attOwesUser.addEventListener('change', attFillOwesMsgForSelected);
