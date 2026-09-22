@@ -30,51 +30,53 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 // como `cb_chaturbate_period_base`/`cb_stripchat_earnings` -- eso no se
 // toco en esta vuelta).
 //
-// TERCERA VUELTA, mismo dia: la FRONTERA ENTRE DOS QUINCENAS ya no es 23:30
-// Colombia -- se estira hasta las 2:00 a.m. Colombia del dia siguiente
-// (dia 1 o dia 16). Pedido explicito del usuario: los tokens que se hagan
-// se pagan sin importar la hora, y no quiere que el turno de la tarde
-// (16:00-00:00, o cualquiera que se pase un poco) quede cortado justo
-// cuando la modelo todavia esta trabajando, solo porque Chaturbate ya vacio
-// el balance del dia. Con esto, una jornada que termina a las 00:30 o 01:45
-// del dia 16 sigue contando entera en la quincena 1-15 que esta cerrando.
-// Implementacion: se resuelve el dia/mes/año con `studioDateStr` (corte de
-// MEDIANOCHE Colombia, no el de nomina) y, si "ahora" cae en la madrugada
-// del dia 1 o 16 (antes de las 2 a.m.), se retrocede un dia antes de decidir
-// en que mitad del mes estamos -- asi el 15 completo (medianoche a
-// medianoche) MAS las dos primeras horas del 16 quedan en la misma
-// quincena. `start`/`end` se construyen directo con `studioWallToMs` a las
-// 2:00 a.m. exactas (ya no con el offset de nomina), lo que ademas los deja
-// automaticamente contiguos entre una quincena y la siguiente sin ningun
-// calculo extra. Asistencia sigue con su propia medianoche Colombia
+// TERCERA VUELTA (2026-09-16): la FRONTERA ENTRE DOS QUINCENAS se estiro
+// hasta las 2:00 a.m. Colombia del dia siguiente para no cortar el turno de
+// una modelo a mitad de camino. REVERTIDA en la CUARTA VUELTA (2026-09-22,
+// pedido explicito del usuario: "el problema es cuando la modelo trasnocha
+// se mezclan quincenas... no quiero que cierre despues de las 12 y 11:30
+// como dije"). La extension a las 2 a.m. sonaba bien pero generaba
+// EXACTAMENTE el problema que decia evitar: Chaturbate y Stripchat NO
+// comparten un mismo corte de dia -- Chaturbate vacia el balance de cada
+// modelo a las 23:30 Colombia (`CHATURBATE_CASHOUT_UTC_HOUR/MINUTE`,
+// confirmado con incidentes reales, ver mas abajo) y Stripchat corta a
+// medianoche Colombia. Al usar un tercer corte propio (2 a.m.) que no
+// coincide con NINGUNO de los dos, una modelo que trasnocha quedaba con sus
+// tokens de los primeros minutos del dia siguiente unas veces atribuidos a
+// la quincena vieja y otras a la nueva de forma inconsistente con lo que
+// cada plataforma ya habia decidido por su cuenta -- confirmado con
+// numeros reales de la quincena 1-15 de septiembre 2026 que no cuadraban
+// contra lo que el usuario veia directo en Chaturbate/Stripchat.
+//
+// CUARTA VUELTA: se vuelve al corte de NOMINA (`payrollWallToMs`, 23:30
+// Colombia, el mismo instante en que Chaturbate ya vacia el balance) para
+// `start`/`end` -- asi getQuincena vuelve a coincidir exactamente con
+// `payrollDateStr`/`toDateStr`, sin ningun caso especial de madrugada: ya
+// no hace falta "retroceder un dia" porque `payrollDateStr(now)` YA
+// considera que la madrugada (antes de las 23:30 del "dia de calendario"
+// anterior) pertenece al dia de nomina siguiente. `startDate`/`endDate` no
+// cambian: siguen siendo las etiquetas de calendario estables de siempre,
+// construidas directo desde year/month/startDay/endDay. Para Stripchat
+// (corte de MEDIANOCHE, no de nomina) NO se agrega un campo aparte aca --
+// ver `stripchatQuincenaWindow` mas abajo y por que necesita su PROPIA
+// clasificacion de "que quincena es ahora", no solo un corte distinto sobre
+// la misma. Asistencia sigue con su propia medianoche Colombia
 // (`studioQuincenaRange`), totalmente aparte -- el ciclo de pago no tiene
 // nada que ver con el horario de entrada/salida de una modelo.
-function getQuincena(now) {
-  let dateStr = studioDateStr(now);
-  let parts = dateStr.split('-').map(Number);
-  let year = parts[0];
-  let month = parts[1] - 1;
-  let day = parts[2];
-  if ((day === 1 || day === 16) && studioTimeStr(now) < '02:00') {
-    dateStr = studioDateStr(now - 24 * 3600000);
-    parts = dateStr.split('-').map(Number);
-    year = parts[0];
-    month = parts[1] - 1;
-    day = parts[2];
-  }
-  let startDay, endDay, payoutY = year, payoutM = month, payoutD;
+//
+// Logica de "que mitad del mes y hasta que dia" compartida entre
+// getQuincena (corte de nomina) y stripchatQuincenaWindow (corte de
+// medianoche) -- separada para que las dos NUNCA puedan quedar
+// desincronizadas en cual es el ultimo dia de cada mitad.
+function quincenaHalf(year, month, day) {
+  let startDay, endDay;
   if (day <= 15) {
     startDay = 1;
     endDay = 15;
-    payoutD = 20;
   } else {
     startDay = 16;
     endDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    payoutM = month + 1;
-    payoutD = 5;
   }
-  if (payoutM > 11) { payoutM -= 12; payoutY += 1; }
-  const start = studioWallToMs(year, month, startDay, 2, 0, 0, 0);
   let endNextDay = endDay + 1, endNextMonth = month, endNextYear = year;
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   if (endNextDay > daysInMonth) {
@@ -82,26 +84,79 @@ function getQuincena(now) {
     endNextMonth += 1;
     if (endNextMonth > 11) { endNextMonth = 0; endNextYear += 1; }
   }
-  const end = studioWallToMs(endNextYear, endNextMonth, endNextDay, 2, 0, 0, 0) - 1;
+  return { startDay, endDay, endNextDay, endNextMonth, endNextYear };
+}
+
+function getQuincena(now) {
+  const dateStr = payrollDateStr(now);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1;
+  const day = parts[2];
+  const h = quincenaHalf(year, month, day);
+  let payoutY = year, payoutM = month, payoutD;
+  if (h.startDay === 1) {
+    payoutD = 20;
+  } else {
+    payoutM = month + 1;
+    payoutD = 5;
+  }
+  if (payoutM > 11) { payoutM -= 12; payoutY += 1; }
+  const start = payrollWallToMs(year, month, h.startDay, 0, 0, 0, 0);
+  const end = payrollWallToMs(h.endNextYear, h.endNextMonth, h.endNextDay, 0, 0, 0, 0) - 1;
   // El dia de pago es solo una etiqueta (20 o 5, calendario normal) -- no
   // necesita alinearse a ningun corte especial.
   const payout = studioWallToMs(payoutY, payoutM, payoutD, 0, 0, 0, 0);
-  const label = startDay + ' al ' + endDay + ' de ' + MESES[month] + ' ' + year;
+  const label = h.startDay + ' al ' + h.endDay + ' de ' + MESES[month] + ' ' + year;
   const payoutLabel = payoutD + ' de ' + MESES[payoutM] + ' ' + payoutY;
   const pad = (n) => String(n).padStart(2, '0');
   // Etiquetas ESTABLES "YYYY-MM-DD" para las tablas de una fila por quincena
   // (cb_stripchat_earnings, cb_chaturbate_extra_earnings,
   // cb_chaturbate_period_base) -- construidas directo desde
   // year/month/startDay/endDay, NO desde los timestamps start/end de arriba.
-  // Con la frontera ahora a las 2 a.m. (en vez de 23:30), toDateStr(end) ya
-  // NO da "el dia 15"/"el ultimo dia del mes" como antes -- daria el dia
-  // siguiente, rompiendo la clave contra filas historicas ya guardadas con
-  // la etiqueta vieja. period.startDate/period.endDate son el reemplazo
-  // correcto: usar SIEMPRE estos dos para esas tablas, nunca
-  // toDateStr(period.start)/toDateStr(period.end).
-  const startDate = year + '-' + pad(month + 1) + '-' + pad(startDay);
-  const endDate = year + '-' + pad(month + 1) + '-' + pad(endDay);
+  const startDate = year + '-' + pad(month + 1) + '-' + pad(h.startDay);
+  const endDate = year + '-' + pad(month + 1) + '-' + pad(h.endDay);
   return { start, end, payout, label, payoutLabel, startDate, endDate };
+}
+
+// Igual que getQuincena, pero clasificando "ahora" y construyendo el rango
+// con el corte de MEDIANOCHE Colombia (`studioDateStr`/`studioWallToMs`) en
+// vez del de nomina -- el que de verdad usa Stripchat para cerrar su propio
+// dia. Usar SIEMPRE esta funcion (nunca getQuincena) para decidir que
+// ventana pedirle a la Studio API de Stripchat, y que startDate/endDate usar
+// como clave al guardar en cb_stripchat_earnings.
+//
+// Por que hace falta una funcion APARTE y no solo "el mismo rango con otro
+// reloj": entre las 23:30 y la medianoche Colombia del ultimo dia de cada
+// quincena, el reloj de NOMINA (Chaturbate) ya cambio de quincena pero el de
+// MEDIANOCHE (Stripchat) todavia no. Si `pollStripchatEarnings` clasificara
+// "que quincena es ahora" con getQuincena (nomina) y solo le cambiara el
+// corte del rango, durante esos ~30 minutos estaria pidiendole a Stripchat
+// la ventana de la quincena NUEVA (que todavia no empieza para el reloj de
+// medianoche) -- y como una quincena cerrada nunca se vuelve a consultar,
+// los ultimos ~30 minutos de actividad real de Stripchat en el dia que
+// cierra se perderian para siempre. Clasificando aparte con studioDateStr,
+// durante esa misma ventana esta funcion sigue diciendo "todavia es la
+// quincena vieja" (coincide con el reloj real de Stripchat) y solo pasa a
+// la nueva justo a medianoche -- sin gap. El unico costo es cosmetico: por
+// esos mismos ~30 minutos, el total combinado (Chaturbate ya en la
+// quincena nueva + Stripchat todavia en la vieja) puede mostrar el aporte
+// de Stripchat de la quincena nueva en cero hasta que el siguiente sondeo
+// (10 min) ya cruce la medianoche -- se autocorrige solo, nunca se pierde
+// nada.
+function stripchatQuincenaWindow(now) {
+  const dateStr = studioDateStr(now);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1;
+  const day = parts[2];
+  const h = quincenaHalf(year, month, day);
+  const start = studioWallToMs(year, month, h.startDay, 0, 0, 0, 0);
+  const end = studioWallToMs(h.endNextYear, h.endNextMonth, h.endNextDay, 0, 0, 0, 0) - 1;
+  const pad = (n) => String(n).padStart(2, '0');
+  const startDate = year + '-' + pad(month + 1) + '-' + pad(h.startDay);
+  const endDate = year + '-' + pad(month + 1) + '-' + pad(h.endDay);
+  return { start, end, startDate, endDate };
 }
 
 // Devuelve las ultimas `count` quincenas, la actual primero.
@@ -122,16 +177,19 @@ function getQuincenaHistory(count, now) {
 // getQuincena.
 //
 // Es un alias de `payrollDateStr`, NO de `studioDateStr` -- a proposito, ver
-// el comentario de payrollDateStr. OJO, esto YA NO sirve para
-// period.start/period.end de getQuincena desde que la frontera de quincena
-// se estiro a las 2 a.m. (2026-09-16, tercera vuelta): toDateStr(period.end)
-// daria el dia SIGUIENTE al que la quincena etiqueta de toda la vida (ej.
-// "16" en vez de "15"). Para eso usar period.startDate/period.endDate
-// (calculados aparte, dentro de getQuincena) -- toDateStr(period.start)
-// todavia coincide por las puras (2 a.m. sigue cayendo dentro de la
-// etiqueta de nomina del mismo dia), pero no hay que depender de esa
-// coincidencia: usar siempre period.startDate/period.endDate para las
-// tablas de una fila por quincena.
+// el comentario de payrollDateStr. Desde la CUARTA VUELTA (2026-09-22,
+// ver comentario de getQuincena) `period.start`/`period.end` vuelven a ser
+// instantes de nomina (23:30 Colombia), asi que toDateStr(period.start) y
+// toDateStr(period.end) vuelven a coincidir con la etiqueta de calendario
+// de siempre. Aun asi, seguir usando SIEMPRE period.startDate/period.endDate
+// para las tablas de una fila por quincena (cb_stripchat_earnings,
+// cb_chaturbate_extra_earnings, cb_chaturbate_period_base) -- son la fuente
+// de verdad, calculadas aparte dentro de getQuincena, y no dependen de que
+// esta coincidencia se mantenga. Ojo especial con
+// `period.stripchatStart`/`period.stripchatEnd`: esos usan el corte de
+// MEDIANOCHE (no el de nomina), asi que toDateStr() sobre ellos SI puede
+// dar una fecha distinta a startDate/endDate -- no usar toDateStr() sobre
+// los campos stripchat*, solo para pedirle el rango a la Studio API.
 function toDateStr(ms) {
   return payrollDateStr(ms);
 }
@@ -789,6 +847,7 @@ module.exports = {
   resolveOwesAlertMessage,
   getQuincena,
   getQuincenaHistory,
+  stripchatQuincenaWindow,
   toDateStr,
   payrollDateStr,
   payrollWallToMs,

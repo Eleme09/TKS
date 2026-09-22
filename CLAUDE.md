@@ -1997,6 +1997,90 @@ difícil: cerrar el RLS abierto de Supabase (hallazgo crítico #01, sigue
 sin tocar — requiere migrar a `service_role` o escribir políticas por
 tabla, alto riesgo de romper el sistema si se hace mal).
 
+## Cuarta vuelta de la frontera de quincena: revertida la extensión a las 2 a.m. (2026-09-22)
+
+La tercera vuelta (2026-09-16, ver arriba) había estirado la frontera ENTRE
+dos quincenas hasta las 2:00 a.m. Colombia para no cortar el turno de una
+modelo a mitad de camino. **El usuario la revirtió explícitamente**: "el
+problema es cuando la modelo trasnocha se mezclan quincenas... no quiero
+que cierre después de las 12 y 11:30 como dije" — Stripchat cierra su
+propio día a las 12 (medianoche Colombia) y Chaturbate a las 11:30 p.m.
+(23:30 Colombia, el mismo instante ya conocido como
+`CHATURBATE_CASHOUT_UTC_HOUR/MINUTE`). Un tercer corte propio (2 a.m.) que
+no coincidía con NINGUNO de los dos hacía que los números de una quincena
+cerrada no cuadraran contra lo que el usuario veía directo en
+Chaturbate/Stripchat — confirmado antes de este cambio con una corrección
+real de la quincena 1-15 de septiembre 2026 (ver más abajo).
+
+**Diagnóstico importante antes de revertir nada:** se investigó la
+quincena 1-15 de septiembre con una foto que el usuario pasó de los
+números reales por modelo/plataforma. El hallazgo real: **4 de las 7
+modelos ya cuadraban exacto** con lo que el sistema calculaba — el
+problema NO era un desfase de horario parejo para todas, sino un gap de
+tracking real y puntual en 3 modelos (conni_f00x, jax_f00x, pinky_f00x —
+justamente las que vienen con más 403 de la Stats API de Chaturbate en el
+vigía diario). Se corrigieron esas 3 a mano contra el Supabase real
+(`cb_chaturbate_period_base` con `covers_until` congelado al final del
+período para Chaturbate; `cb_stripchat_earnings.tokens` directo para
+Stripchat) — esto ya estaba pagado desde el 20, así que la corrección de
+números no mueve plata ya transferida; eso quedó en manos del usuario
+resolverlo con las modelos afectadas (conni pagada de más, jax y pinky de
+menos). Esta investigación fue la que confirmó que SÍ hacía falta separar
+el corte por plataforma, no solo revertir a un corte único de medianoche
+como la "segunda vuelta".
+
+**Implementación (`chaturbate-lib.js`):**
+- `getQuincena(now)` vuelve a clasificar "ahora" con `payrollDateStr` (el
+  mismo corte de nómina de siempre, 23:30 Colombia) y construye
+  `start`/`end` con `payrollWallToMs` en vez de `studioWallToMs(...,2,0,0,0)`.
+  Ya no hace falta ningún caso especial de madrugada ("retroceder un día"):
+  `payrollDateStr` ya resuelve sola que la madrugada antes de las 23:30
+  pertenece al día de nómina siguiente. Con esto, `getQuincena` vuelve a
+  coincidir exactamente con `payrollDateStr`/`toDateStr`, tal como antes de
+  la tercera vuelta.
+- **Nueva función `stripchatQuincenaWindow(now)`**, separada de
+  `getQuincena` a propósito — NO es solo "el mismo rango con otro corte".
+  Entre las 23:30 y la medianoche Colombia del último día de cada
+  quincena, el reloj de NÓMINA (Chaturbate) ya cambió de quincena pero el
+  de MEDIANOCHE (Stripchat) todavía no. Si `pollStripchatEarnings` usara
+  `getQuincena` para decidir qué quincena es "actual" y solo le cambiara el
+  corte del rango, durante esos ~30 minutos le pediría a Stripchat la
+  ventana de la quincena NUEVA (que para el reloj de medianoche todavía no
+  empezó) — y como una quincena cerrada nunca se vuelve a consultar, esos
+  últimos ~30 minutos de actividad real de Stripchat en el día que cierra
+  se perderían PARA SIEMPRE. `stripchatQuincenaWindow` clasifica "ahora"
+  aparte con `studioDateStr` (medianoche), así que durante esa misma
+  ventana sigue diciendo "todavía es la quincena vieja" — coincide con el
+  reloj real de Stripchat — y solo pasa a la nueva justo a medianoche, sin
+  gap. Costo cosmético aceptado: por esos mismos ~30 min, el total
+  combinado puede mostrar el aporte de Stripchat de la quincena nueva en
+  cero hasta el siguiente sondeo (10 min) — se autocorrige solo, nunca se
+  pierde nada.
+- Lógica de "qué mitad del mes y hasta qué día" factorizada en
+  `quincenaHalf(year, month, day)`, compartida entre las dos funciones para
+  que nunca puedan desincronizarse en cuál es el último día de cada mitad.
+- `pollStripchatEarnings` en `server.js` es el ÚNICO call site que pedía
+  datos en vivo a Stripchat — ahora usa `stripchatQuincenaWindow` (nunca
+  `getQuincena`) tanto para el rango que le manda a la Studio API como
+  para las claves `period_start`/`period_end` con las que guarda en
+  `cb_stripchat_earnings`. Los endpoints dormidos de paste-and-parse
+  manual (`/api/stripchat/*`) siguen usando `getQuincenaHistory` sin tocar
+  — son solo para elegir/mostrar la etiqueta de una de las últimas 3
+  quincenas, no para pedirle nada a la API en vivo.
+- `startDate`/`endDate` (las claves estables YYYY-MM-DD) no cambiaron de
+  mecanismo — siguen construidas directo desde year/month/startDay/endDay,
+  ahora en las dos funciones.
+
+**`npm test`: 131/131** — se reescribió el describe de `getQuincena` quitando
+los tests de la ventana de gracia de las 2 a.m. (ya no existe) y agregando
+la regresión directa del motivo de este cambio (trasnochar hasta la 1am ya
+NO se queda en la quincena vieja) más los casos de frontera exactos
+(23:29 vs 23:30 Colombia). Nuevo describe `stripchatQuincenaWindow` con el
+caso que justifica que exista aparte (23:45 Colombia: nómina ya cambió,
+Stripchat todavía no). Verificado también con un script Node aparte contra
+la hora real del momento. No se tocó `studioQuincenaRange` (asistencia) —
+totalmente independiente, confirmado antes de tocar nada.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

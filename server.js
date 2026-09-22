@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const webpush = require('web-push');
 const nodemailer = require('nodemailer');
 const {
-  getQuincena, getQuincenaHistory, toDateStr, sanitizeUsername,
+  getQuincena, getQuincenaHistory, stripchatQuincenaWindow, toDateStr, sanitizeUsername,
   hashPassword, verifyPassword, resolveChaturbateTokens,
   CHATURBATE_CASHOUT_UTC_HOUR, CHATURBATE_CASHOUT_UTC_MINUTE, CASHOUT_WINDOW_MINUTES,
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
@@ -1928,17 +1928,21 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
 // modelos, de forma automatica. Se corre al iniciar el servidor y despues
 // cada STRIPCHAT_POLL_INTERVAL_MS. El formulario manual de pegar/procesar
 // sigue disponible como respaldo (por ejemplo si esta API llegara a fallar).
+// Usa stripchatQuincenaWindow (corte de MEDIANOCHE Colombia), NUNCA
+// getQuincena (corte de nomina, 23:30) -- Stripchat cierra su propio dia a
+// medianoche, no a las 23:30 como Chaturbate. Ver el comentario de
+// stripchatQuincenaWindow en chaturbate-lib.js (cuarta vuelta, 2026-09-22)
+// para por que hace falta clasificar "que quincena es ahora" aparte y no
+// solo cambiarle el corte al rango de getQuincena.
 async function pollStripchatEarnings() {
   if (!STRIPCHAT_ENABLED) return;
   try {
     const models = await sbFetchAllModels();
-    const period = getQuincena(Date.now());
-    const periodStartStr = period.startDate;
-    const periodEndStr = period.endDate;
+    const sw = stripchatQuincenaWindow(Date.now());
     const rows = [];
     for (const m of models.filter((x) => x.role === 'modelo')) {
-      const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
-      if (tokens != null) rows.push({ username: m.username, period_start: periodStartStr, period_end: periodEndStr, tokens });
+      const tokens = await fetchStripchatModelEarnings(m.username, sw.start, sw.end);
+      if (tokens != null) rows.push({ username: m.username, period_start: sw.startDate, period_end: sw.endDate, tokens });
     }
     if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
   } catch (e) {

@@ -22,58 +22,49 @@ describe('getQuincena', () => {
     assert.equal(p.payout, lib.studioWallToMs(2026, 8, 20, 0, 0, 0, 0));
   });
 
-  // Tercera vuelta el mismo día (2026-09-16): la FRONTERA ENTRE QUINCENAS ya
-  // no es 23:30 Colombia (eso sigue siendo el corte de un día de nómina
-  // cualquiera, toDateStr/payrollDateStr, sin tocar) -- se estira hasta las
-  // 2:00 a.m. Colombia del día siguiente, para que el turno de la tarde
-  // (16:00-00:00, o uno que se pase un poco) no quede cortado a mitad de
-  // camino. Se verifica con studioDateStr/studioTimeStr directo sobre
-  // start/end (el instante real), no con toDateStr -- esa etiqueta ya no
-  // coincide con la frontera de quincena desde este cambio.
-  test('la quincena 1-15 arranca a las 2:00 a.m. Colombia del día 1 y termina 1ms antes de las 2:00 a.m. del día 16', () => {
+  // Cuarta vuelta (2026-09-22): la tercera vuelta (frontera estirada hasta
+  // las 2 a.m. Colombia) se revirtió por pedido explícito del usuario --
+  // "el problema es cuando la modelo trasnocha se mezclan quincenas... no
+  // quiero que cierre después de las 12 y 11:30 como dije". `start`/`end`
+  // vuelven a ser el corte de NÓMINA (23:30 Colombia, el mismo instante en
+  // que Chaturbate vacía el balance) -- se verifica con studioDateStr/
+  // studioTimeStr directo sobre start/end (el instante real).
+  test('la quincena 1-15 arranca a las 23:30 Colombia del último día del mes anterior y termina 1ms antes de las 23:30 del día 15', () => {
     const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 1, 12, 0, 0, 0));
-    assert.equal(lib.studioDateStr(p.start), '2026-09-01');
-    assert.equal(lib.studioTimeStr(p.start), '02:00');
-    assert.equal(lib.studioDateStr(p.end), '2026-09-16');
-    assert.equal(lib.studioTimeStr(p.end), '01:59');
+    assert.equal(lib.studioDateStr(p.start), '2026-08-31');
+    assert.equal(lib.studioTimeStr(p.start), '23:30');
+    assert.equal(lib.studioDateStr(p.end), '2026-09-15');
+    assert.equal(lib.studioTimeStr(p.end), '23:29');
   });
 
-  // Regresión encontrada AL HACER este mismo cambio (no reportada por el
-  // usuario, atrapada antes de llegar a producción): toDateStr(period.end)
-  // dejó de servir como clave para cb_stripchat_earnings/
-  // cb_chaturbate_extra_earnings/cb_chaturbate_period_base en cuanto el
-  // corte se movió de 23:30 a 2 a.m. -- daría "16" en vez de "15" y
-  // rompería la clave contra filas históricas ya guardadas con la etiqueta
-  // vieja. period.startDate/period.endDate son estables a propósito: NO se
-  // derivan de los timestamps start/end de arriba, sino directo de
-  // year/month/startDay/endDay, así que no se mueven aunque la frontera de
-  // quincena se vuelva a estirar en el futuro.
-  test('startDate/endDate son estables (día 15, no día 16) sin importar la nueva frontera de las 2 a.m.', () => {
+  test('startDate/endDate son estables (día 15/16, calendario normal)', () => {
     const p1 = lib.getQuincena(lib.studioWallToMs(2026, 8, 1, 12, 0, 0, 0));
     assert.equal(p1.startDate, '2026-09-01');
     assert.equal(p1.endDate, '2026-09-15');
     const p2 = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 12, 0, 0, 0));
     assert.equal(p2.startDate, '2026-09-16');
     assert.equal(p2.endDate, '2026-09-30');
-    // Y da lo mismo si "ahora" cae en la ventana de gracia de la madrugada:
-    // sigue siendo la etiqueta de la quincena que está cerrando.
-    const p3 = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 1, 45, 0, 0));
-    assert.equal(p3.startDate, '2026-09-01');
-    assert.equal(p3.endDate, '2026-09-15');
   });
 
-  test('a las 23:45 hora Colombia del día 15 (ya pasado el viejo corte de 23:30) todavía es quincena 1-15', () => {
-    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 15, 23, 45, 0, 0));
+  test('a las 23:29 Colombia del día 15 todavía es quincena 1-15', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 15, 23, 29, 0, 0));
     assert.equal(p.label, '1 al 15 de septiembre 2026');
   });
 
-  test('a la 1:45 a.m. Colombia del día 16 (turno de la tarde que se extendió) todavía es quincena 1-15', () => {
-    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 1, 45, 0, 0));
-    assert.equal(p.label, '1 al 15 de septiembre 2026');
+  test('a las 23:30 Colombia en punto del día 15 ya es quincena 16-fin de mes (sin margen de gracia)', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 15, 23, 30, 0, 0));
+    assert.equal(p.label, '16 al 30 de septiembre 2026');
   });
 
-  test('a las 2:00 a.m. Colombia en punto del día 16 ya es quincena 16-fin de mes', () => {
-    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 2, 0, 0, 0));
+  // Regresión directa del motivo de la cuarta vuelta: antes (tercera
+  // vuelta) una modelo que trasnochaba hasta la 1am del día 16 seguía
+  // contando en la quincena 1-15 -- eso es justo lo que "mezclaba" los
+  // números frente a lo que Chaturbate/Stripchat ya habían decidido por su
+  // cuenta (su balance/día YA cerró a las 23:30/medianoche). Ahora una
+  // trasnochada después de las 23:30 cae, correctamente, en la quincena
+  // NUEVA.
+  test('trasnochar hasta la 1am del día 16 ahora cae en la quincena 16-fin de mes, no en la 1-15', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 8, 16, 1, 0, 0, 0));
     assert.equal(p.label, '16 al 30 de septiembre 2026');
   });
 
@@ -83,16 +74,16 @@ describe('getQuincena', () => {
     assert.equal(p.payout, lib.studioWallToMs(2026, 9, 5, 0, 0, 0, 0));
   });
 
-  test('la quincena 16-fin llega hasta el último día real del mes (febrero, 28 días) + la madrugada del 1', () => {
+  test('la quincena 16-fin llega hasta el último día real del mes (febrero, 28 días), corte 23:30 Colombia', () => {
     const p = lib.getQuincena(lib.studioWallToMs(2026, 1, 20, 12, 0, 0, 0)); // feb 2026 (no bisiesto)
     assert.equal(p.label, '16 al 28 de febrero 2026');
-    assert.equal(lib.studioDateStr(p.end), '2026-03-01');
-    assert.equal(lib.studioTimeStr(p.end), '01:59');
+    assert.equal(lib.studioDateStr(p.end), '2026-02-28');
+    assert.equal(lib.studioTimeStr(p.end), '23:29');
   });
 
-  test('la 1:00 a.m. del 1 de marzo (turno que se extendió) todavía es la quincena 16-28 de febrero', () => {
+  test('a la 1am del 1 de marzo ya es la quincena 1-15 de marzo, no queda en la 16-28 de febrero', () => {
     const p = lib.getQuincena(lib.studioWallToMs(2026, 2, 1, 1, 0, 0, 0));
-    assert.equal(p.label, '16 al 28 de febrero 2026');
+    assert.equal(p.label, '1 al 15 de marzo 2026');
   });
 
   test('diciembre 16-31 paga en enero del año siguiente', () => {
@@ -100,26 +91,70 @@ describe('getQuincena', () => {
     assert.equal(lib.studioDateStr(p.payout), '2027-01-05');
   });
 
-  test('cruce de año: la 1:00 a.m. del 1 de enero (turno que se extendió) todavía es diciembre 16-31 del año pasado', () => {
+  test('a la 1am del 1 de enero ya es la quincena 1-15 del año nuevo (cruce de año)', () => {
     const p = lib.getQuincena(lib.studioWallToMs(2027, 0, 1, 1, 0, 0, 0));
-    assert.equal(p.label, '16 al 31 de diciembre 2026');
-  });
-
-  test('a las 2:00 a.m. del 1 de enero ya es la quincena 1-15 del año nuevo', () => {
-    const p = lib.getQuincena(lib.studioWallToMs(2027, 0, 1, 2, 0, 0, 0));
     assert.equal(p.label, '1 al 15 de enero 2027');
   });
 
-  // Regresión del bug real de producción del 2026-09-16, corregido dos veces
-  // el mismo día antes de esta tercera vuelta: primero usaba la fecha del
-  // SERVIDOR (UTC) en vez de la de Colombia (la quincena cambiaba 5 horas
-  // antes de tiempo); después el corte pasó a 23:30 Colombia. Con la
-  // ventana estirada hasta las 2 a.m., este caso (7:37 p.m.) sigue siendo
-  // quincena 1-15 con más margen de sobra.
+  test('a las 23:29 Colombia del 31 de diciembre todavía es diciembre 16-31 del año que termina', () => {
+    const p = lib.getQuincena(lib.studioWallToMs(2026, 11, 31, 23, 29, 0, 0));
+    assert.equal(p.label, '16 al 31 de diciembre 2026');
+  });
+
+  // Regresión del bug real de producción del 2026-09-16 (más vieja que la
+  // tercera/cuarta vuelta): usaba la fecha del SERVIDOR (UTC) en vez de la
+  // de Colombia, la quincena cambiaba 5 horas antes de tiempo.
   test('regresión 2026-09-16: 7:37pm hora Colombia del día 15 sigue en la quincena 1-15', () => {
     const nowUtc = Date.UTC(2026, 8, 16, 0, 37, 0, 0); // 2026-09-16T00:37:00Z = 2026-09-15 19:37 Colombia
     const p = lib.getQuincena(nowUtc);
     assert.equal(p.label, '1 al 15 de septiembre 2026');
+  });
+});
+
+describe('stripchatQuincenaWindow', () => {
+  // Mismo rango de días que getQuincena, pero con el corte de MEDIANOCHE
+  // Colombia (el de Stripchat) en vez del de nómina (23:30, el de
+  // Chaturbate) -- agregada en la cuarta vuelta (2026-09-22) junto con la
+  // reversión de getQuincena, ver el comentario de la función.
+  test('arranca a medianoche Colombia del día 1 y termina 1ms antes de medianoche del día 16', () => {
+    const w = lib.stripchatQuincenaWindow(lib.studioWallToMs(2026, 8, 1, 12, 0, 0, 0));
+    assert.equal(lib.studioDateStr(w.start), '2026-09-01');
+    assert.equal(lib.studioTimeStr(w.start), '00:00');
+    assert.equal(lib.studioDateStr(w.end), '2026-09-15');
+    assert.equal(lib.studioTimeStr(w.end), '23:59');
+    assert.equal(w.startDate, '2026-09-01');
+    assert.equal(w.endDate, '2026-09-15');
+  });
+
+  // El caso que justifica que esta función exista APARTE de getQuincena:
+  // entre las 23:30 y la medianoche Colombia del día 15, el reloj de
+  // nómina (Chaturbate) ya cambió de quincena pero el de medianoche
+  // (Stripchat) todavía no -- sin esto, esos ~30 minutos de actividad real
+  // de Stripchat se perderían para siempre (la quincena vieja ya cerrada
+  // nunca se vuelve a consultar).
+  test('a las 23:45 Colombia del día 15 (nómina ya cambió) todavía es la quincena vieja para Stripchat', () => {
+    const now = lib.studioWallToMs(2026, 8, 15, 23, 45, 0, 0);
+    const nomina = lib.getQuincena(now);
+    const stripchat = lib.stripchatQuincenaWindow(now);
+    assert.equal(nomina.label, '16 al 30 de septiembre 2026');
+    assert.equal(stripchat.startDate, '2026-09-01');
+    assert.equal(stripchat.endDate, '2026-09-15');
+  });
+
+  test('a medianoche en punto del día 16 ya coincide con la quincena nueva de nómina', () => {
+    const now = lib.studioWallToMs(2026, 8, 16, 0, 0, 0, 0);
+    const nomina = lib.getQuincena(now);
+    const stripchat = lib.stripchatQuincenaWindow(now);
+    assert.equal(nomina.label, '16 al 30 de septiembre 2026');
+    assert.equal(stripchat.startDate, '2026-09-16');
+    assert.equal(stripchat.endDate, '2026-09-30');
+  });
+
+  test('cruce de mes: llega hasta el último día real de febrero (28 días)', () => {
+    const w = lib.stripchatQuincenaWindow(lib.studioWallToMs(2026, 1, 20, 12, 0, 0, 0));
+    assert.equal(w.endDate, '2026-02-28');
+    assert.equal(lib.studioDateStr(w.end), '2026-02-28');
+    assert.equal(lib.studioTimeStr(w.end), '23:59');
   });
 });
 
