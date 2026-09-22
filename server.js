@@ -17,7 +17,7 @@ const {
   isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
-  studioDateStr, studioTimeStr, studioScheduledMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
+  studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
   computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
@@ -1649,6 +1649,15 @@ async function sbFetchStripchatEarningsForPeriod(periodStartStr, periodEndStr) {
   return r.ok ? r.json() : [];
 }
 
+// Filas creadas por la reconciliación anterior de la frontera de 2 a.m. no
+// son una fuente oficial de Stripchat. Se consultan una sola vez contra la
+// API y, al quedar marcadas como stripchat-api, no se vuelven a tocar.
+async function sbListStripchatPeriodsPendingApiReconcile() {
+  const qs = '?select=period_start,period_end&entered_by=eq.admin-reconcile-2am-boundary';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
 async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartStr) {
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
@@ -1928,6 +1937,50 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
 // modelos, de forma automatica. Se corre al iniciar el servidor y despues
 // cada STRIPCHAT_POLL_INTERVAL_MS. El formulario manual de pegar/procesar
 // sigue disponible como respaldo (por ejemplo si esta API llegara a fallar).
+// Recibe cualquier objeto con {start, end, startDate, endDate} -- tanto
+// getQuincena como stripchatQuincenaWindow cumplen esa forma. Separada de
+// pollStripchatEarnings para que la reconciliacion de abajo (una quincena
+// YA CERRADA) pueda reusar la misma logica sin duplicarla.
+async function syncStripchatEarningsForPeriod(period) {
+  const models = await sbFetchAllModels();
+  const rows = [];
+  for (const m of models.filter((x) => x.role === 'modelo')) {
+    const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
+    if (tokens != null) rows.push({ username: m.username, period_start: period.startDate, period_end: period.endDate, tokens });
+  }
+  if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
+  return rows.length;
+}
+
+// Re-sincroniza contra la API oficial cualquier fila de cb_stripchat_earnings
+// que haya quedado marcada `entered_by: 'admin-reconcile-2am-boundary'` (una
+// reconciliacion manual hecha a mano mientras la frontera de quincena vivio
+// en las 2 a.m., ver CLAUDE.md) -- una sola vez por periodo, corre al
+// iniciar el servidor. Usa stripchatQuincenaWindow (no getQuincena) para
+// reconstruir el periodo: es data de Stripchat, asi que tiene que
+// clasificarse con el reloj de medianoche de Stripchat, no con el de nomina.
+async function reconcileStripchatPeriodsPendingApiReconcile() {
+  if (!STRIPCHAT_ENABLED) return;
+  try {
+    const rows = await sbListStripchatPeriodsPendingApiReconcile();
+    const keys = [...new Set(rows.map((r) => r.period_start + '|' + r.period_end))];
+    for (const key of keys) {
+      const [startDate, endDate] = key.split('|');
+      const [year, month, day] = startDate.split('-').map(Number);
+      const period = stripchatQuincenaWindow(studioWallToMs(year, month - 1, day, 12, 0, 0, 0));
+      if (period.startDate !== startDate || period.endDate !== endDate) continue;
+      const count = await syncStripchatEarningsForPeriod(period);
+      console.log('Stripchat: reconciliadas ' + count + ' modelos para ' + period.startDate + ' al ' + period.endDate + ' desde la API oficial.');
+    }
+  } catch (e) {
+    console.error('Error reconciliando quincena cerrada de Stripchat: ' + e.message);
+  }
+}
+
+// Trae y guarda los tokens de Stripchat de la quincena actual para todas las
+// modelos, de forma automatica. Se corre al iniciar el servidor y despues
+// cada STRIPCHAT_POLL_INTERVAL_MS. El formulario manual de pegar/procesar
+// sigue disponible como respaldo (por ejemplo si esta API llegara a fallar).
 // Usa stripchatQuincenaWindow (corte de MEDIANOCHE Colombia), NUNCA
 // getQuincena (corte de nomina, 23:30) -- Stripchat cierra su propio dia a
 // medianoche, no a las 23:30 como Chaturbate. Ver el comentario de
@@ -1937,14 +1990,7 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
 async function pollStripchatEarnings() {
   if (!STRIPCHAT_ENABLED) return;
   try {
-    const models = await sbFetchAllModels();
-    const sw = stripchatQuincenaWindow(Date.now());
-    const rows = [];
-    for (const m of models.filter((x) => x.role === 'modelo')) {
-      const tokens = await fetchStripchatModelEarnings(m.username, sw.start, sw.end);
-      if (tokens != null) rows.push({ username: m.username, period_start: sw.startDate, period_end: sw.endDate, tokens });
-    }
-    if (rows.length) await sbUpsertStripchatEarningsBatch(rows, 'stripchat-api');
+    await syncStripchatEarningsForPeriod(stripchatQuincenaWindow(Date.now()));
   } catch (e) {
     console.error('Error en el sondeo de Stripchat: ' + e.message);
   }
@@ -3845,7 +3891,7 @@ server.listen(PORT, () => {
   reconnectAllModels();
   if (STRIPCHAT_ENABLED) {
     console.log('Integración con Stripchat activada (estudio: ' + STRIPCHAT_STUDIO_USERNAME + ') — se sincroniza sola cada ' + (STRIPCHAT_POLL_INTERVAL_MS / 60000) + ' min.');
-    pollStripchatEarnings();
+    pollStripchatEarnings().then(reconcileStripchatPeriodsPendingApiReconcile);
     setInterval(pollStripchatEarnings, STRIPCHAT_POLL_INTERVAL_MS);
   } else {
     console.log('Integración con Stripchat desactivada (faltan STRIPCHAT_API_KEY / STRIPCHAT_STUDIO_USERNAME) — usa el formulario manual en Desprendibles.');
