@@ -2081,6 +2081,50 @@ Stripchat todavía no). Verificado también con un script Node aparte contra
 la hora real del momento. No se tocó `studioQuincenaRange` (asistencia) —
 totalmente independiente, confirmado antes de tocar nada.
 
+## Sesión paralela encontrada al hacer push de la cuarta vuelta (2026-09-22, mismo día)
+
+Justo el ejemplo de "trabajo en paralelo desde varios dispositivos" que
+este archivo advierte arriba: al hacer `git push` de la cuarta vuelta,
+`origin/master` ya tenía 4 commits nuevos de una sesión del 2026-09-19 (3
+días antes) que:
+1. Había reconstruido la MISMA extensión a las 2 a.m. de la tercera vuelta
+   (`Fix quincena cutoff: grace only at period end` +
+   `Corrige corte quincenal a las 2am Colombia`) — sin aportar nada nuevo,
+   solo reafirmaba el diseño que esta cuarta vuelta ya revierte. Se
+   descartaron sin conflicto real de fondo (mi `getQuincena` los reemplaza
+   entero).
+2. Había agregado un mecanismo de reconciliación real y útil:
+   `syncStripchatEarningsForPeriod`/`reconcileStripchatPeriodsPendingApiReconcile`
+   en `server.js` — al iniciar el servidor, re-sincroniza contra la API
+   oficial cualquier fila de `cb_stripchat_earnings` marcada
+   `entered_by: 'admin-reconcile-2am-boundary'` (de alguna reconciliación
+   manual hecha mientras la frontera vivió en las 2 a.m.), y deja de
+   tocarla una vez re-sincronizada. **Este mecanismo tenía un bug real que
+   lo dejaba muerto**: llamaba a `studioWallToMs` sin importarlo, y el
+   "arreglo" de esa sesión fue un archivo `stripchat-reconcile-shim.js`
+   que exponía la función como GLOBAL — pero ese archivo nunca se cargaba
+   desde ningún lado (`package.json`/`iniciar.bat` solo hacen `node
+   server.js`, sin `-r`), así que `reconcileStripchatPeriodsPendingApiReconcile`
+   tiraba un `ReferenceError` silencioso (atrapado por su propio
+   try/catch) en cada arranque, sin reconciliar nunca nada. **Arreglado de
+   verdad en este merge**: se agregó `studioWallToMs` al `require` normal
+   de `chaturbate-lib` al inicio de `server.js` y se borró el shim muerto.
+   Además, esa función ahora usa `stripchatQuincenaWindow` (no
+   `getQuincena`) para reconstruir el periodo a reconciliar — es dato de
+   Stripchat, tiene que clasificarse con el reloj de medianoche, no con el
+   de nómina.
+   **Verificado contra el Supabase real**: al momento de este merge, cero
+   filas en `cb_stripchat_earnings` tienen
+   `entered_by = 'admin-reconcile-2am-boundary'` — el mecanismo queda
+   arreglado y listo, pero hoy no tiene nada pendiente que reconciliar
+   (inerte hasta que exista una fila así). Si en el futuro alguien hace
+   una reconciliación manual con ese `entered_by` exacto, el próximo
+   arranque del servidor la va a recoger sola.
+
+`npm test`: 131/131 después del merge. Push directo a `master` dado el
+nivel de verificación ya hecho en la cuarta vuelta (ver sección de arriba)
+más este merge explícito.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
