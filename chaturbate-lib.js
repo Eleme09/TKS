@@ -626,9 +626,19 @@ function previousAttendancePeriod(dateStr) {
 // Solo los retrasos suman deuda de horario; llegar temprano NO descuenta
 // retrasos de otros dias (si no, una modelo podria "compensar" un retraso
 // grande llegando temprano varios dias y el control perderia sentido).
+// `late_excused` (pedido explicito del usuario 2026-09-23, caso real:
+// kitty_f00x llego tarde pero con excusa medica de por medio) marca un dia
+// puntual como "tipificado pero no penaliza" -- el retraso real se sigue
+// guardando en `late_minutes` para que la fila no mienta sobre lo que pasó,
+// pero ese dia queda fuera de la suma que alimenta la deuda en plata Y el
+// umbral de seguridad social. Mismo criterio que ya usa "Marcar falta" con
+// `justified` (ahi el propio late_minutes se guarda en 0; aca el dia SI
+// reporta su retraso real, solo se excluye de la suma), asi que no hizo
+// falta duplicar la logica de negocio, solo el punto de exclusion.
 function sumLateMinutes(days) {
   let total = 0;
   for (const d of days) {
+    if (d.late_excused) continue;
     if (d.status === 'validada' && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
       total += d.late_minutes;
     }

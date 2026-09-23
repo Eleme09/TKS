@@ -1978,9 +1978,15 @@
     return h + ' h ' + r + ' min';
   }
 
-  function attRetrasoHtml(lateMinutes) {
+  // `excused`: mismo criterio que asistencia.html — un retraso justificado
+  // (botón admin-only en la hoja completa) sigue mostrando cuánto tardó de
+  // verdad, solo marcado como que no cuenta hacia deuda/seguridad social.
+  function attRetrasoHtml(lateMinutes, excused) {
     if (lateMinutes == null) return '<span class="muted">—</span>';
-    if (lateMinutes > 0) return '<span class="att-late">+' + attHorasMin(lateMinutes) + '</span>';
+    if (lateMinutes > 0) {
+      return '<span class="' + (excused ? 'muted' : 'att-late') + '">+' + attHorasMin(lateMinutes) + '</span>'
+        + (excused ? '<div class="att-sub">justificado, no cuenta</div>' : '');
+    }
     if (lateMinutes < 0) return '<span class="att-early">−' + attHorasMin(lateMinutes) + '</span>';
     return '<span class="att-ontime">a tiempo</span>';
   }
@@ -2255,7 +2261,7 @@
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
         + '<td class="num">' + salida + '</td>'
-        + '<td class="num">' + attRetrasoHtml(d.late_minutes) + '</td>'
+        + '<td class="num">' + attRetrasoHtml(d.late_minutes, d.late_excused) + '</td>'
         + '<td class="num">' + attBcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="att-just-col">' + textos + '</td>'

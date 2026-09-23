@@ -332,6 +332,7 @@ create table if not exists public.cb_attendance_days (
   validated_by    text,
   reject_reason   text,
   late_minutes    int,                                 -- positivo = tarde, negativo = temprano
+  late_excused    boolean not null default false,      -- retraso justificado: no cuenta hacia deuda/seguridad social
   exit_at         timestamptz,                         -- la anota ella, no se valida
   note            text,
   created_at      timestamptz not null default now(),

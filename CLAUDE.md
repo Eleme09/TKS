@@ -2290,6 +2290,129 @@ cards de `index.html` y la hoja standalone arrancan mostrando una sola
 modelo (no una lista larga) y que cambiar el select en cada una actualiza
 solo esa sección.
 
+## INCIDENTE REAL: producción quedó caída 3 deploys seguidos por un env var huérfano (2026-09-22/23)
+
+Justo después de pushear la fusión de "Excusas médicas + Justificaciones" y
+el fix de "no listar todas las modelos", el usuario mandó una captura de su
+iPhone: notificación de Render, "build failed for TKS... Exited with status
+1". Investigado con el MCP de Render (`list_deploys`/`list_logs`): **los
+últimos 3 deploys a `master` fallaron en build**, no solo el último — el
+último deploy realmente `live` en producción era del **2026-09-19**, o sea
+que producción llevaba corriendo código de HACE 3 DÍAS (sin la reversión de
+la frontera de quincena, sin el merge de excusas, sin nada de esta sesión)
+sin que nadie se diera cuenta, porque cada deploy fallido deja el anterior
+sirviendo tráfico en silencio.
+
+**Causa raíz**: el log de build decía `Cannot find module
+'./stripchat-reconcile-shim.js'`, disparado desde `internal/preload` — o
+sea, algo estaba forzando a Node a precargar ese archivo en CADA invocación
+(hasta durante el `npm install` del build, antes de que arrancara
+`server.js` siquiera). Ese shim es justo el archivo que esta misma sesión
+borró horas antes (ver "Sesión paralela encontrada al hacer push de la
+cuarta vuelta" más arriba) — la sesión paralela del 2026-09-19 lo había
+dejado vivo NO solo referenciado en `package.json`/`iniciar.bat` (eso sí se
+revisó y estaba limpio) sino **en una variable de entorno `NODE_OPTIONS`
+puesta directo en el dashboard de Render**, invisible desde el repo. Borrar
+el archivo sin revisar las env vars de Render dejó esa variable apuntando a
+la nada.
+
+**Fix**: `mcp__Render__update_environment_variables` con `NODE_OPTIONS: ""`
+sobre el servicio `srv-daaqf93tqb8s73dsu850` (workspace
+`tea-daaqd92d0e5s738va9u0`) — dispara un redeploy automático. Confirmado
+`live` en `dep-daplkgbbc2fs73b6695g` (04:49–04:50 UTC 2026-09-23), logs de
+arranque sin errores.
+
+**Lección para la próxima sesión — esto es nuevo, no estaba en este
+archivo:** este proyecto ya advertía sobre revisar `package.json`/
+`iniciar.bat` antes de borrar un archivo que otra sesión dejó como
+mecanismo de carga (ver la sección de la cuarta vuelta), pero **nunca
+advertía sobre las variables de entorno del propio servicio en Render** —
+que no viven en el repo, no las ve `git log`, y no hay forma de listarlas
+por este MCP (`mcp__Render__update_environment_variables` solo permite
+poner/mezclar, no hay un `list_environment_variables`). Antes de borrar
+cualquier archivo que pudiera ser un mecanismo de arranque/preload
+(`-r`, `NODE_OPTIONS`, un `postinstall` de `package.json`, etc.), y sobre
+todo si lo dejó una sesión paralela sin avisar, conviene asumir que también
+pudo tocar el dashboard de Render y no solo el repo. Si algo vuelve a fallar
+con `Cannot find module` apuntando a un archivo que ya no existe, revisar
+`NODE_OPTIONS` en Render antes que nada.
+
+**Cómo se detectó y qué NO hacer distinto:** el usuario mandó una captura
+de la notificación push de Render (no algo que este archivo hubiera podido
+prevenir con más pruebas locales — `node -c`/`npm test` corren sobre el
+código, no sobre variables de entorno del servicio real, así que esto
+nunca iba a aparecer en la verificación local de ninguna sesión). Lo que sí
+cambia: revisar el estado real de los últimos deploys en Render
+(`list_deploys`) después de cualquier push a `master`, no asumir que "el
+push salió bien" significa "quedó desplegado" — son cosas distintas y esta
+vez se desincronizaron por 3 commits seguidos sin que nadie lo notara hasta
+que Render mandó la notificación.
+
+## Retraso justificado — no debe sumar deuda ni disparar seguridad social (2026-09-23)
+
+Pedido explícito, con un caso real de por medio: "hay gente que entra
+después del horario habitual pero presenta justificación... necesito que
+esto quede tipificado y no salte la alerta ni el cobro por hora de retardo
+ya que se presentó la debida justificación." Caso concreto: kitty_f00x
+presentó una excusa pero su hora de llegada real ya había quedado guardada
+con 141 minutos de retraso (2h21m) — y ese número, sin este cambio, sigue
+sumando hacia `debt_cop`/`debt_hours`/`owes_social_security` sin importar
+que haya excusa de por medio.
+
+**Diseño — reutiliza un patrón que ya existía, no inventa uno nuevo.**
+"Marcar falta" (2026-09-15/17) ya resolvía el mismo problema para una
+falta de día completo: con `justified: true` guarda `late_minutes: 0` en
+vez del turno completo. Para un retraso puntual (no una falta), guardar
+`late_minutes: 0` habría borrado el dato real de qué tan tarde llegó — mejor
+mantener el número real (para que la fila no mienta) y sacarlo de la SUMA
+que alimenta deuda/umbral. Por eso es una columna nueva, no una reutilización
+de `justified`:
+
+- **`cb_attendance_days.late_excused`** (boolean, default `false`, migración
+  `attendance_late_excused` vía `apply_migration`, agregada también a
+  `schema.sql`). `sumLateMinutes` en `chaturbate-lib.js` ahora salta
+  cualquier día con `late_excused: true` — como es el ÚNICO punto donde se
+  suma retraso hacia totales (confirmado con `grep`, es el que alimenta
+  `buildAttendancePayload` Y `buildAttendanceHistoryPayload`), este solo
+  cambio ya corrige debt_cop, debt_hours, owes_social_security y el
+  carryover de seguridad social de la quincena anterior — sin tocar ninguna
+  de esas fórmulas directamente.
+- **`POST /api/attendance/day/excuse-late`** `{id, excused}` (`server.js`,
+  junto a `day/edit`) — **solo `administrador`**, mismo criterio que
+  `day/edit`/`day/reset`/`justification/delete`: es una corrección que
+  cancela una penalización, el CEO ve pero no corrige. No borra ni
+  recalcula `late_minutes` — la fila sigue mostrando la hora real y cuánto
+  tardó. Reversible: mandar `excused:false` vuelve a contarlo, por si se
+  marcó por error. Con audit log (`attendance_day_excuse_late`).
+- **UI**: el botón "Justificar retraso" / "Quitar justificación" vive
+  SOLO en `public/asistencia.html` (columna Corregir), no en `index.html` —
+  siguiendo el patrón ya establecido de que TODAS las correcciones por fila
+  (Editar hora, Reiniciar, Borrar) viven ahí, nunca en la tabla de
+  `index.html`, que es de solo lectura/glance y linkea a la hoja completa
+  ("Ver su hoja") para corregir. Solo aparece cuando `late_minutes > 0` —
+  no tiene sentido justificar un día sin retraso. `retrasoHtml`/
+  `attRetrasoHtml` (los dos archivos, patrón ya conocido de columnas
+  pareadas) ahora aceptan un segundo parámetro `excused`: con él en `true`
+  el número sigue mostrándose pero atenuado, con "justificado, no cuenta"
+  debajo — nunca oculta el dato real.
+- **Aplicado de inmediato a kitty_f00x** (día 2026-09-22, fila id 121, 141
+  min) directo por SQL contra Supabase, con un `insert` manual en
+  `cb_audit_log` calcando el mismo `action`/`details` que dejaría el
+  endpoint — para que quede la misma trazabilidad que si se hubiera usado
+  el botón, ya que se aplicó antes de que el código llegara a producción.
+
+`npm test`: 133/133 (2 tests nuevos sobre `sumLateMinutes` con
+`late_excused`). Misma limitación de siempre en este contenedor remoto (sin
+`env.bat`/credenciales de producción): no se pudo probar el endpoint HTTP
+completo con curl contra una cuenta `qa_temp_*`; se verificó con `node -c`
+sobre los tres archivos tocados, el chequeo de sintaxis de los `<script>`
+inline extraídos, y la migración/corrección de kitty_f00x confirmadas por
+consulta SQL directa contra el Supabase real. **Falta por probar de
+verdad** la próxima vez que haya sesión con credenciales completas: tocar
+el botón "Justificar retraso" desde el navegador contra una cuenta
+`qa_temp_*` y confirmar que el número de deuda/aviso de seguridad social
+baja al toque en pantalla.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

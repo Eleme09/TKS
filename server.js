@@ -3683,6 +3683,34 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, day: result });
   }
 
+  // Excusar un retraso puntual (2026-09-23, pedido explícito: kitty_f00x
+  // llegó tarde pero con excusa médica de por medio, y le seguía apareciendo
+  // el retraso completo hacia la deuda/seguridad social). Solo administrador
+  // — mismo criterio que day/edit y day/reset: es una corrección que cancela
+  // una penalización, el CEO ve pero no corrige. NO borra ni recalcula
+  // `late_minutes` (la fila sigue mostrando la hora real de llegada y cuánto
+  // tardó, para que la tabla no mienta) — `late_excused` solo saca ese día de
+  // la suma que alimenta debt_cop/debt_hours/owes_social_security (ver
+  // sumLateMinutes en chaturbate-lib.js). Reversible: mandar excused:false
+  // vuelve a contarlo, por si se marcó por error.
+  if (parsed.pathname === '/api/attendance/day/excuse-late' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const excused = body.excused !== false;
+    const day = await sbFetchAttendanceDayById(id);
+    if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
+    const result = await sbUpdateAttendanceDay(id, { late_excused: excused });
+    if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_day_excuse_late', day.username, {
+      id, work_date: day.work_date, late_minutes: day.late_minutes, excused, antes: { late_excused: day.late_excused || false },
+    });
+    return sendJson(res, 200, { ok: true, day: result });
+  }
+
   // Marcar que una modelo NO vino ese día (2026-09-15, pedido explícito):
   // cuenta como falta de jornada completa (el turno entero se suma a su
   // retraso acumulado de la quincena, con lo que empuja el umbral de

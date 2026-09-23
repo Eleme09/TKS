@@ -437,6 +437,20 @@ describe('asistencia — cálculo de retraso y acumulado', () => {
     ];
     assert.equal(lib.sumLateMinutes(days), 15);
   });
+  test('late_excused: un retraso justificado no cuenta hacia el acumulado (caso real kitty_f00x)', () => {
+    const days = [
+      { status: 'validada', late_minutes: 141, late_excused: true },
+      { status: 'validada', late_minutes: 18 },
+    ];
+    assert.equal(lib.sumLateMinutes(days), 18);
+  });
+  test('late_excused en false (o ausente) cuenta normal, como siempre', () => {
+    const days = [
+      { status: 'validada', late_minutes: 20, late_excused: false },
+      { status: 'validada', late_minutes: 10 },
+    ];
+    assert.equal(lib.sumLateMinutes(days), 30);
+  });
 });
 
 describe('asistencia — quincena en fechas del estudio', () => {

@@ -451,9 +451,16 @@
     return r ? h + ' h ' + r + ' min' : h + ' h';
   }
 
-  function retrasoHtml(min) {
+  // `excused` (pedido 2026-09-23: retraso con excusa de por medio, ej.
+  // kitty_f00x, no debe seguir sumando deuda/seguridad social) no cambia el
+  // numero -- la fila sigue mostrando cuanto tardo de verdad -- solo lo marca
+  // como "no cuenta" para que quede claro por que no aparece en el acumulado.
+  function retrasoHtml(min, excused) {
     if (min == null) return '<span class="muted">—</span>';
-    if (min > 0) return '<span class="late">+' + horasMin(min) + '</span>';
+    if (min > 0) {
+      return '<span class="' + (excused ? 'muted' : 'late') + '">+' + horasMin(min) + '</span>'
+        + (excused ? '<div class="sub2">justificado, no cuenta</div>' : '');
+    }
     if (min < 0) return '<span class="early">−' + horasMin(min) + '</span>';
     return '<span class="ontime">a tiempo</span>';
   }
@@ -549,7 +556,7 @@
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
         + '<td class="num">' + salida + '</td>'
-        + '<td class="num">' + retrasoHtml(d.late_minutes) + '</td>'
+        + '<td class="num">' + retrasoHtml(d.late_minutes, d.late_excused) + '</td>'
         + '<td class="num">' + bcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="just-col">' + textos + '</td>'
@@ -557,6 +564,10 @@
         + (puedeCorregir
             ? '<td><div class="fix-actions">'
               + '<button type="button" class="fix-btn" data-editar-user="' + escapeHtml(d.username) + '" data-editar-fecha="' + d.work_date + '">Editar hora</button>'
+              + (d.late_minutes > 0
+                  ? '<button type="button" class="fix-btn" data-excusar="' + d.id + '" data-excusado="' + (d.late_excused ? '1' : '0') + '">'
+                    + (d.late_excused ? 'Quitar justificación' : 'Justificar retraso') + '</button>'
+                  : '')
               + '<button type="button" class="fix-btn" data-reset="' + d.id + '">Reiniciar</button>'
               + '<button type="button" class="fix-btn danger" data-borrar-dia="' + d.id + '">Borrar</button>'
               + '</div></td>'
@@ -890,6 +901,15 @@
   document.addEventListener('click', function (e) {
     var editar = e.target.closest && e.target.closest('[data-editar-user]');
     if (editar) { manualPrefill(editar.getAttribute('data-editar-user'), editar.getAttribute('data-editar-fecha')); return; }
+    var excusar = e.target.closest && e.target.closest('[data-excusar]');
+    if (excusar) {
+      var yaExcusado = excusar.getAttribute('data-excusado') === '1';
+      postFix('/api/attendance/day/excuse-late', { id: Number(excusar.getAttribute('data-excusar')), excused: !yaExcusado },
+        yaExcusado
+          ? '¿Quitar la justificación de este retraso? Volverá a sumar hacia la deuda y el umbral de seguridad social.'
+          : '¿Marcar este retraso como justificado? Deja de sumar hacia la deuda y el umbral de seguridad social — se puede deshacer volviendo a tocar el botón.');
+      return;
+    }
     var t = e.target.closest && e.target.closest('[data-borrar-just],[data-reset],[data-borrar-dia]');
     if (!t) return;
     if (t.hasAttribute('data-borrar-just')) {
