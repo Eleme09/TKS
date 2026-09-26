@@ -2707,6 +2707,93 @@ en cada carga de página, no solo en cada poll) — no tocado esta vez porque
 el usuario no lo pidió y tiene su propia razón de ser (evitar que quede
 una versión vieja cacheada tras un deploy, ver la sección de 2026-09-02).
 
+## Segunda vuelta contra la cuota de Supabase — Fair Use Policy real, no un supuesto (2026-09-26)
+
+El usuario pasó la captura real del banner de Supabase: **grace period activo,
+termina el 27 sep 2026** (mañana desde esta sesión); si para entonces la
+organización sigue pasada de cuota, aplica la Fair Use Policy y **las
+requests a los proyectos empiezan a devolver HTTP 402**. Esto confirma que
+NO es un aviso cosmético — un 402 sostenido rompe TKS de verdad (el
+dashboard deja de cargar, y escrituras de propinas que fallan tras los 3
+reintentos de `sbWriteCritical` se pierden de verdad, no solo se demoran).
+
+**Auditoría pedida por el usuario (con un análisis de ChatGPT como punto de
+partida) — verificada contra `pg_stat_statements` real antes de tocar nada,
+no contra los números que traía ese análisis.** Hallazgo clave: esas cifras
+NO eran de 24h como decía el prompt — `pg_stat_statements_info.stats_reset`
+es `2026-08-31 16:50 UTC`, o sea 26 días acumulados. Con esa corrección:
+
+- **El consumidor #1 por lejos, y no era el que ChatGPT señaló como más
+  grande**: `UPDATE cb_models SET last_cursor` — **1.541.061 llamadas en 26
+  días** (~59.000/día, ~41/min sin parar). Causa: en `pollLoop`,
+  `sbSaveCursor` se llamaba en CADA respuesta del long-poll de la Events API
+  de Chaturbate, y eso incluye `userEnter`/`userLeave`/`follow`/
+  `chatMessage`, no solo tips — una sala activa genera muchísimos de esos
+  eventos. Cada PATCH es barato para Postgres (0.166ms) pero cada uno es un
+  request HTTP completo con su propia línea de log — el sospechoso principal
+  del 541% en Log Ingestion.
+- **#2**: `INSERT INTO cb_unhandled_events` — ~219.171 en 26 días (~8.400/
+  día). Esto sí coincidía en orden de magnitud con lo que traía el análisis
+  de ChatGPT.
+- **#3, no estaba en ese análisis**: `buildModelReports()` (lo que arma la
+  pestaña Modelos vía `/api/models`) se recalculaba desde cero en CADA
+  request — sin ningún cache — re-trayendo el historial completo de propinas
+  y balances de TODAS las modelos de la quincena en curso cada vez. Con
+  hasta 9 sesiones sondeando, eran ~9 recálculos completos por minuto,
+  re-transfiriendo lo mismo una y otra vez.
+
+**Verificación de seguridad ANTES de tocar `sbSaveCursor`** (el usuario pidió
+explícitamente no borrar `last_cursor` sin entender antes para qué sirve):
+`cb_tips` y `cb_broadcast_events` tienen `UNIQUE(username, event_id)` — si el
+cursor guardado queda unos segundos viejo y Chaturbate reenvía al reconectar
+un evento ya procesado, ese constraint lo bloquea. No hay forma de duplicar
+plata espaciando el guardado del cursor, solo se arriesga reenviar un puñado
+de eventos ya vistos que la base ya sabe rechazar. (Hallazgo lateral, no
+arreglado esta vuelta: el `ON CONFLICT` que genera PostgREST para
+`Prefer: resolution=ignore-duplicates` apunta al `id` autonumérico de
+`cb_tips`, no al `UNIQUE(username, event_id)` — así que un duplicado real no
+se ignora silencioso, falla y `sbWriteCritical` reintenta 3 veces antes de
+loguear el fallo. No duplica dinero, pero es más ruidoso de lo que sugiere
+el nombre "dedup". Si se quiere un ignore limpio, es cambiar `on_conflict=
+username,event_id` en la URL del POST — no se tocó porque no era lo que
+se pidió esta vez.)
+
+**Cambios aplicados** (autorización explícita del usuario: "haz lo que
+salve mi entrada de dinero"), los dos más chicos y seguros de los tres
+candidatos, dejando el tercero (revisar qué métodos de
+`cb_unhandled_events` son ruido puro) para después porque necesita mirar
+antes cuáles son esos ~130 métodos distintos:
+
+1. **Cache de 20s sobre `buildModelReportsCached()`** (nueva función,
+   envuelve a `buildModelReports()` sin tocarla) — único call site es
+   `/api/models`, así que el cache no le esconde datos frescos a ningún
+   otro flujo. 20s es invisible para un dashboard de tokens/pago; no aplica
+   a Asistencia (endpoint separado, sin tocar).
+2. **`sbSaveCursor` limitado a 1 vez cada `CURSOR_SAVE_MIN_INTERVAL_MS`
+   (10s) por modelo** — `tracker.lastCursorSaveAt` nuevo en el objeto
+   tracker (`startTracker`). El `nextUrl` local para el próximo fetch sigue
+   actualizándose siempre; lo único que se espacía es CUÁNDO se persiste a
+   Supabase. Debería tumbar la mayoría de esas 1.5M llamadas.
+
+**Nivel de verificación — misma limitación de siempre en este contenedor
+remoto (sin `env.bat`/credenciales de producción reales, y esta vez además
+sin poder ejercitar el long-poll real de Chaturbate desde acá, que
+requeriría credenciales reales de las modelos):** `node -c`, `npm test`
+(134/134 sin tests nuevos — ninguno de los dos cambios es lógica pura, no
+tocan `chaturbate-lib.js`), y un boot real en `SOLO_UI=1` con credenciales
+falsas confirmando arranque limpio y una request de verdad respondida
+(200). **No se pudo probar en vivo** que el throttle de `sbSaveCursor`
+realmente corta el volumen de PATCH ni que el cache de `buildModelReports`
+sigue devolviendo números correctos contra el Supabase real — eso solo se
+confirma mirando `pg_stat_statements`/el dashboard de Supabase un rato
+después de que esto llegue a producción.
+
+**Pendiente, no urgente para la fecha límite:** revisar `cb_unhandled_events`
+para dejar de guardar los métodos que sean puro ruido (candidatos:
+`userEnter`/`userLeave` si aparecen ahí) — hace falta primero un
+`select method, count(*) from cb_unhandled_events group by method` para ver
+cuáles son esos ~130 métodos antes de decidir cuáles cortar.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

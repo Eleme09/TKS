@@ -126,6 +126,12 @@ const BALANCE_NORMAL_EVERY_TICKS = 6;       // fuera de la ventana: cada 2 min
 // minutos (ver la nota de abajo), sondear cada 20s no aportaba ni un dato
 // extra: era solo la forma mas rapida de que nos bloquearan.
 const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
+// Cuanto esperar como minimo entre PATCH de last_cursor por modelo en
+// pollLoop (ver el comentario junto a sbSaveCursor). 10s es un margen
+// trivial para el resume-desde-cursor (no hay perdida de dinero posible,
+// solo un puñado de eventos ya vistos reenviados, bloqueados por el
+// UNIQUE(username, event_id) de cb_tips/cb_broadcast_events).
+const CURSOR_SAVE_MIN_INTERVAL_MS = 10 * 1000;
 // Si la API contesta 403/429 (limite de consultas), dejar de insistir por un
 // rato en vez de seguir golpeando: ese dia se siguio consultando en vano
 // durante 17 minutos, lo que probablemente estiro el bloqueo.
@@ -2052,6 +2058,29 @@ async function pollStripchatEarnings() {
   }
 }
 
+// buildModelReports() vuelve a traer TODAS las propinas/balances de TODAS
+// las modelos de la quincena completa cada vez que se llama -- sin este
+// cache, cada sesion conectada (hasta 9: 7 modelos + admin + ceo) dispara
+// ese trabajo completo en cada poll de /api/models, re-transfiriendo el
+// historico entero de la quincena una y otra vez aunque no haya cambiado
+// nada. 20s de cache es invisible para el usuario (nadie necesita ver un
+// token nuevo con menos de 20s de diferencia) y corta la mayoria de esas
+// llamadas redundantes cuando hay varias sesiones sondeando casi al mismo
+// tiempo. Unico call site de buildModelReports() es /api/models -- si algun
+// dia se llama desde otro lado, revisar si ese otro lado necesita el dato
+// mas fresco que esto.
+let modelReportsCache = null;
+let modelReportsCacheAt = 0;
+const MODEL_REPORTS_CACHE_MS = 20000;
+
+async function buildModelReportsCached() {
+  const now = Date.now();
+  if (modelReportsCache && (now - modelReportsCacheAt) < MODEL_REPORTS_CACHE_MS) return modelReportsCache;
+  modelReportsCache = await buildModelReports();
+  modelReportsCacheAt = Date.now();
+  return modelReportsCache;
+}
+
 async function buildModelReports() {
   const now = Date.now();
   const period = getQuincena(now);
@@ -2203,7 +2232,7 @@ function startTracker(username, token, savedCursor) {
     existing.running = false; // sin esto, el poll loop viejo queda "zombie" reintentando para siempre
     if (existing.abortCtl) existing.abortCtl.abort();
   }
-  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false, savedCursor: savedCursor || null };
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false, savedCursor: savedCursor || null, lastCursorSaveAt: 0 };
   trackers.set(username, tracker);
   pollLoop(tracker);
 }
@@ -2333,7 +2362,20 @@ async function pollLoop(tracker) {
 
     if (data.nextUrl) {
       nextUrl = data.nextUrl;
-      await sbSaveCursor(username, nextUrl);
+      // Antes se guardaba en cada evento (hasta userEnter/userLeave/follow, no
+      // solo tips) -- en una sala activa eso eran ~59.000 PATCH/dia sumando
+      // las 7 modelos (verificado con pg_stat_statements, 2026-09-26), el
+      // mayor consumidor de Log Ingestion de Supabase por lejos. Guardar como
+      // mucho 1 vez cada CURSOR_SAVE_MIN_INTERVAL_MS es seguro: si el
+      // servidor muere sin guardar el ultimo tramo, al reconectar Chaturbate
+      // reenvia esos pocos eventos ya vistos, y el UNIQUE(username, event_id)
+      // de cb_tips/cb_broadcast_events los bloquea -- no se duplica plata,
+      // como mucho se pierden unos segundos de avance del cursor guardado.
+      const nowMs = Date.now();
+      if (nowMs - tracker.lastCursorSaveAt >= CURSOR_SAVE_MIN_INTERVAL_MS) {
+        tracker.lastCursorSaveAt = nowMs;
+        await sbSaveCursor(username, nextUrl);
+      }
     }
   }
 
@@ -2820,7 +2862,7 @@ async function handleRequest(req, res) {
     const session = await requireSession(req, res);
     if (!session) return;
     try {
-      const [rawModels, dollar] = await Promise.all([buildModelReports(), getDollarRate()]);
+      const [rawModels, dollar] = await Promise.all([buildModelReportsCached(), getDollarRate()]);
       let allModels = rawModels.map((m) => {
         const payoutUSD = m.totalTokensPeriod * PAYOUT_RATE_USD_PER_TOKEN;
         const payoutCOP = dollar.rate ? payoutUSD * dollar.rate : null;
