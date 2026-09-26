@@ -2413,6 +2413,74 @@ el botón "Justificar retraso" desde el navegador contra una cuenta
 `qa_temp_*` y confirmar que el número de deuda/aviso de seguridad social
 baja al toque en pantalla.
 
+## Auto-validación de llegada tras 15 min sin confirmar (2026-09-26)
+
+Pedido explícito: "Después de 15 minutos sin confirmar entrada de modelo, se
+asume que la modelo entró a la hora que reportó y se marca sola." Nueva
+función `checkAutoValidateArrivals()` en `server.js`, mismo patrón que
+`checkAutoExits` (poller cada 5 min, gateado por `!UI_ONLY`, flag
+`autoValidateArrivalsRunning` para no solaparse si una corrida tarda más
+que el intervalo): revisa jornadas `pendiente` de los últimos 3 días y, si
+pasaron 15+ min desde `reported_at` sin que el administrador la valide, la
+valida sola **exactamente como la rama "Sí llegó a esa hora"** de
+`POST /api/attendance/validate` (`official_at = reported_at,
+official_source: 'reportada'`, con la misma relectura de horario si al
+reportar todavía no tenía uno asignado) — no es una cuarta opción de
+validación nueva, reusa la lógica existente para no duplicarla.
+
+**Por qué esta rama y no "Llegó ahora":** el pedido fue puntual — "se
+asume que llegó a la hora que reportó" — que es literalmente lo que ya
+hace `source: 'reportada'`. Elegir "ahora" habría penalizado a la modelo
+con minutos de retraso que no le corresponden solo porque nadie la validó
+a tiempo, exactamente el problema que la sección "El flujo de la entrada"
+de este archivo ya documentaba como la razón de tener tres botones en vez
+de uno. Reusar `official_source: 'reportada'` también significa que la
+fila queda **indistinguible** en la tabla de una validación manual con
+"Sí llegó a esa hora" — no hizo falta tocar `index.html` ni
+`asistencia.html` para nada de renderizado.
+
+`validated_by` guarda el texto fijo `'sistema (15 min sin validar)'` (no
+es un username real) — confirmado que ese campo no se lee en ningún lugar
+del frontend, así que no hay riesgo de que aparezca texto raro en pantalla;
+es solo para que quien mire la fila cruda en Supabase sepa que no fue un
+click humano. La trazabilidad real de "esto se auto-validó" vive en
+`cb_audit_log` (`action: 'attendance_auto_validate'`, actor sintético
+`{username: 'sistema', role: 'sistema'}`) — mismo criterio que las otras
+correcciones administrativas que sí auditan (`day/edit`, `day/reset`,
+`day/no-show`), porque esto también decide `late_minutes`/deuda y merece
+poder rastrearse después. Al validar, dispara el mismo
+`notifyAttendanceValidated(...)` que usa la validación manual — mismo
+push "X llegó a las HH:MM — N min de retraso", y si con esto ya entraron
+todas sin nadie tarde, el mismo aviso único "TODAS TUS MODELOS ENTRARON A
+TIEMPO" (con su candado de una vez por día, sin cambios).
+
+Si el administrador valida ANTES de los 15 minutos (por cualquiera de las
+tres vías), la fila deja de estar `pendiente` y esta rutina simplemente la
+ignora en su próxima corrida — no hay condición de carrera real: el peor
+caso es que las dos escrituras coincidan en la misma ventana de 5 min del
+poller, y como ambas llegan al mismo resultado para `source: 'reportada'`
+(o el admin elige otra cosa y gana porque corrió primero — Postgres no
+tiene forma de que las dos actualicen a la vez sobre la misma fila sin que
+una gane), no hay inconsistencia posible.
+
+`npm test`: 133/133 sin cambios (esto es orquestación en `server.js`, no
+toca ninguna función pura de `chaturbate-lib.js` — reusa
+`computeLateMinutes` tal cual ya estaba). **Verificación de esta sesión,
+misma limitación de siempre en este contenedor remoto (sin
+`env.bat`/credenciales de producción):** no se pudo levantar `SOLO_UI=1`
+y esperar 15 minutos reales contra el Supabase real para confirmar el
+disparo del poller. Se verificó en cambio: `node -c` sobre `server.js`,
+lectura línea por línea del diff comparándolo contra la rama `'reportada'`
+ya existente y probada de `/api/attendance/validate` (mismo cálculo de
+`scheduledMs`/`lateMinutes`, mismo patch a `cb_attendance_days`), y que
+`startAutoValidateArrivalsChecking()` quedó registrado junto a los demás
+pollers bajo el mismo gate `!UI_ONLY` (confirmado con `grep`, no se le
+olvidó el gate como hubiera sido fácil de hacer). **Falta por probar de
+verdad** la próxima vez que haya sesión con credenciales completas: dejar
+una llegada reportada sin validar 15+ minutos contra una cuenta `qa_temp_*`
+real y confirmar que se auto-valida con el `late_minutes` correcto y llega
+el push.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

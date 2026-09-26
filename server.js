@@ -1422,6 +1422,72 @@ function startAutoExitChecking() {
   setInterval(checkAutoExits, 5 * 60 * 1000);
 }
 
+// Si el administrador no valida una llegada REPORTADA en 15 min, se asume
+// que llegó a la hora que puso y se valida sola — mismo resultado que el
+// admin eligiendo "Sí llegó a esa hora" (pedido explícito del usuario
+// 2026-09-26). No es una cuarta opción nueva de validación: reusa
+// exactamente esa misma rama (official_at = reported_at, official_source:
+// 'reportada'), así que en la tabla/CSV queda indistinguible de una
+// validación manual con "Sí llegó a esa hora" — ningún lugar del frontend
+// necesitó tocarse. `validated_by` guarda un texto fijo (no es un username
+// real) solo para trazabilidad interna en cb_audit_log; nunca se muestra en
+// la UI (confirmado — `validated_by` no se lee en ningún lado del
+// frontend). Si el admin valida ANTES de los 15 min, la fila ya no está
+// `pendiente` y esta rutina la ignora sin hacer nada.
+const AUTO_VALIDATE_ARRIVAL_AFTER_MS = 15 * 60 * 1000;
+let autoValidateArrivalsRunning = false;
+async function checkAutoValidateArrivals() {
+  if (autoValidateArrivalsRunning) return;
+  autoValidateArrivalsRunning = true;
+  try {
+    const now = Date.now();
+    const from = studioDateStr(now - 3 * 24 * 3600000);
+    const to = studioDateStr(now);
+    const [days, schedule] = await Promise.all([sbListAttendanceDays(from, to, null), sbListAttendanceSchedule()]);
+    const scheduleByUser = {};
+    for (const s of schedule) scheduleByUser[s.username] = s;
+    for (const d of days) {
+      if (d.status !== 'pendiente') continue;
+      const reportedMs = Date.parse(d.reported_at);
+      if (now - reportedMs < AUTO_VALIDATE_ARRIVAL_AFTER_MS) continue;
+
+      // Misma relectura de horario que /api/attendance/validate: si al
+      // reportar todavía no tenía horario asignado, se vuelve a mirar acá.
+      let scheduledMs = d.scheduled_at ? Date.parse(d.scheduled_at) : null;
+      if (scheduledMs == null) {
+        const hers = scheduleByUser[d.username];
+        if (hers) scheduledMs = studioScheduledMs(d.work_date, hers.entry_time);
+      }
+      const lateMinutes = scheduledMs != null ? computeLateMinutes(reportedMs, scheduledMs) : null;
+      const updated = await sbUpdateAttendanceDay(d.id, {
+        status: 'validada',
+        scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
+        official_at: new Date(reportedMs).toISOString(),
+        official_source: 'reportada',
+        validated_at: new Date(now).toISOString(),
+        validated_by: 'sistema (15 min sin validar)',
+        late_minutes: lateMinutes,
+        reject_reason: null,
+      });
+      if (updated) {
+        await sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_auto_validate', d.username, {
+          id: d.id, work_date: d.work_date, late_minutes: lateMinutes, reported_at: d.reported_at,
+        });
+        notifyAttendanceValidated(d.username, reportedMs, lateMinutes, d.work_date).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('Error auto-validando llegadas: ' + e.message);
+  } finally {
+    autoValidateArrivalsRunning = false;
+  }
+}
+
+function startAutoValidateArrivalsChecking() {
+  checkAutoValidateArrivals();
+  setInterval(checkAutoValidateArrivals, 5 * 60 * 1000);
+}
+
 // Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
 // falla, lo deja bien visible en los logs en vez de tragarselo en silencio.
 async function sbWriteCritical(label, url, body) {
@@ -3907,5 +3973,6 @@ server.listen(PORT, () => {
   }
   startChaturbateBalancePolling();
   startAutoExitChecking();
+  startAutoValidateArrivalsChecking();
   startShiftConfirmationChecking();
 });
