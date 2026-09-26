@@ -2788,11 +2788,52 @@ sigue devolviendo números correctos contra el Supabase real — eso solo se
 confirma mirando `pg_stat_statements`/el dashboard de Supabase un rato
 después de que esto llegue a producción.
 
-**Pendiente, no urgente para la fecha límite:** revisar `cb_unhandled_events`
-para dejar de guardar los métodos que sean puro ruido (candidatos:
-`userEnter`/`userLeave` si aparecen ahí) — hace falta primero un
-`select method, count(*) from cb_unhandled_events group by method` para ver
-cuáles son esos ~130 métodos antes de decidir cuáles cortar.
+**Actualización misma sesión, mismo día: el tercer punto pendiente ya no
+está pendiente.** El usuario pidió explícitamente seguir ("Y que mas toca
+hacer pa salvar el proyecto") tras confirmar los dos primeros cambios en
+producción. `select method, count(*) from cb_unhandled_events group by
+method` contra el Supabase real dio solo **9 métodos distintos** (no ~130
+como se especuló antes de mirar) — la tabla real:
+
+```
+userLeave        88.336
+userEnter        86.732
+privateMessage   27.564
+chatMessage       8.244
+follow            4.909
+roomSubjectChange 2.819
+unfollow            770
+mediaPurchase        29
+fanclubJoin           6
+```
+
+`userEnter`+`userLeave` son el **80% del volumen** (175.068 de ~217k filas)
+y son pura presencia en la sala — nunca llevan tokens, a diferencia de
+`privateMessage`/`mediaPurchase`/`fanclubJoin` que sí son candidatos
+reales a plata no contada (el motivo original de esta tabla) y por eso NO
+se tocaron. Además, **`sbCheckUnhandledEvents` (el vigía) ya los ignora**:
+`KNOWN_UNHANDLED_EVENT_METHODS` (server.js) lista exactamente estos 9
+métodos como "conocidos" y los salta al buscar métodos nuevos — o sea que
+guardar `userEnter`/`userLeave` no le servía ni siquiera a la única función
+que lee esa tabla. `pollLoop` ahora los descarta antes de llamar a
+`sbInsertUnhandledEvent` en vez de guardarlos y filtrarlos después. Cero
+riesgo, cero cambio de comportamiento visible en ningún lado — confirmado
+`node -c` + `npm test` 134/134, y desplegado.
+
+**Sobre "qué más falta" para el 27**: intenté confirmar contra la
+documentación oficial de Supabase (Fair Use Policy) si "seguir pasado de
+cuota" al terminar el grace period se evalúa contra el ciclo de
+facturación EN CURSO (en cuyo caso estos arreglos sí ayudan a tiempo) o
+contra el ciclo YA CERRADO que disparó el aviso (en cuyo caso no hay nada
+que el código pueda hacer para esa fecha puntual). **No lo pude confirmar
+— los intentos de `WebFetch` a las páginas de billing de Supabase no
+traen esa letra chica.** Se lo dije así de claro al usuario en vez de
+adivinar. Lo que SÍ es cierto y verificado: el cupo es a nivel de
+ORGANIZACIÓN, compartido con `venta-webs` (el otro negocio del usuario,
+proyecto separado) — si ese proyecto también genera tráfico significativo,
+optimizar solo TKS puede no alcanzar. Fuera del alcance de esta sesión
+tocarlo (pedido explícito: no tocar `venta-webs`), pero vale que el
+usuario lo sepa para decidir si pausarlo temporalmente por su cuenta.
 
 ## How this user likes to work
 

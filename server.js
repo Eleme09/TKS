@@ -2355,6 +2355,14 @@ async function pollLoop(tracker) {
         tracker.online = false;
         tracker.onlineSince = null;
         await sbInsertBroadcastEvent(username, 'stop', ev.id);
+      } else if (ev.method === 'userEnter' || ev.method === 'userLeave') {
+        // El 80% del volumen de cb_unhandled_events era esto (verificado
+        // 2026-09-26: 175.068 de ~217k filas, userEnter+userLeave) -- puro
+        // trafico de gente entrando/saliendo de la sala, nunca lleva tokens
+        // ni tiene ningun uso: sbCheckUnhandledEvents (el vigia) ya los
+        // salta via KNOWN_UNHANDLED_EVENT_METHODS, y no hay ninguna otra
+        // funcion que los lea. Se dejan de guardar del todo, no solo se
+        // filtran al leer.
       } else if (ev.method) {
         sbInsertUnhandledEvent(username, ev.method, ev);
       }
