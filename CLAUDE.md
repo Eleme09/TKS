@@ -2660,6 +2660,53 @@ Problemática/Justificante ahora queda pegado al inicio de "Salud"/"Me
 siento enferma", no flotando en el medio de la columna. `npm test`:
 134/134 sin cambios (fix 100% CSS).
 
+## Polling de index.html bajado de 4s a 1 minuto — cuota de Supabase (2026-09-26)
+
+El usuario reportó que Supabase le avisó cuota excedida y no puede pagar.
+Diagnosticado (no supuesto): el proyecto de producción (`yklqqalnmficsbyabbrn`)
+está sano — 142MB de 500MB, sin problema. El problema real es a nivel de
+**organización** (plan gratis "STUDIO", `aloxugskfwhhpnplondm`), que tiene 3
+proyectos (TKS, `venta-webs`, `venta-webs-demo` — estos dos últimos son otro
+negocio del usuario, nada que ver con Placer Studios) y el plan gratis solo
+permite **2 proyectos activos a la vez** — confirmado con el error real de
+`mcp__Supabase__restore_project` al intentar reactivar el tercero:
+`"menajeiner@gmail.com (2 project limit)"`. Aparte de eso, el dashboard del
+usuario (captura real) mostró el consumo del ciclo actual: **Egress 12.6/5
+GB (252%) y Log Ingestion 5.41/1 GB (541%)** — los dos únicos realmente
+pasados; Database size (165/500MB), Monthly active users y File storage
+están bien.
+
+**Causa identificada por razonamiento, no medida directamente**: `index.html`
+hacía polling de `/api/attendance`+`/api/models`+`/api/shifts` cada **4
+segundos** (`pollTimer`) mientras la pestaña estuviera abierta, multiplicado
+por hasta 9 sesiones simultáneas (7 modelos + administrador + CEO) las 24h —
+el candidato obvio para el Egress/Log Ingestion pasados, ya que es tráfico
+constante e independiente del uso real de Chaturbate/Stripchat (esos van por
+otro lado, sin tocar). **Fix, pedido explícito del usuario tras confirmar que
+no afecta el registro de dinero ni las notificaciones push**: `pollTimer`
+pasó de `4000` a `60000` ms (línea junto a `showApp()`, con comentario
+explicando el motivo). Nada más cambió — mismo `refresh()`/`refreshShifts()`,
+mismo mecanismo, solo el intervalo. `npm test`: 134/134 sin cambios (fix
+100% frontend, un solo número).
+
+**Lo que esto NO resuelve**: el límite de 2-proyectos-activos-por-cuenta
+sigue igual (no es un problema de tráfico, es un tope de cuenta) — para
+reactivar `venta-webs-demo` el usuario tiene que pausar/borrar uno de los
+otros dos primero, o pagar Pro. Esto es una decisión suya sobre SU otro
+negocio, no algo para resolver desde esta sesión de TKS.
+
+**No verificado con datos reales de consumo antes/después** (no hay acceso
+a un dashboard de uso vía MCP, solo lo que el usuario compartió por
+captura) — la expectativa de que esto baje "bastante" el consumo es
+razonamiento sobre el patrón de tráfico (15x menos requests desde el
+dashboard), no una medición confirmada. Si el próximo ciclo de facturación
+sigue mostrando Egress/Log Ingestion pasados después de este cambio, el
+siguiente sospechoso a mirar sería el `Cache-Control: no-cache` de
+`serveStatic` (obliga a redescargar `index.html`/`asistencia.html` enteros
+en cada carga de página, no solo en cada poll) — no tocado esta vez porque
+el usuario no lo pidió y tiene su propia razón de ser (evitar que quede
+una versión vieja cacheada tras un deploy, ver la sección de 2026-09-02).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
