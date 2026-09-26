@@ -161,8 +161,13 @@
   @media (max-width: 640px) {
     /* Mismo criterio que en la app: en el teléfono los títulos de texto a
        10px se ven apretados, así que la cabecera pasa a ser el ícono. El
-       nombre real sigue en title/aria-label. */
-    th { padding: 10px 8px; text-align: center; }
+       nombre real sigue en title/aria-label. El ícono va a la IZQUIERDA de
+       su columna, igual que el valor de abajo (los td son text-align left) —
+       centrarlo lo deja lejos de donde arranca el texto en columnas anchas
+       como el justificante, dando la sensación de que el dato "no
+       corresponde" al ícono de arriba (reportado 2026-09-26, misma captura
+       que en index.html). */
+    th { padding: 10px 8px; text-align: left; }
     .th-txt { display: none; }
     .th-ico { display: inline-flex; color: var(--muted); }
     table {
@@ -589,8 +594,11 @@
         + (j.excuse_filename
             ? '<a class="file" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">' + escapeHtml(j.excuse_filename) + ' (' + kb + ' KB)</a>'
             : '')
-        + (data.role === 'administrador'
-            ? '<div class="fix-actions" style="margin-top:8px;"><button type="button" class="fix-btn danger" data-borrar-just="' + j.id + '">Bajar este justificante</button></div>'
+        + ((data.role === 'administrador' || data.role === 'ceo')
+            ? '<div class="fix-actions" style="margin-top:8px; flex-wrap:wrap;">'
+              + '<button type="button" class="fix-btn" data-editar-just="' + j.id + '">Editar</button>'
+              + (data.role === 'administrador' ? '<button type="button" class="fix-btn danger" data-borrar-just="' + j.id + '">Bajar este justificante</button>' : '')
+              + '</div>'
             : '')
         + '</div>';
     }).join('');
@@ -890,7 +898,27 @@
     if (d) { data = d; render(); }
   }
 
+  // Editar el texto de un justificante ya escrito (administrador o ceo).
+  // Sin modal de texto libre en este archivo — un prompt() alcanza para un
+  // solo botón, construir un modal aparte sería de más para este caso.
+  async function editarJustificante(id) {
+    var actual = (data.justifications || []).find(function (j) { return j.id === id; });
+    var nuevo = window.prompt('Editar justificación:', actual ? actual.body : '');
+    if (nuevo === null) return;
+    nuevo = nuevo.trim();
+    if (!nuevo) { uiToast('Escribe la justificación', 'error'); return; }
+    var r = await fetch('/api/attendance/justification/edit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, body: nuevo }),
+    });
+    var res = await r.json().catch(function () { return {}; });
+    if (!r.ok) { uiToast(res.error || 'No se pudo guardar', 'error'); return; }
+    var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
+    if (d) { data = d; render(); }
+  }
+
   document.addEventListener('click', function (e) {
+    var editarJust = e.target.closest && e.target.closest('[data-editar-just]');
+    if (editarJust) { editarJustificante(Number(editarJust.getAttribute('data-editar-just'))); return; }
     var editar = e.target.closest && e.target.closest('[data-editar-user]');
     if (editar) { manualPrefill(editar.getAttribute('data-editar-fecha')); return; }
     var excusar = e.target.closest && e.target.closest('[data-excusar]');

@@ -557,8 +557,13 @@
     .conn { flex-direction: column; align-items: stretch; gap: 10px; }
     /* Encabezados de tabla: en el teléfono el texto a 10px se ve apretado y
        metido a la fuerza, así que se cambia por el ícono de la columna. El
-       nombre real sigue en title/aria-label. */
-    .att-table th { padding: 10px 8px; text-align: center; }
+       nombre real sigue en title/aria-label. Ojo: el ícono va a la IZQUIERDA
+       de su columna, igual que el valor de abajo (los <td> son text-align
+       left por defecto) — centrarlo (como estaba antes) lo deja flotando
+       lejos de donde arranca el texto en columnas anchas como Justificante,
+       dando la sensación de que el dato "no corresponde" al ícono de arriba
+       (reportado 2026-09-26 con captura real). */
+    .att-table th { padding: 10px 8px; text-align: left; }
     .th-txt { display: none; }
     .th-ico { display: inline-flex; color: var(--muted); }
     /* Sin min-width el navegador aplasta las columnas dentro de los 375px del
@@ -979,25 +984,25 @@
           </div>
 
           <div class="card">
+            <label for="attStaffFilter">Modelo</label>
+            <select id="attStaffFilter"></select>
+            <div class="meta-small" style="margin-top:8px;">Elegí la modelo — controla el resumen, la hoja y las justificaciones de acá abajo.</div>
+          </div>
+
+          <div class="card">
             <h3 class="card-title">Resumen de la quincena</h3>
             <div class="meta-small" id="attStaffPeriodHint" style="margin-bottom:12px;"></div>
-            <label for="attTotalsFilter">Modelo</label>
-            <select id="attTotalsFilter"></select>
-            <div id="attTotalsList" style="margin-top:12px;"></div>
+            <div id="attTotalsList"></div>
           </div>
 
           <div class="card">
             <h3 class="card-title">Hoja de asistencia</h3>
-            <label for="attStaffFilter">Modelo</label>
-            <select id="attStaffFilter"></select>
             <div class="att-table-wrap" style="margin-top:12px;"><table class="att-table" id="attStaffTable"></table></div>
           </div>
 
           <div class="card">
             <h3 class="card-title">Justificaciones</h3>
-            <label for="attJustFilter">Modelo</label>
-            <select id="attJustFilter"></select>
-            <div id="attStaffJustList" style="margin-top:12px;"></div>
+            <div id="attStaffJustList"></div>
           </div>
         </div>
 
@@ -1330,11 +1335,9 @@
     attPendingList: document.getElementById('attPendingList'),
     attPendingError: document.getElementById('attPendingError'),
     attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
-    attTotalsFilter: document.getElementById('attTotalsFilter'),
     attTotalsList: document.getElementById('attTotalsList'),
     attStaffFilter: document.getElementById('attStaffFilter'),
     attStaffTable: document.getElementById('attStaffTable'),
-    attJustFilter: document.getElementById('attJustFilter'),
     attStaffJustList: document.getElementById('attStaffJustList'),
     attConfigCard: document.getElementById('attConfigCard'),
     attSchedUser: document.getElementById('attSchedUser'),
@@ -2326,13 +2329,13 @@
     el.attStaffPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end)
       + '. Límite de retraso acumulado: ' + attHorasMin(attData.threshold_minutes) + '.';
 
-    attPopulateModelSelect(el.attTotalsFilter, attData.models, el.attTotalsFilter.value);
-    renderAttendanceTotalsList();
-
+    // Pedido 2026-09-26 (reportado con captura real): "Resumen", "Hoja de
+    // asistencia" y "Justificaciones" tenían cada una su propio selector de
+    // modelo, pudiendo mostrar TRES modelos distintas a la vez en la misma
+    // pantalla — incoherente. Un solo select arriba controla los tres.
     attPopulateModelSelect(el.attStaffFilter, attData.models, el.attStaffFilter.value);
+    renderAttendanceTotalsList();
     renderAttendanceStaffTable();
-
-    attPopulateModelSelect(el.attJustFilter, attData.models, el.attJustFilter.value);
     renderAttendanceStaffJustList();
 
     if (isAdmin) {
@@ -2381,13 +2384,13 @@
   }
 
   function renderAttendanceTotalsList() {
-    const filter = el.attTotalsFilter.value;
+    const filter = el.attStaffFilter.value;
     const totals = filter ? (attData.totals || []).filter(function (t) { return t.username === filter; }) : (attData.totals || []);
     el.attTotalsList.innerHTML = totals.map(function (t) { return attTotalRowHtml(t, false); }).join('') || '<div class="meta-small">Sin modelos registradas.</div>';
   }
 
   function renderAttendanceStaffJustList() {
-    const filter = el.attJustFilter.value;
+    const filter = el.attStaffFilter.value;
     const just = filter ? (attData.justifications || []).filter(function (j) { return j.username === filter; }) : (attData.justifications || []);
     el.attStaffJustList.innerHTML = attJustListHtml(just, !filter);
   }
@@ -2643,9 +2646,11 @@
   el.attOwesUser.addEventListener('change', attFillOwesMsgForSelected);
   el.btnAttOwesSave.addEventListener('click', function () { attSaveOwesMessage(el.attOwesMsg.value); });
   el.btnAttOwesReset.addEventListener('click', function () { el.attOwesMsg.value = ''; attSaveOwesMessage(''); });
-  el.attStaffFilter.addEventListener('change', renderAttendanceStaffTable);
-  el.attTotalsFilter.addEventListener('change', renderAttendanceTotalsList);
-  el.attJustFilter.addEventListener('change', renderAttendanceStaffJustList);
+  el.attStaffFilter.addEventListener('change', function () {
+    renderAttendanceTotalsList();
+    renderAttendanceStaffTable();
+    renderAttendanceStaffJustList();
+  });
   el.attSchedUser.addEventListener('change', attMarcarTurnoActivo);
   // Separa "uso diario" (validar, ver estado) de "configuración" (horarios,
   // umbral, mensajes) dentro de la misma pestaña — antes era un solo scroll

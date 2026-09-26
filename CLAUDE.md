@@ -2524,11 +2524,16 @@ fusión Excusas+Justificaciones del 2026-09-22, viven dentro de
 arriba — para verlas, elegí ahí a la modelo que subió la excusa (ej.
 kitty_f00x) y bajá hasta esa card; ya no hay una card separada "Excusas
 médicas".
-**No se tocó** el mismo patrón en `index.html` (Modelos/Extras/Cuentas
-siguen mostrando todas las modelos a la vez, y Config sigue con selects
-independientes por tarjeta) — ninguna captura ni pedido apuntó a esas
-pantallas esta vez, y son casos distintos (dashboards/ajustes de más de una
-modelo a la vez, no "la hoja de una sola modelo").
+**Corrección (2026-09-26, misma tarde):** esta sección afirmó que
+`index.html` no tenía el mismo problema — **eso era falso**. La pestaña
+Asistencia → "Hoy" de `index.html` tenía exactamente el mismo bug
+(Resumen/Hoja/Justificaciones con tres selects independientes, cada uno
+pudiendo mostrar una modelo distinta a la vez), y el usuario lo encontró
+con una captura minutos después de leer esto. Ver la sección "Unificar
+selector de modelo en index.html" más abajo por el arreglo real. Lo que
+sigue siendo cierto: Modelos, Extras y Cuentas de `index.html` sí muestran
+todas las modelos a propósito (son dashboards de más de una modelo a la
+vez) — esos no cambiaron.
 
 **3. Textos de descripción acortados** (pedido explícito: "eliminar esa
 explicación extensa y ser resumido... en todas"). Se acortaron las
@@ -2575,6 +2580,85 @@ filas de la tabla quedaron compactas, y las descripciones cortas se ven
 bien. **Sigue pendiente probar de verdad** contra el Supabase real con
 datos reales de producción — misma limitación de siempre en este
 contenedor (sin `env.bat`/credenciales de producción).
+
+## Unificar selector de modelo en index.html + editar justificantes (2026-09-26, misma tarde)
+
+Continuación de la sección anterior: el usuario encontró el mismo bug de
+selectores redundantes en `index.html` (captura real de la pestaña
+Asistencia → "Hoy": "Resumen de la quincena" mostraba `conni_f00x` y "Hoja
+de asistencia" mostraba `abigail_f00x` al mismo tiempo). Mismo arreglo que
+ya se había aplicado en `asistencia.html`: las tres tarjetas (Resumen /
+Hoja de asistencia / Justificaciones) pasaron a compartir un único
+`<select id="attStaffFilter">` en una tarjeta propia arriba de las tres,
+con el texto "Elegí la modelo — controla el resumen, la hoja y las
+justificaciones de acá abajo." `attTotalsFilter`/`attJustFilter` (los
+selects independientes que esta misma sesión había agregado horas antes,
+sin darse cuenta de que reintroducían el problema) se borraron del todo —
+del HTML, del mapa `el`, y sus tres listeners de `change` separados se
+colapsaron en uno solo sobre `attStaffFilter` que llama a
+`renderAttendanceTotalsList()`, `renderAttendanceStaffTable()` y
+`renderAttendanceStaffJustList()` juntas. Verificado con `node -c` sobre
+el `<script>` inline y `grep` confirmando cero referencias colgantes a los
+selects borrados. `npm test`: 134/134 sin cambios (fix 100% frontend).
+
+**Segundo pedido de la misma conversación: editar el texto de un
+justificante ya escrito, para administrador O ceo** (a diferencia de
+"Bajar este justificante", que sigue siendo solo administrador — mismo
+criterio ya usado en otras correcciones administrativas, pero el usuario
+pidió explícitamente que ESTA sí la tenga el CEO también).
+- `POST /api/attendance/justification/edit` `{id, body}` (`server.js`,
+  `requireAdminOrCeo`) — valida texto no vacío (mismo límite de 1000
+  caracteres que al crearla), usa `sbUpdateAttendanceJustificationBody(id,
+  text)` (PATCH directo a `cb_attendance_justifications`), y audita con
+  `sbLogAudit('attendance_justification_edit', ..., {id, before, after})`
+  — igual que `day/edit`/`day/reset`, esto corrige un dato ya guardado, así
+  que queda trazado.
+- **Solo en `asistencia.html`**, no en `index.html` — sigue el patrón ya
+  establecido de que todas las correcciones por fila (Editar hora,
+  Reiniciar, Borrar, Justificar retraso) viven en la hoja completa, nunca
+  en la vista de solo lectura/glance de `index.html`. Botón "Editar" nuevo
+  junto a "Bajar este justificante" en `justificantesHtml`, visible para
+  administrador Y ceo (el de borrar sigue solo para administrador).
+- Sin modal de texto libre en `asistencia.html` (ese archivo solo tiene
+  `uiConfirm`/`uiToast`, no el `uiPrompt` que sí existe en `index.html`) —
+  se usó `window.prompt()` directo, precargado con el texto actual.
+  Construir un modal de texto libre completo para un solo botón habría
+  sido una abstracción de más para lo que se pidió.
+- Verificado con Playwright (servidor estático local + `/api/attendance`
+  mockeado con datos inventados, dos sesiones de página — una `role:
+  'administrador'`, otra `role: 'ceo'`): administrador ve "Editar" +
+  "Bajar este justificante"; ceo ve solo "Editar", confirmando el gateo
+  correcto sin pegarle al Supabase real. `npm test`: 134/134 sin tests
+  nuevos (endpoint de orquestación simple, sin lógica pura nueva en
+  `chaturbate-lib.js`). **Falta por probar de verdad** la próxima vez que
+  haya sesión con credenciales de producción: editar un justificante real
+  desde el navegador contra una cuenta `qa_temp_*` y confirmar que el
+  cambio se refleja en la hoja y en `cb_audit_log`.
+
+## Bug real de alineación: íconos de cabecera centrados vs. datos a la izquierda (2026-09-26, misma tarde)
+
+Tercera captura de la misma conversación: "Las letras de la hoja se ven
+corridas y no estan acorde a lo que señala arriba... no tiene orden en la
+hoja". Antes de tocar nada se midió con Playwright (`getBoundingClientRect`
+de cada `<th>` contra su `<td>` correspondiente) para descartar un bug
+estructural — resultado: los bordes izquierdo/derecho de cada columna
+coincidían EXACTO entre cabecera y dato en las dos tablas (`index.html` y
+`asistencia.html`). El bug no era de estructura, era de alineación visual:
+en el `@media (max-width: 640px)` de las dos tablas, `th { text-align:
+center }` centra el ÍCONO dentro de su columna, pero los `<td>` siguen
+`text-align: left` (nunca tuvieron override) — en una columna angosta esto
+no se nota, pero en una ancha como Justificante (220px) el ícono queda
+flotando ~100px a la derecha de donde arranca el texto real, dando la
+sensación de que el valor "no corresponde" al ícono de arriba. Fix en las
+dos tablas: `text-align: center` → `text-align: left` en esa misma regla —
+ahora el ícono cae exactamente sobre el borde izquierdo de la columna,
+igual que el texto de abajo. Verificado visualmente con Playwright
+(capturas recortadas a `.att-table-wrap`/`.table-wrap` en distintos puntos
+de scroll horizontal, viewport 390px, datos de prueba con una justificación
+real ("Me siento enferma") y una salida temprano): el ícono de
+Problemática/Justificante ahora queda pegado al inicio de "Salud"/"Me
+siento enferma", no flotando en el medio de la columna. `npm test`:
+134/134 sin cambios (fix 100% CSS).
 
 ## How this user likes to work
 

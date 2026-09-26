@@ -1048,6 +1048,14 @@ async function sbDeleteAttendanceJustification(id) {
   return r.ok;
 }
 
+async function sbUpdateAttendanceJustificationBody(id, text) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+    body: JSON.stringify({ body: text }),
+  });
+  return r.ok;
+}
+
 async function sbDeleteAttendanceDay(id) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_days?id=eq.' + encodeURIComponent(id), {
     method: 'DELETE', headers: SB_HEADERS,
@@ -3633,6 +3641,26 @@ async function handleRequest(req, res) {
     const ok = await sbDeleteAttendanceJustification(id);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo borrar' });
     await sbLogAudit(session, 'attendance_justification_delete', row.username, { id, kind: row.kind, work_date: row.work_date, body: row.body });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Corregir el texto de un justificante ya escrito. A diferencia de borrar
+  // (solo administrador), esto lo puede hacer administrador O ceo — pedido
+  // explícito del usuario, distinto del resto de correcciones de Asistencia.
+  if (parsed.pathname === '/api/attendance/justification/edit' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
+    if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
+    const row = await sbFetchAttendanceJustification(id);
+    if (!row) return sendJson(res, 404, { error: 'Ese justificante ya no existe' });
+    const ok = await sbUpdateAttendanceJustificationBody(id, text);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_justification_edit', row.username, { id, before: row.body, after: text });
     return sendJson(res, 200, { ok: true });
   }
 
