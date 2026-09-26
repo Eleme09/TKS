@@ -137,10 +137,17 @@
   }
   .fix-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
   .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
-  /* min-width para que los 3 botones (Editar hora / Reiniciar / Borrar) no
-     queden apretados en una sola columna angosta, uno arriba del otro — con
-     esto entran 2 por fila en vez de 3 filas sueltas. */
-  .fix-actions { display: flex; gap: 6px; flex-wrap: wrap; min-width: 200px; }
+  /* Bug real (2026-09-26, reportado con capturas): con flex-wrap + min-width
+     los botones (hasta 4 desde que existe "Justificar retraso") envolvían en
+     2 líneas dentro de esta celda, y como todas las celdas de una fila de
+     tabla comparten la MISMA altura, esa columna -aunque quede fuera de
+     vista al desplazar la tabla de lado- estiraba la fila entera a 70-100px:
+     las columnas visibles (fecha, entrada, etc.) quedaban con su texto
+     arriba y un hueco vacío enorme debajo. La tabla ya se desplaza de lado
+     a propósito (ver min-width de `table` mas abajo), así que dejar los
+     botones en una sola línea sin envolver es lo correcto -- la columna
+     Corregir se vuelve mas ancha, no mas alta. */
+  .fix-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
   /* Horas transmitidas: gris apagado = turno normal cumplido, rojo = le
      faltaron horas y tuvo una desconexión real. Las extras/recuperaciones
      no entran en este cálculo — se llevan aparte, a mano (2026-09-10). */
@@ -238,12 +245,8 @@
 
   <div class="card" id="manualCard" style="display:none;">
     <h2>Agregar o corregir hora manualmente</h2>
-    <div class="meta" style="margin-bottom:12px;">Sirve para cualquier día, tenga o no una fila todavía — si la modelo nunca reportó ese día, esto la crea.</div>
+    <div class="meta" style="margin-bottom:12px;">Para la modelo elegida arriba. Sirve para cualquier día, aunque no lo haya reportado — la crea si hace falta.</div>
     <div class="manual-form">
-      <div>
-        <label for="manualUser">Modelo</label>
-        <select id="manualUser"></select>
-      </div>
       <div>
         <label for="manualFecha">Día</label>
         <input id="manualFecha" type="date">
@@ -257,7 +260,7 @@
         <input id="manualSalida" type="time">
       </div>
     </div>
-    <div class="fix-actions" style="margin-top:12px;">
+    <div class="fix-actions" style="margin-top:16px;">
       <button type="button" class="fix-btn" id="btnManualGuardar" style="padding:9px 16px; font-size:11.5px;">Guardar</button>
     </div>
     <div class="errbox" id="manualError"></div>
@@ -265,12 +268,8 @@
 
   <div class="card" id="faltaCard" style="display:none;">
     <h2>Marcar falta (no se presentó)</h2>
-    <div class="meta" style="margin-bottom:12px;">Cuenta como jornada completa de falta e invalida cualquier hora de entrada/salida que hubiera para ese día. Sin justificante, se le suma todo su turno al retraso acumulado de la quincena (paga seguridad social como cualquier otro retraso). Con justificante, queda registrada igual como falta pero no penaliza.</div>
+    <div class="meta" style="margin-bottom:12px;">Para la modelo elegida arriba. Cuenta como falta completa del turno. Sin justificante, suma a su retraso acumulado; con justificante, queda registrada pero no penaliza.</div>
     <div class="manual-form">
-      <div>
-        <label for="faltaUser">Modelo</label>
-        <select id="faltaUser"></select>
-      </div>
       <div>
         <label for="faltaFecha">Día</label>
         <input id="faltaFecha" type="date">
@@ -298,7 +297,7 @@
         <textarea id="faltaJustificanteTexto" rows="2" maxlength="400" placeholder="ej: incapacidad médica adjunta, avisó con anticipación por..."></textarea>
       </div>
     </div>
-    <div class="fix-actions" style="margin-top:12px;">
+    <div class="fix-actions" style="margin-top:16px;">
       <button type="button" class="fix-btn danger" id="btnFaltaGuardar" style="padding:9px 16px; font-size:11.5px;">Marcar falta</button>
     </div>
     <div class="errbox" id="faltaError"></div>
@@ -392,14 +391,12 @@
     filterCard: document.getElementById('filterCard'),
     filtro: document.getElementById('filtro'),
     manualCard: document.getElementById('manualCard'),
-    manualUser: document.getElementById('manualUser'),
     manualFecha: document.getElementById('manualFecha'),
     manualEntrada: document.getElementById('manualEntrada'),
     manualSalida: document.getElementById('manualSalida'),
     btnManualGuardar: document.getElementById('btnManualGuardar'),
     manualError: document.getElementById('manualError'),
     faltaCard: document.getElementById('faltaCard'),
-    faltaUser: document.getElementById('faltaUser'),
     faltaFecha: document.getElementById('faltaFecha'),
     faltaMotivo: document.getElementById('faltaMotivo'),
     faltaMotivoOtroWrap: document.getElementById('faltaMotivoOtroWrap'),
@@ -649,24 +646,19 @@
       + ' · del ' + fecha(data.period.start) + ' al ' + fecha(data.period.end)
       + ' · límite de retraso ' + horasMin(data.threshold_minutes);
     el.warning.innerHTML = warningHtml();
-    if (data.role === 'administrador') {
-      el.manualCard.style.display = 'block';
-      var prevManual = el.manualUser.value;
-      el.manualUser.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
-      if (prevManual) el.manualUser.value = prevManual;
-    }
-    if (staff) {
-      el.faltaCard.style.display = 'block';
-      var prevFalta = el.faltaUser.value;
-      el.faltaUser.innerHTML = (data.models || []).map(function (u) { return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>'; }).join('');
-      if (prevFalta) el.faltaUser.value = prevFalta;
-    }
+    // Pedido 2026-09-26 (reportado con capturas reales): "Editar hora" y
+    // "Marcar falta" tenían su PROPIO selector de modelo, independiente del
+    // de arriba -- incoherente, porque el título ya dice "Hoja de <modelo>"
+    // y de todas formas la tabla de abajo siempre es de esa misma modelo (no
+    // existe "Todas" desde 2026-09-22). Los dos ahora aplican siempre a la
+    // modelo elegida arriba, sin volver a preguntar.
+    if (data.role === 'administrador') el.manualCard.style.display = 'block';
+    if (staff) el.faltaCard.style.display = 'block';
     pintarTabla();
   }
 
-  function manualPrefill(username, workDate) {
+  function manualPrefill(workDate) {
     if (!el.manualCard) return;
-    el.manualUser.value = username;
     el.manualFecha.value = workDate;
     el.manualEntrada.value = '';
     el.manualSalida.value = '';
@@ -675,11 +667,11 @@
 
   async function guardarManual() {
     el.manualError.style.display = 'none';
-    var username = el.manualUser.value;
+    var username = el.filtro.value;
     var workDate = el.manualFecha.value;
     var entry = el.manualEntrada.value;
     var exit = el.manualSalida.value;
-    if (!username || !workDate) { el.manualError.style.display = 'block'; el.manualError.textContent = 'Elige modelo y día.'; return; }
+    if (!username || !workDate) { el.manualError.style.display = 'block'; el.manualError.textContent = 'Elige el día.'; return; }
     if (!entry && !exit) { el.manualError.style.display = 'block'; el.manualError.textContent = 'Escribe al menos una hora.'; return; }
     var r = await fetch('/api/attendance/day/edit', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -703,9 +695,9 @@
 
   async function guardarFalta() {
     el.faltaError.style.display = 'none';
-    var username = el.faltaUser.value;
+    var username = el.filtro.value;
     var workDate = el.faltaFecha.value;
-    if (!username || !workDate) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Elige modelo y día.'; return; }
+    if (!username || !workDate) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Elige el día.'; return; }
     var note = el.faltaMotivo.value === 'otro' ? el.faltaMotivoOtro.value.trim() : el.faltaMotivo.value;
     if (el.faltaMotivo.value === 'otro' && !note) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Especifica el motivo.'; return; }
     // Pedido 2026-09-17: separar la falta SIN justificar (paga seguridad
@@ -900,7 +892,7 @@
 
   document.addEventListener('click', function (e) {
     var editar = e.target.closest && e.target.closest('[data-editar-user]');
-    if (editar) { manualPrefill(editar.getAttribute('data-editar-user'), editar.getAttribute('data-editar-fecha')); return; }
+    if (editar) { manualPrefill(editar.getAttribute('data-editar-fecha')); return; }
     var excusar = e.target.closest && e.target.closest('[data-excusar]');
     if (excusar) {
       var yaExcusado = excusar.getAttribute('data-excusado') === '1';

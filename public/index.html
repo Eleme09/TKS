@@ -856,7 +856,7 @@
 
       <details class="card" id="studioPayslipCard" style="display:none;">
         <summary>Desprendible del estudio</summary>
-        <div class="meta-small" style="margin:8px 0 12px;">Historial de lo que recibe el estudio (tarifa distinta a la de cada modelo) — solo administrador y CEO ven esta tarjeta, y queda cerrada por defecto.</div>
+        <div class="meta-small" style="margin:8px 0 12px;">Historial de lo que recibe el estudio, con su propia tarifa. Solo administrador y CEO.</div>
         <div id="studioPayslipList"></div>
       </details>
 
@@ -927,7 +927,7 @@
 
         <div class="card">
           <h3 class="card-title">Justificaciones</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Si llegaste tarde, te conectaste tarde, tuviste un problema con el room o un tema de salud, cuéntalo aquí. Si es una excusa médica, puedes adjuntar la foto o el PDF (máximo 2.5 MB, solo la ven tú y la administración). Si no escribes nada, no pasa nada — es opcional.</div>
+          <div class="meta-small" style="margin-bottom:12px;">Cuenta qué pasó y adjunta una excusa si aplica (foto o PDF, máx. 2.5 MB). Opcional.</div>
           <label for="attJustKind">Motivo</label>
           <select id="attJustKind">
             <option value="retraso">Llegué tarde</option>
@@ -1023,7 +1023,7 @@
         <div id="attSubConfig" style="display:none;">
           <div class="card" id="attConfigCard" style="display:none;">
             <h3 class="card-title">Horarios y umbral</h3>
-            <div class="meta-small" style="margin-bottom:12px;">La hora de entrada de cada modelo es contra lo que se mide el retraso. El umbral es cuánto retraso acumulado en la quincena hace que la modelo asuma su propia seguridad social.</div>
+            <div class="meta-small" style="margin-bottom:12px;">Hora de entrada de cada modelo y el retraso acumulado que activa que asuma su propia seguridad social.</div>
             <label for="attSchedUser">Modelo</label>
             <select id="attSchedUser"></select>
             <label>Turno</label>
@@ -1058,11 +1058,11 @@
 
           <div class="card" id="attOwesMsgCard" style="display:none;">
             <h3 class="card-title">Mensaje de seguridad social por modelo</h3>
-            <div class="meta-small" style="margin-bottom:12px;">El mensaje que ve ella (y administración) cuando ya cruza el umbral y asume su propia seguridad social. Personalizable POR MODELO — no es lo mismo un retraso acumulado día a día que una falta completa por decisión propia (ver "Marcar falta"), así que cada una puede tener el suyo. Si lo dejas vacío, se usa el texto predeterminado. Usa <code>{modelo}</code> donde quieras que aparezca su nombre y <code>{periodo}</code> donde quieras que diga "esta quincena" o "la quincena pasada" según corresponda — este mismo mensaje se muestra tanto apenas cruza el umbral como, unos días después, como recordatorio de que sigue pendiente de la quincena anterior.</div>
+            <div class="meta-small" style="margin-bottom:12px;">Mensaje que ve la modelo al cruzar el umbral. Personalizable por modelo — usa <code>{modelo}</code> y <code>{periodo}</code> donde correspondan. Vacío = mensaje predeterminado.</div>
             <label for="attOwesUser">Modelo</label>
             <select id="attOwesUser"></select>
             <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
-            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia acumulado {periodo} y asume su propia seguridad social."></textarea>
+            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: {modelo} superó el límite de retraso o inasistencia injustificada {periodo}: asume su propia seguridad social y pierde el acceso a la meta."></textarea>
             <div class="row" style="margin-top:10px;">
               <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
               <button id="btnAttOwesReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
@@ -1113,12 +1113,12 @@
       </div>
       <div class="card" id="shiftConfirmCard">
         <h3 class="card-title">Confirmación de extras y recuperaciones</h3>
-        <div class="meta-small" style="margin-bottom:12px;">El sistema ya le pregunta solo a cada modelo 6 horas antes si va a tomar su horario. Aquí puedes mandarle ese mismo aviso a mano, a cualquier hora.</div>
+        <div class="meta-small" style="margin-bottom:12px;">Envía a mano el mismo aviso de confirmación que el sistema manda 6 horas antes.</div>
         <div id="shiftConfirmList"></div>
       </div>
       <div class="card" id="systemHealthCard">
         <h3 class="card-title">Salud del sistema</h3>
-        <div class="meta-small" style="margin-bottom:12px;">El chequeo diario automático corre solo con una sesión de Claude activa. Si te quedas sin cuota y ese chequeo no corre ese día, revisa lo mismo aquí manualmente, cuando quieras. Si sale un token vencido, lo puedes renovar directo desde acá.</div>
+        <div class="meta-small" style="margin-bottom:12px;">Respaldo manual del chequeo diario automático. Si sale un token vencido, renuévalo directo desde acá.</div>
         <div class="row"><button id="btnSystemHealthCheck" class="btn-primary" style="flex:1;">Revisar ahora</button></div>
         <div id="systemHealthResult" class="meta-small" style="margin-top:10px;"></div>
       </div>

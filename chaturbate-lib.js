@@ -668,7 +668,11 @@ function sumLateMinutes(days) {
 // argumento y el placeholder lo resuelve; sin `{periodo}` en el texto (un
 // mensaje personalizado viejo, o el fallback sin periodo) el comportamiento
 // es igual a antes.
-const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia acumulado {periodo} y asume su propia seguridad social.';
+// Actualizado 2026-09-26 a pedido del usuario: agrega la consecuencia sobre
+// la meta (incentivo por tokens) al cruzar el umbral -- sin explicar qué es
+// la meta en el propio texto, solo que se pierde, porque las modelos ya
+// saben qué es y no hace falta un párrafo aparte para eso.
+const DEFAULT_OWES_ALERT_MESSAGE = '{modelo} superó el límite de retraso o inasistencia injustificada {periodo}: asume su propia seguridad social y pierde el acceso a la meta.';
 
 function resolveOwesAlertMessage(template, username, periodo) {
   let t = (template && String(template).trim()) || DEFAULT_OWES_ALERT_MESSAGE;

@@ -2481,6 +2481,101 @@ una llegada reportada sin validar 15+ minutos contra una cuenta `qa_temp_*`
 real y confirmar que se auto-valida con el `late_minutes` correcto y llega
 el push.
 
+## Tres arreglos de UX en Asistencia + mensaje de seguridad social (2026-09-26)
+
+Pedido en varios mensajes seguidos, con capturas reales cada vez.
+
+**1. BUG REAL: filas de "Jornadas de la quincena" con huecos gigantes en
+`asistencia.html`.** Reportado con capturas: cada fila de la tabla medía
+70-100px con casi todo el espacio vacío, y al desplazar de lado el texto
+parecía "no coincidir" con su columna. Diagnosticado con Chromium real
+(no adivinado): la columna "Corregir" tiene hasta 4 botones (Editar hora /
+Justificar retraso / Reiniciar / Borrar, el cuarto agregado el 2026-09-23)
+dentro de `.fix-actions`, que tenía `flex-wrap: wrap` + `min-width: 200px`
+— con 4 botones eso envuelve a 2 líneas, y como todas las celdas de una
+fila de tabla comparten la misma altura, esa columna (aunque quede fuera de
+vista al desplazar la tabla) infla la fila ENTERA a 70-100px, dejando las
+columnas visibles (fecha, entrada...) con su texto arriba y un hueco vacío
+abajo. Medido con Playwright antes/después: filas de 73-103px con
+`flex-wrap: wrap` bajaron a 38-54px con `flex-wrap: nowrap` (sin
+`min-width`, ya no hace falta — la tabla ya se desplaza de lado a
+propósito, así que la columna Corregir simplemente se vuelve más ancha, no
+más alta). Captura de pantalla propia contra datos de prueba confirmó el
+arreglo visualmente antes de hacer push.
+
+**2. Incoherencia real en `asistencia.html`: selectores de modelo
+duplicados.** La hoja ya tiene UN selector "Modelo" arriba (`el.filtro`,
+título "Hoja de asistencia — <modelo>") que decide toda la página desde el
+2026-09-22 (sin "Todas"). Pero "Agregar o corregir hora manualmente" y
+"Marcar falta" tenían cada una su PROPIO `<select>` de modelo
+(`manualUser`/`faltaUser`), independiente del de arriba — reportado con
+capturas reales mostrando el encabezado en `amaranta_f00x` mientras esas
+dos cards mostraban `abigail_f00x` (el default alfabético de un select sin
+tocar). Como la tabla de abajo YA es siempre de una sola modelo (la del
+selector de arriba), esos dos selects eran 100% redundantes. Se borraron
+del todo — `manualUser`/`faltaUser` ya no existen ni en el HTML ni en el
+`el` map — y `guardarManual()`/`guardarFalta()` ahora leen `el.filtro.value`
+directo. `manualPrefill(workDate)` perdió el parámetro `username` (ya no
+hace falta: el botón "Editar hora" de una fila siempre pertenece a la
+modelo que ya está seleccionada arriba, nunca a otra).
+**Esto también responde "dónde están las excusas médicas":** desde la
+fusión Excusas+Justificaciones del 2026-09-22, viven dentro de
+"Justificantes escritos", filtradas por la MISMA modelo del selector de
+arriba — para verlas, elegí ahí a la modelo que subió la excusa (ej.
+kitty_f00x) y bajá hasta esa card; ya no hay una card separada "Excusas
+médicas".
+**No se tocó** el mismo patrón en `index.html` (Modelos/Extras/Cuentas
+siguen mostrando todas las modelos a la vez, y Config sigue con selects
+independientes por tarjeta) — ninguna captura ni pedido apuntó a esas
+pantallas esta vez, y son casos distintos (dashboards/ajustes de más de una
+modelo a la vez, no "la hoja de una sola modelo").
+
+**3. Textos de descripción acortados** (pedido explícito: "eliminar esa
+explicación extensa y ser resumido... en todas"). Se acortaron las
+descripciones largas bajo el título de: "Mensaje de seguridad social por
+modelo", "Horarios y umbral", "Confirmación de extras y recuperaciones",
+"Salud del sistema" (esta última además dejó de mencionar la sesión de
+Claude/cuota como razón interna — mismo criterio ya establecido en este
+archivo de no meter razonamiento de ingeniería en la copy del producto),
+"Justificaciones" (vista modelo), "Desprendible del estudio", y en
+`asistencia.html` las de "Agregar o corregir hora manualmente" y "Marcar
+falta" (esta última bajó de 3 oraciones a 1). Margen de los botones
+"Guardar"/"Marcar falta" en esas dos cards subido de 12px a 16px para que
+no queden pegados al campo de arriba.
+
+**4. Mensaje predeterminado de seguridad social, ampliado.** Pedido
+explícito: agregar que además de asumir su propia seguridad social, la
+modelo pierde el acceso a "la meta" (el incentivo por tope de tokens) —
+**sin explicar en el texto qué es la meta**, porque eso es contexto interno
+para quien programa, no algo que haga falta explicarle a una modelo del
+estudio. `DEFAULT_OWES_ALERT_MESSAGE` (`chaturbate-lib.js`) pasó de
+"...superó el límite de retraso o inasistencia acumulado {periodo} y asume
+su propia seguridad social." a "...superó el límite de retraso o
+inasistencia injustificada {periodo}: asume su propia seguridad social y
+pierde el acceso a la meta." (corregido "acumulada" → "injustificada": el
+pedido decía "inasistencia justificada", pero una inasistencia JUSTIFICADA
+nunca penaliza en este sistema — ver `justified`/`late_excused` — así que
+tiene que haber sido un error de dictado; "injustificada" es la única
+lectura consistente con cómo funciona el resto del código). Esto es solo
+el DEFAULT — una modelo con mensaje personalizado en
+`cb_attendance_schedule.owes_message` no se ve afectada. El placeholder del
+textarea en `index.html` (`attOwesMsg`) se actualizó a juego para no quedar
+desincronizado del texto real.
+
+`npm test`: 134/134 (2 tests de `resolveOwesAlertMessage` actualizados al
+nuevo default — comprobaban la palabra "acumulado" que ya no está en esa
+posición del texto — más 1 test nuevo confirmando que el default menciona
+la meta). Verificado con Chromium real (Playwright global en
+`/opt/node22/lib/node_modules/playwright`, no está en el `package.json` del
+proyecto): server estático local sirviendo `public/`, `/api/attendance`
+interceptado con datos de prueba inventados calcados de la estructura real
+(nunca datos reales), captura de pantalla completa de `asistencia.html`
+confirmando visualmente que el selector único arriba controla todo, las
+filas de la tabla quedaron compactas, y las descripciones cortas se ven
+bien. **Sigue pendiente probar de verdad** contra el Supabase real con
+datos reales de producción — misma limitación de siempre en este
+contenedor (sin `env.bat`/credenciales de producción).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

@@ -833,12 +833,20 @@ describe('resolveOwesAlertMessage', () => {
   test('el default con periodo "la quincena pasada" no dice "esta quincena"', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x', 'la quincena pasada');
     assert.match(r, /^tamar4_f00x /);
-    assert.match(r, /acumulado la quincena pasada/);
+    assert.match(r, /injustificada la quincena pasada/);
     assert.doesNotMatch(r, /esta quincena/);
   });
   test('sin periodo explícito, el default sigue diciendo "esta quincena" (compatibilidad)', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
-    assert.match(r, /acumulado esta quincena/);
+    assert.match(r, /injustificada esta quincena/);
+  });
+  // Pedido 2026-09-26: el default ahora también avisa que pierde el acceso
+  // a la meta (incentivo por tokens) al cruzar el umbral, sin explicar en
+  // el texto qué es "la meta" -- eso ya lo sabe cualquier modelo del
+  // estudio, no hace falta un parrafo aparte en la propia UI.
+  test('el default menciona que se pierde el acceso a la meta, sin explicar qué es', () => {
+    const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
+    assert.match(r, /pierde el acceso a la meta/);
   });
   test('mensaje personalizado con {periodo} lo resuelve igual que {modelo}', () => {
     const r = lib.resolveOwesAlertMessage('{modelo}: debe {periodo}.', 'kitty_f00x', 'la quincena pasada');
