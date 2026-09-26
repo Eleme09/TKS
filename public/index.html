@@ -3497,13 +3497,15 @@
     refresh();
     refreshShifts();
     if (pollTimer) clearInterval(pollTimer);
-    // 1 min, no 4s (2026-09-26): con 7 modelos + admin + CEO conectados casi
-    // todo el día, el poll de 4s ya había pasado el plan gratis de Supabase
-    // en Egress (12.6/5 GB) y Log Ingestion (5.41/1 GB) del mes. Esto no
-    // toca el registro de propinas en vivo (va por otro lado) ni las
-    // notificaciones push (llegan al instante igual) — solo qué tan rápido
-    // se refresca lo que ya está en pantalla.
-    pollTimer = setInterval(function () { refresh(); refreshShifts(); }, 60000);
+    // 3 min, no 4s ni 1 min (2026-09-26, segunda pasada): con 7 modelos +
+    // admin + CEO conectados casi todo el día, el poll de 4s ya había pasado
+    // el plan gratis de Supabase en Egress y Log Ingestion. Se bajó primero
+    // a 1 min; con el grace period de Supabase venciendo el 27, se apretó
+    // más para dejar el mayor margen posible. Esto no toca el registro de
+    // propinas en vivo (va por otro lado) ni las notificaciones push
+    // (llegan al instante igual) — solo qué tan rápido se refresca lo que
+    // ya está en pantalla.
+    pollTimer = setInterval(function () { refresh(); refreshShifts(); }, 180000);
     startBannerPhraseRotation();
   }
 

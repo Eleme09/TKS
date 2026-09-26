@@ -2835,6 +2835,27 @@ optimizar solo TKS puede no alcanzar. Fuera del alcance de esta sesión
 tocarlo (pedido explícito: no tocar `venta-webs`), pero vale que el
 usuario lo sepa para decidir si pausarlo temporalmente por su cuenta.
 
+**Corrección de esa misma hipótesis, verificada y descartada la misma
+tarde:** se chequeó `venta-webs` de verdad (`pg_stat_statements` de ese
+proyecto, solo lectura, sin tocar nada) — apenas 1.669 llamadas en 2 días,
+nada comparado con los millones de TKS. Pausarlo no habría ayudado en
+nada; se lo dijo así al usuario en vez de sugerir una acción inútil.
+
+**El usuario cortó en seco cualquier mención de plan pago** ("No tengo
+plata. Deja de persuadirme, solo soluciones") — la sección de arriba ya
+había mencionado subir a Pro como opción, y no se debe volver a traer el
+tema salvo que el usuario lo pida él mismo. Dos acciones más, ambas
+gratis, ambas ejecutadas en el momento:
+- **Polling de `index.html` bajado de 1 min a 3 min** (`pollTimer`,
+  mismo mecanismo, sin tocar nada más) — margen extra sin costo, ya que
+  no había ninguna urgencia real en mantenerlo en 1 min y quedaba a mitad
+  de camino del análisis original (3 min).
+- **Borrador de mensaje a soporte de Supabase**, dejado en el scratchpad
+  de la sesión (no en el repo, es contenido para el usuario, no código):
+  explica que la causa de raíz ya se corrigió y pide revisión/extensión
+  del plazo. Gratis, sin garantía de que funcione, pero es una vía real
+  que no depende de pagar.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
