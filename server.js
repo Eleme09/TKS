@@ -3623,15 +3623,25 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/attendance/justification' && req.method === 'POST') {
     const session = await requireSession(req, res);
     if (!session) return;
-    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos escriben justificaciones' });
+    if (session.role !== 'modelo' && session.role !== 'administrador') {
+      return sendJson(res, 403, { error: 'No autorizado' });
+    }
     let body;
     try { body = await readBody(req, ATTENDANCE_EXCUSE_BODY_LIMIT); } catch (e) { return sendJson(res, 400, { error: 'Archivo demasiado grande o inválido' }); }
+    let targetUsername = session.username;
+    if (session.role === 'administrador') {
+      const modelUsername = sanitizeUsername(typeof body.username === 'string' ? body.username : '');
+      if (!modelUsername) return sendJson(res, 400, { error: 'Elegí una modelo' });
+      const models = await sbFetchAllModels();
+      if (!models.some((m) => m.username === modelUsername)) return sendJson(res, 400, { error: 'Esa modelo no existe' });
+      targetUsername = modelUsername;
+    }
     const text = typeof body.body === 'string' ? body.body.trim().slice(0, 1000) : '';
     if (!text) return sendJson(res, 400, { error: 'Escribe la justificación' });
     const kinds = ['retraso', 'internet', 'conexion', 'room', 'salud', 'salida_temprano', 'otro'];
     const kind = kinds.includes(body.kind) ? body.kind : 'otro';
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
-    const row = { username: session.username, work_date: workDate, kind, body: text };
+    const row = { username: targetUsername, work_date: workDate, kind, body: text };
     const hasFile = typeof body.excuse_content_base64 === 'string' && body.excuse_content_base64.length > 0;
     if (hasFile) {
       const filename = typeof body.excuse_filename === 'string' ? body.excuse_filename.trim().slice(0, 200) : '';
@@ -3647,7 +3657,9 @@ async function handleRequest(req, res) {
     }
     const ok = await sbInsertAttendanceJustification(row);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar la justificación' });
-    if (hasFile) {
+    if (session.role === 'administrador') {
+      await sbLogAudit(session, 'attendance_justification_admin_create', targetUsername, { kind, work_date: workDate, has_file: hasFile });
+    } else if (hasFile) {
       await sbLogAudit(session, 'attendance_justification_excuse_upload', session.username, { filename: row.excuse_filename, size_bytes: row.excuse_size_bytes });
       sendPushToRole(['administrador', 'ceo'], session.username + ' subió una excusa médica.', { tag: 'placer-asistencia-excusa' }).catch(() => {});
     }

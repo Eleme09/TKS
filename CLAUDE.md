@@ -2856,6 +2856,98 @@ gratis, ambas ejecutadas en el momento:
   del plazo. Gratis, sin garantía de que funcione, pero es una vía real
   que no depende de pagar.
 
+## El 402 de Supabase sí llegó — caída real de ~34h, recuperada sola (2026-09-28/10-01)
+
+Pasó exactamente lo que se temía: la organización siguió pasada de cuota
+después del grace period y Supabase empezó a devolver HTTP 402 en TODA la
+API REST (PostgREST) del proyecto — no solo escrituras, también lecturas,
+confirmado pegándole directo a la API con la misma anon key que usa
+`server.js`: `{"message":"Service for this project is restricted due to
+the following violations: exceed_egress_quota..."}`. Empezó
+~2026-09-28 22:32 UTC (confirmado por el primer "FALLO GUARDANDO tip" en
+logs y por que las 7 modelos dejaron de actualizar balance/Stripchat
+exactamente a esa hora) y se resolvió sola, sin ninguna acción de nuestro
+lado, en algún momento entre el 30 y la madrugada del 1 de octubre (primera
+escritura nueva confirmada: 2026-10-01 ~02:22-03:07 UTC) — coincide con el
+reseteo del ciclo de facturación que Supabase había anunciado para el 30.
+**Lección real para la próxima vez que esto pase:** mi propio login daba
+"usuario o contraseña incorrectos" con la cuenta real del usuario durante
+la caída, y casi lo diagnostico mal — probé primero con un usuario
+inexistente y como un 402 y un "no existe" dan la MISMA respuesta externa
+(`sbFindAdmin`/`sbFindModelAuth` hacen `if (!r.ok) return null`, sin
+loguear el motivo), esa prueba no sirve para distinguir "la API está caída"
+de "la contraseña está mal". La prueba real es pegarle directo a
+`{SUPABASE_URL}/rest/v1/...` con la anon key y mirar el status code, no
+usar el login de la app como proxy.
+
+**Qué quedó realmente perdido y qué no, confirmado con datos reales (no
+supuesto):**
+- **Asistencia**: el 28 el sistema siguió andando hasta la tarde/noche (las
+  7 modelos ya tenían su entrada normal reportada ese día) — la caída real
+  de asistencia es **solo 29 y 30 de septiembre**, y solo para las modelos
+  que no alcanzaron a reportar antes de las 22:32 UTC del 28. `abigail_f00x`
+  y `amaranta_f00x` sí lograron reportar el 29/30 (conectividad parcial,
+  intermitente) — las demás (`conni_f00x`, `jax_f00x`, `kitty_f00x`,
+  `pinky_f00x`, `tamar4_f00x`) no tienen fila en `cb_attendance_days` para
+  esos días. **No se inventó ningún dato para rellenar ese hueco** — hace
+  falta que el admin cargue las horas reales a mano vía
+  `/api/attendance/day/edit` con la hora que cada modelo reportó por
+  WhatsApp durante la caída, no asumir un horario uniforme.
+- **Tokens de Chaturbate**: intenté la reconciliación automática (vía
+  `cb_balance_ticks`) antes de pedir CSV, tal como pide `resolveChaturbateTokens`.
+  **No alcanza por sí sola** — Chaturbate vacía el balance de cada modelo
+  TODOS LOS DÍAS a las 04:30 UTC (23:30 Colombia), y durante la caída no se
+  pudo capturar ningún tick de balance antes de esos vaciados (el último
+  tick bueno de la mayoría es de la tarde/noche del 28, antes de que
+  empezara la caída) — hubo 2-3 vaciados ciegos por modelo (noches del 28,
+  29 y 30) sin ningún registro de cuánto había justo antes. Confirmado con
+  SQL real: las 7 modelos tienen el mismo hueco en `cb_balance_ticks` entre
+  el 28 de tarde y el 1 de octubre de madrugada. **La única forma real de
+  recuperar esos tres días es el CSV de "historial de transacciones" de
+  Chaturbate, por modelo**, vía `/api/chaturbate-csv/upload` — este
+  endpoint **no tiene UI** (se removió junto con "Otros ingresos de
+  Chaturbate", ver sección de 2026-09-15, pero el upload de CSV es un
+  endpoint aparte que sigue intacto) — hay que llamarlo directo con curl
+  usando la sesión de un admin logueado. Si una futura sesión necesita
+  volver a hacer esto: el endpoint acepta `{username, csvText}`, valida
+  contra quincenas completamente cubiertas por el rango de fechas del
+  archivo, y el CSV de Chaturbate normalmente solo cubre ~30 días — pedirlo
+  pronto, no dejarlo pasar.
+- **Stripchat**: se recuperó solo, sin intervención — el sync trae el
+  acumulado de la quincena desde la API de Stripchat, no un log de eventos,
+  así que no tiene el mismo problema de "vaciado diario ciego" que
+  Chaturbate.
+- **No hizo falta reiniciar nada**: los pollers de Chaturbate/Stripchat se
+  recuperaron solos apenas Supabase volvió a aceptar escrituras (ya tienen
+  reintentos/backoff incorporados desde antes) — confirmado con
+  `last_balance_at`/`cb_stripchat_earnings.updated_at` frescos para las 7
+  modelos sin tocar nada. Forzar un restart de los trackers en este punto
+  no habría arreglado nada más rápido y sí corre el riesgo real ya
+  documentado de pollers zombie si no se hace con el patrón correcto de
+  `startTracker`.
+
+## Admin ahora puede subir una justificación de asistencia por una modelo (2026-10-01)
+
+Pedido explícito, directamente relacionado con la caída de arriba: con el
+login roto, las modelos reportaban su hora por WhatsApp y no había forma de
+dejar esa justificación en el sistema salvo que ella jurísto rendiera y
+iniciara sesión. `POST /api/attendance/justification` aceptaba
+`session.role !== 'modelo'` como el único 403 — ahora también acepta
+`administrador` (no `ceo`, no se pidió): si el que llama es admin, toma
+`body.username` (validado contra `cb_models`, mismo patrón que
+`/api/chaturbate-csv/upload`) en vez de `session.username`. El audit log
+registra `attendance_justification_admin_create` con la modelo real como
+`target` — distinto de `attendance_justification_excuse_upload` (el de
+autoservicio), para no mezclar "la modelo subió esto" con "el admin lo
+cargó por ella". No se manda push en el caso admin (el push existente es
+para avisarle a admin/ceo que UNA MODELO subió algo — no tiene sentido
+avisarle al propio admin de su propia acción). **Sin UI todavía** — se pidió
+la capacidad en el backend primero; si hace falta el botón en
+`asistencia.html`, es un formulario más junto a "Agregar o corregir hora
+manualmente" (mismo selector de modelo ya existente en esa página).
+`npm test`: 134/134 sin cambios (es orquestación, no toca
+`chaturbate-lib.js`).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
