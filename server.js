@@ -3011,6 +3011,31 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { period: { label: period.label }, entries });
   }
 
+  // Sync puntual contra la API en vivo de Stripchat para UNA modelo y UNA
+  // quincena (por defecto la anterior, periodIndex=1) -- a diferencia de
+  // pollStripchatEarnings (todas las modelos, solo la quincena actual, cada
+  // 10 min), esto es para el caso de una modelo recien agregada que ya
+  // trabajaba antes de que el tracker existiera para ella.
+  if (parsed.pathname === '/api/stripchat/sync-live' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    if (!STRIPCHAT_ENABLED) return sendJson(res, 400, { error: 'Stripchat no está configurado (faltan las credenciales de la API)' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
+    const models = await sbFetchAllModels();
+    if (!models.some((m) => m.username === username)) return sendJson(res, 400, { error: 'Esa modelo no existe' });
+    const idx = Math.min(2, Math.max(0, parseInt(body.periodIndex, 10) || 1));
+    const period = getQuincenaHistory(3, Date.now())[idx];
+    const tokens = await fetchStripchatModelEarnings(username, period.start, period.end);
+    if (tokens == null) return sendJson(res, 400, { error: 'Stripchat no respondió válido para esa modelo/período' });
+    const ok = await sbUpsertStripchatEarningsBatch([{ username, period_start: period.startDate, period_end: period.endDate, tokens }], 'stripchat-api');
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar en la base de datos' });
+    await sbLogAudit(session, 'stripchat_sync_live', username, { period: period.label, tokens });
+    return sendJson(res, 200, { ok: true, username, period: period.label, tokens });
+  }
+
   if (parsed.pathname === '/api/stripchat/parse' && req.method === 'POST') {
     if (!(await requireAdmin(req, res))) return;
     let body;
