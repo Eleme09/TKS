@@ -732,6 +732,26 @@ async function sbListShifts() {
   return r.ok ? r.json() : [];
 }
 
+// Cache de 30s sobre sbListShifts(), mismo patron y misma razon que
+// buildModelReportsCached (ver su comentario): trae TODO el historial de
+// turnos sin filtro de fecha, y GET /api/shifts (la unica consulta real de
+// la pestana Extras) la llama sin cache en cada poll de 180s de hasta 9
+// sesiones -- 2026-10-01, confirmado en pg_stat_statements: 65.493 SELECT
+// en 31 dias, el tercer mas alto de todo el sistema. 30s es invisible para
+// un calendario de turnos (nadie necesita ver un turno nuevo con menos de
+// 30s de diferencia) y corta la gran mayoria de esas llamadas redundantes.
+let shiftsListCache = null;
+let shiftsListCacheAt = 0;
+const SHIFTS_LIST_CACHE_MS = 30000;
+
+async function sbListShiftsCached() {
+  const now = Date.now();
+  if (shiftsListCache && (now - shiftsListCacheAt) < SHIFTS_LIST_CACHE_MS) return shiftsListCache;
+  shiftsListCache = await sbListShifts();
+  shiftsListCacheAt = Date.now();
+  return shiftsListCache;
+}
+
 async function sbCreateShift(shiftDate, startTime, endTime, kind) {
   const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts', {
     method: 'POST',
@@ -3342,7 +3362,7 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/shifts' && req.method === 'GET') {
     const session = await requireSession(req, res);
     if (!session) return;
-    const shifts = await sbListShifts();
+    const shifts = await sbListShiftsCached();
     const blockInfo = await computeShiftBlockInfo(shifts, session);
     return sendJson(res, 200, { shifts, ...blockInfo });
   }
@@ -3415,7 +3435,10 @@ async function handleRequest(req, res) {
     if (!id) return sendJson(res, 400, { error: 'id inválido' });
     // No mueve plata: es un bloqueo de disciplina por 3 incumplimientos de
     // extras/recuperaciones en la quincena actual (ver isShiftClaimBlocked).
-    const allShifts = await sbListShifts();
+    // Cache de 30s aceptable aca (sbListShiftsCached) -- en el peor caso el
+    // bloqueo tarda hasta 30s en reflejarse, no es dinero ni algo que un
+    // reclamo aislado no pueda corregir despues a mano.
+    const allShifts = await sbListShiftsCached();
     const blockInfo = await computeShiftBlockInfo(allShifts, session);
     if (blockInfo.my_block && blockInfo.my_block.blocked) {
       return sendJson(res, 403, {
