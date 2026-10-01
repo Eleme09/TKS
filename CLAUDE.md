@@ -3047,6 +3047,69 @@ volumen; la lógica y el mecanismo ya están verificados (tests, sintaxis,
 `EXPLAIN` no corrido pero el patrón de índice es el estándar para este
 tipo de filtro).
 
+**Tercer lever, misma auditoría, cerrado el mismo día**: `cb_shifts`
+(SELECT, 65.493 llamadas en los mismos 31 días — tercero más alto después
+de `cb_tips`/`last_cursor`). `sbListShiftsCached()` (`server.js`), mismo
+patrón exacto que `buildModelReportsCached`: envuelve `sbListShifts()` sin
+tocarla, TTL 30s, aplicado en `GET /api/shifts` y `POST /api/shifts/claim`
+(el chequeo de bloqueo por incumplimientos tolera 30s de margen de sobra,
+no mueve plata). `checkShiftConfirmations()` (poller de 10 min) se dejó
+con la llamada sin cache a propósito — su propio intervalo ya es 20x más
+largo que el TTL, cachear ahí no aporta nada. `npm test`: 134/134 sin
+cambios.
+
+**Corrección del usuario sobre el alcance de esta auditoría — guía
+permanente para cualquier sesión futura que toque el tema de consumo de
+Supabase:** en algún punto de esta misma conversación interpreté mal un
+pedido de investigación y me puse a comparar Supabase contra otros
+proveedores (Neon, Railway, Render Postgres, etc.). El usuario cortó esto
+en seco: *"dije investigar las soluciones en el Supabase, no que me buscar
+las alternativas... me estoy refiriendo a que investigues las soluciones a
+este tipo de proyectos, no que me des alternativas a un Supabase."* — y
+más tarde, sobre el consumo en general: *"Debe ser error de código...
+investiga todos los errores de código que tú mismo puedas tener."* Conclusión
+para el futuro: **si el consumo de Supabase vuelve a dispararse, el primer
+sospechoso es código propio de este proyecto (queries sin cache, sin
+índice, o corriendo con más frecuencia de la necesaria) — no el proveedor.**
+No proponer migrar de Supabase ni comparar proveedores salvo que el usuario
+lo pida él mismo explícitamente; mantenerse en `pg_stat_statements` +
+auditoría de los call sites en `server.js`, igual que las tres pasadas de
+esta sesión.
+
+## Pequeño desfase CSV-vs-Chaturbate en el corte de quincena (2026-10-01)
+
+Al cargar el CSV histórico de Iris (recuperación post-caída, ver sección de
+arriba) y compararlo contra la propia pantalla "Period Earnings" de
+Chaturbate (captura real del usuario), el total calculado por
+`sumChaturbateCsvEarningsForPeriod` dio 6725 contra 6723 oficiales — 2
+tokens de diferencia. Causa: esa función corta el período comparando
+`r.dateStr` (los primeros 10 caracteres del timestamp crudo del CSV, SIN
+ajuste de zona horaria) contra `periodStartStr`/`periodEndStr` — si una
+transacción cae muy cerca de la medianoche del corte, puede quedar del lado
+equivocado según cuál zona horaria use Chaturbate internamente para su
+propio corte de período, que no necesariamente coincide con el corte literal
+del string de fecha del CSV. **Se guardó el número oficial de Chaturbate
+(6723), no el calculado por el CSV** — criterio para cualquier caso futuro:
+si el usuario tiene la pantalla oficial de Chaturbate, esa gana siempre
+sobre el cálculo local del CSV.
+
+**Chequeo de si esto afectó a las otras 6 modelos ya cargadas esta misma
+sesión (amaranta, abigail, kitty, tamar4, jax, conni, pinky):** revisadas
+las transacciones de cada CSV en la ventana 21:00-23:59 del 30 de
+septiembre (el borde real del corte). `amaranta_f00x`, `abigail_f00x`,
+`kitty_f00x` y `tamar4_f00x` solo tienen ahí líneas de "Tokens cashed out"
+(negativas, ya excluidas del cálculo por el filtro `r.change > 0`) — sin
+ninguna transacción POSITIVA pegada al borde, no hay mecanismo real para
+que el desfase les afecte. `jax_f00x`, `conni_f00x` y `pinky_f00x` sí
+tienen transacciones positivas en esa ventana (propinas/shows privados) —
+ahí el mismo desfase de un par de tokens es posible, pero **no se puede
+confirmar sin la captura de "Period Earnings" de Chaturbate de esas 3
+modelos**, igual que se hizo con Iris (no hay forma de verificarlo por mi
+cuenta — login a Chaturbate está prohibido por la regla de este archivo).
+Si el usuario quiere el número exacto al 100% para esas 3, hace falta que
+pida la misma captura; si no, el margen de error conocido es de un puñado
+de tokens, no una cifra que mueva el pago de forma relevante.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
