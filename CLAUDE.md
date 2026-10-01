@@ -2948,6 +2948,57 @@ manualmente" (mismo selector de modelo ya existente en esa página).
 `npm test`: 134/134 sin cambios (es orquestación, no toca
 `chaturbate-lib.js`).
 
+## Octava modelo (Iris_f00x) + corrección real sobre el throttle de cursor (2026-10-01)
+
+**Iris_f00x** sumada al estudio: `/api/start` (Events API token), `/api/chaturbate-stats-token/set`
+(Stats API, balance inicial confirmado: 2 tokens), contraseña temporal vía
+`/api/models/set-password`, turno Tarde. Mismo flujo de 4 pasos para
+cualquier modelo nueva futura — no hay un único endpoint "crear modelo",
+son estas 4 llamadas admin en secuencia.
+
+**Corrección real sobre el fix del 2026-09-26 (cache + throttle de cursor),
+pedida por el usuario ("verifica consumo de Supabase... ¿nos estamos
+pasando?") apenas se sumó la 8va modelo.** El throttle de `sbSaveCursor`
+(máximo 1 PATCH cada N ms por modelo) se puso en 10s esa vez, asumiendo
+que cortaría el volumen drásticamente. **Verificado con pg_stat_statements
+real que eso era falso**: con el sistema ya totalmente recuperado y las 8
+modelos activas normalmente (ventana de 16h, nada de outage de por medio),
+el conteo de PATCH a `last_cursor` seguía subiendo a ~57.000/día — casi
+igual a los ~59.000/día SIN NINGÚN control que había antes de toda la
+crisis del 402. Causa: el ritmo natural de eventos por modelo ya rondaba,
+en promedio, una frecuencia parecida a 10s, así que ese throttle rara vez
+llegaba a activarse de verdad — el 23.000/día que se había calculado el
+26 de septiembre como "ya arreglado" estaba midiendo un período que
+incluía las ~34h de la caída total (con el tráfico en cero), no el
+rendimiento real del throttle bajo operación normal. **Los otros dos
+arreglos de esa misma fecha SÍ funcionan como se pensó** (el cache de 20s
+sobre `buildModelReports` y el filtro de `userEnter`/`userLeave` en
+`cb_unhandled_events`, este último confirmado en 0 inserciones nuevas
+desde que se desplegó) — el error de cálculo fue específico al throttle de
+cursor, no a los tres cambios en bloque.
+
+**Fix real aplicado**: `CURSOR_SAVE_MIN_INTERVAL_MS` subido de 10s a 60s
+— baja el techo real de 8.640/día/modelo a 1.440/día/modelo. Sigue siendo
+100% seguro por el mismo motivo de siempre (documentado junto a la
+constante y junto a `sbSaveCursor`): el `UNIQUE(username, event_id)` de
+`cb_tips`/`cb_broadcast_events` bloquea cualquier evento reenviado tras un
+resume con cursor algo viejo, así que no hay forma de duplicar plata
+espaciando más el guardado — lo único que se arriesga es reenviar un
+puñado de eventos ya vistos que la base ya sabe rechazar.
+`npm test`: 134/134 sin cambios (no es lógica pura, no toca
+`chaturbate-lib.js`).
+
+**Lo que sigue sin poder verificarse desde este contenedor, decirlo
+claro**: no hay ninguna herramienta MCP que muestre "GB de Egress/Log
+Ingestion consumidos en lo que va de este ciclo" — solo `pg_stat_statements`
+(conteo y tiempo de ejecución de queries, no bytes de red ni líneas de
+log reales) y el dashboard de Supabase, al que esta sesión no tiene
+acceso visual. Si se vuelve a pedir "revisa el consumo", el método es
+este: comparar el conteo de `pg_stat_statements` de las queries más
+pesadas contra un checkpoint anterior ya documentado (hay varios en este
+archivo, con fecha), nunca asumir que un número aislado sin punto de
+comparación significa algo.
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

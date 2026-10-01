@@ -127,11 +127,17 @@ const BALANCE_NORMAL_EVERY_TICKS = 6;       // fuera de la ventana: cada 2 min
 // extra: era solo la forma mas rapida de que nos bloquearan.
 const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
 // Cuanto esperar como minimo entre PATCH de last_cursor por modelo en
-// pollLoop (ver el comentario junto a sbSaveCursor). 10s es un margen
-// trivial para el resume-desde-cursor (no hay perdida de dinero posible,
-// solo un puñado de eventos ya vistos reenviados, bloqueados por el
-// UNIQUE(username, event_id) de cb_tips/cb_broadcast_events).
-const CURSOR_SAVE_MIN_INTERVAL_MS = 10 * 1000;
+// pollLoop (ver el comentario junto a sbSaveCursor). Subido de 10s a 60s
+// el 2026-10-01: verificado con pg_stat_statements que 10s casi no frenaba
+// nada en la practica (el ritmo natural de eventos por modelo ya rondaba
+// esa frecuencia, asi que el throttle rara vez llegaba a activarse --
+// ~57.000 PATCH/dia con 8 modelos, casi igual a los ~59.000/dia sin
+// ningun control de antes de la crisis del 402). 60s sigue siendo un
+// margen trivial para el resume-desde-cursor (no hay perdida de dinero
+// posible, solo un puñado de eventos ya vistos reenviados, bloqueados por
+// el UNIQUE(username, event_id) de cb_tips/cb_broadcast_events) y baja el
+// techo real a 1.440/dia/modelo en vez de 8.640/dia/modelo.
+const CURSOR_SAVE_MIN_INTERVAL_MS = 60 * 1000;
 // Si la API contesta 403/429 (limite de consultas), dejar de insistir por un
 // rato en vez de seguir golpeando: ese dia se siguio consultando en vano
 // durante 17 minutos, lo que probablemente estiro el bloqueo.
