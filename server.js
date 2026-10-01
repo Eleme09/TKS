@@ -2077,7 +2077,17 @@ async function pollStripchatEarnings() {
 // mas fresco que esto.
 let modelReportsCache = null;
 let modelReportsCacheAt = 0;
-const MODEL_REPORTS_CACHE_MS = 20000;
+// Subido de 20s a 60s el 2026-10-01: revisando el historial completo de
+// pg_stat_statements (31 dias desde el ultimo reset), las SELECT a
+// cb_tips/cb_balance_ticks/cb_shifts/cb_stripchat_earnings/
+// cb_chaturbate_extra_earnings/cb_chaturbate_period_base -- las 6 tablas
+// que buildModelReports() lee en cada corrida -- sumaban cientos de miles
+// de llamadas y cb_tips sola acumulaba mas tiempo de ejecucion que
+// cualquier otra consulta del sistema. El poll del frontend ya esta en
+// 180s (ver pollTimer en index.html) -- un cache de 20s dejaba mucho
+// margen sin usar. 60s sigue siendo invisible para un dashboard de
+// tokens/pago y corta de mas el numero de rebuilds reales por dia.
+const MODEL_REPORTS_CACHE_MS = 60000;
 
 async function buildModelReportsCached() {
   const now = Date.now();

@@ -2999,6 +2999,54 @@ pesadas contra un checkpoint anterior ya documentado (hay varios en este
 archivo, con fecha), nunca asumir que un número aislado sin punto de
 comparación significa algo.
 
+## Revisión completa de pg_stat_statements (31 días) — segundo lever real encontrado (2026-10-01)
+
+Pedido explícito del usuario tras el fix del throttle de arriba: "revisa
+todos los datos históricos y da una solución de acuerdo a ello". Se agrupó
+`pg_stat_statements` completo (desde el `stats_reset` del 31 de agosto, 31
+días) por tabla y tipo de operación, ordenado por `calls` y por tiempo total
+de ejecución — no solo las 2-3 queries que ya se conocían de la crisis.
+
+**Hallazgo real, no estaba en los análisis anteriores**: `SELECT` a
+`cb_tips` acumulaba **840 segundos de tiempo de ejecución total** — más que
+cualquier otra consulta del sistema, incluida la UPDATE de `last_cursor`
+(que gana en cantidad de llamadas pero es barata por llamada, 0.169ms).
+Junto con ella, `cb_balance_ticks`, `cb_shifts`, `cb_stripchat_earnings`,
+`cb_chaturbate_extra_earnings` y `cb_chaturbate_period_base` tenían todas
+entre 45.000 y 150.000 SELECT — las mismas 6 tablas que `buildModelReports()`
+lee en una sola corrida, confirmando que el patrón es uno solo: esa función
+se sigue recalculando con más frecuencia de la necesaria.
+
+**Dos arreglos aplicados, ambos de bajo riesgo y verificables:**
+
+1. **`MODEL_REPORTS_CACHE_MS` subido de 20s a 60s** (server.js, mismo
+   mecanismo de `buildModelReportsCached()` del 2026-09-26, sin tocar su
+   lógica). El poll del frontend ya está en 180s (`pollTimer`,
+   `index.html`) — un cache de 20s dejaba la mayor parte de ese margen sin
+   aprovechar. 60s sigue siendo invisible para un dashboard de tokens/pago,
+   igual que se razonó la primera vez con 20s.
+2. **Dos índices nuevos en Supabase** (`add_created_at_indexes_for_studio_wide_range_scans`,
+   vía `apply_migration`): `idx_cb_tips_created_at` en `cb_tips(created_at)`
+   e `idx_cb_balance_ticks_sampled_at` en `cb_balance_ticks(sampled_at)`.
+   Causa real del costo por llamada alto en `cb_tips` (5.7ms, el más caro
+   de las consultas frecuentes): `sbFetchTipsInRange`/
+   `sbFetchBalanceTicksInRange` filtran por fecha para TODAS las modelos a
+   la vez, sin `username` (ver el bug de dinero del 2026-09-11, por diseño
+   no filtran por modelo) — el único índice que ya existía en `cb_tips`
+   empieza por `username`, así que Postgres no podía usarlo para un rango
+   que no lo incluye y terminaba escaneando la tabla entera. Un índice
+   simple sobre la columna de fecha sola resuelve esto. Migración pura,
+   sin cambio de datos ni de comportamiento — mismo patrón que el "Cuarto
+   arreglo fácil de la auditoría" del 2026-09-16.
+
+`npm test`: 134/134 sin cambios (ninguno de los dos arreglos es lógica
+pura). **No verificado con una medición de "antes/después" en vivo** —
+igual que con el throttle de cursor, haría falta otro checkpoint de
+`pg_stat_statements` más adelante para confirmar cuánto bajó de verdad el
+volumen; la lógica y el mecanismo ya están verificados (tests, sintaxis,
+`EXPLAIN` no corrido pero el patrón de índice es el estándar para este
+tipo de filtro).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked
