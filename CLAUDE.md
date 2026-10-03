@@ -3110,6 +3110,95 @@ Si el usuario quiere el número exacto al 100% para esas 3, hace falta que
 pida la misma captura; si no, el margen de error conocido es de un puñado
 de tokens, no una cifra que mueva el pago de forma relevante.
 
+## Simplificado "Marcar falta": un solo campo en vez de motivo+especificar+justificante (2026-10-03)
+
+Pedido explícito con captura real: "La logica de justificar y especificar hace
+lo mismo. Solo deja el justificante ya que sale dos veces en hoja y con una
+palabra basta." El formulario tenía un select "Motivo" (3 opciones, una
+"Otro" que abría un input "Especificar motivo") MÁS, si se marcaba "¿Envió
+justificante?", un textarea "Justificante" aparte — dos campos de texto para
+describir lo mismo. `public/asistencia.html`: se borraron `faltaMotivo`/
+`faltaMotivoOtroWrap`/`faltaMotivoOtro`/`faltaJustificanteWrap` del HTML y del
+mapa `el`; queda un solo `faltaJustificanteTexto` SIEMPRE visible (no detrás
+del checkbox) + el checkbox "¿Envió justificante?" (que sigue existiendo,
+controla si penaliza o no — eso NO es redundante, es una decisión de negocio
+distinta de qué texto describe el día). `guardarFalta()` manda ese mismo
+texto como `note` (siempre) y como `justification_body` (si está marcado el
+checkbox) — antes había que escribirlo dos veces para el mismo caso ("Dia
+Rojo" en el motivo Y "Dia rojo" otra vez en el justificante, viéndose en la
+captura que disparó el pedido). **`server.js` no cambió** — `/api/attendance/day/no-show`
+ya aceptaba `note`/`justified`/`justification_body` como campos independientes;
+mandar el mismo texto en los dos ya resuelve la duplicación sin tocar el
+backend. `node -c` + `npm test` 134/134 sin cambios (fix 100% frontend).
+
+## "Entrar como ella" — admin accede a cualquier cuenta de modelo sin contraseña (2026-10-03)
+
+Pedido explícito: "poder darle click sobre [una modelo] e iniciar sin
+necesidad de contraseña a cualquier cuenta de modelo y poder volver a mi
+cuenta admin sin problema." Botón nuevo "Entrar como ella" en Cuentas →
+"Contraseñas y sesiones — modelos", junto a "Contraseña"/"Cerrar sesiones".
+
+**Solo `administrador`, no `ceo`** — decisión deliberada, no pedida así mismo
+por el usuario: esta card ya la ve CEO desde 2026-09-09 (puede resetear
+contraseña/forzar logout de modelos), pero tomar la cuenta COMPLETA sin que
+la modelo se entere es un nivel de acceso más alto que resetear su
+contraseña — se restringió más a propósito. Si se pide que CEO también lo
+tenga, es un cambio de permisos a pedir aparte, no algo que ya esté así.
+
+**Mecanismo — importante entender esto antes de tocar nada de sesiones**:
+las sesiones de este proyecto son un cookie firmado con HMAC
+(`SESSION_SECRET`) SIN estado en el servidor (`signSession`/`verifySession`,
+ver "Sesiones" arriba en server.js) — no hay tabla de sesiones activas donde
+guardar "la sesión admin quedó en pausa" mientras se usa la de la modelo. La
+solución: la identidad del admin que inició el préstamo viaja DENTRO del
+mismo cookie firmado, en un campo `admin_return: {type, username, role,
+gender}`. Como el cookie entero está firmado, nadie puede alterar ese campo
+desde el navegador sin invalidar la firma completa (verificado a propósito,
+ver abajo). Mientras dura el préstamo, la sesión actúa 100% como esa modelo
+— mismo `type`/`role`/`v` que si ella hubiera iniciado sesión con su propia
+contraseña — así que el admin ve EXACTAMENTE su panel (sin pestaña Cuentas,
+sin nada de más), ni un panel especial de "admin viendo a través de ella".
+
+- `POST /api/accounts/impersonate` `{username}` (admin-only): valida que la
+  modelo exista (`sbFindModelAuth`), firma un cookie nuevo tipo `model` con
+  su `session_version` actual + el `admin_return` embebido, y audita
+  (`admin_impersonate_start`, target la modelo).
+- `POST /api/accounts/stop-impersonation` (sin body): **no exige rol admin**
+  — exige que el cookie ACTUAL traiga `admin_return` (osea, que de verdad se
+  esté en un préstamo). Vuelve a traer la versión ACTUAL de la cuenta admin
+  (`getSessionAccountInfo`, no la que viajaba guardada desde que empezó el
+  préstamo) antes de firmar el cookie de vuelta — si en el medio alguien le
+  reseteó la contraseña o le forzó el logout a ESE admin, "volver" respeta
+  eso en vez de reabrirle una sesión vieja. Audita `admin_impersonate_end`
+  con el admin como actor y la modelo como target.
+- `GET /api/me` ahora devuelve `impersonating: {username: <admin>} | null`.
+  `index.html`: banda roja nueva (`#impersonateBanner`, mismo estilo
+  `.att-warning` que ya existía) entre el topbar y las pestañas, "ESTÁS
+  VIENDO COMO X" + botón "Volver a mi cuenta admin" — se muestra/oculta en
+  `showApp(session)` según ese campo. El botón está FUERA de cualquier tab
+  panel a propósito: tiene que verse sin importar en qué pestaña esté parado
+  (y mientras se está "siendo" la modelo, la pestaña Cuentas ni siquiera
+  existe para volver por ahí).
+
+**Verificado de verdad, no solo leído** (instancia `SOLO_UI=1` + un Supabase
+falso en otro puerto que devuelve hashes de contraseña reales para dos
+cuentas de prueba, igual al patrón ya usado en la sesión del freno de login
+del 2026-09-16) — con curl, los 10 casos: login admin → impersonar →
+`/api/me` confirma `role:modelo` + `impersonating` → volver → `/api/me`
+confirma `role:administrador` sin `impersonating`; una modelo real
+intentando `/api/accounts/impersonate` da 403; un admin que nunca impersonó
+llamando a `stop-impersonation` da 403 "No estás en una sesión prestada";
+**el cookie manipulado a mano (un carácter cambiado en el `admin_return`
+embebido) da 401** — confirma que no se puede forjar desde el navegador;
+**forzar el logout de la modelo MIENTRAS alguien la está impersonando
+invalida esa sesión prestada también** (mismo chequeo de `session_version`
+que ya protegía las sesiones normales, heredado gratis). Los audit log
+quedaron con el admin real como actor en los dos eventos. Además, capturas
+reales con Playwright confirmando visualmente la banda apareciendo/
+desapareciendo y que la vista impersonada es la vista real de modelo (sin
+pestaña Cuentas). `node -c` + `npm test` 134/134 sin cambios (ninguna lógica
+nueva es pura, todo vive en `server.js`/frontend).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

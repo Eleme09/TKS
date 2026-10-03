@@ -279,27 +279,15 @@
         <label for="faltaFecha">Día</label>
         <input id="faltaFecha" type="date">
       </div>
-      <div>
-        <label for="faltaMotivo">Motivo</label>
-        <select id="faltaMotivo">
-          <option value="No se presentó">No se presentó</option>
-          <option value="Retardo injustificado">Retardo injustificado</option>
-          <option value="otro">Otro (especificar)</option>
-        </select>
-      </div>
-      <div id="faltaMotivoOtroWrap" style="display:none;">
-        <label for="faltaMotivoOtro">Especificar motivo</label>
-        <input id="faltaMotivoOtro" type="text" maxlength="300">
-      </div>
       <div style="grid-column: 1 / -1;">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; text-transform:none; letter-spacing:normal;">
           <input type="checkbox" id="faltaJustificada" style="width:auto;">
           <span>¿Envió justificante? (si sí, no paga seguridad social por este día)</span>
         </label>
       </div>
-      <div id="faltaJustificanteWrap" style="display:none; grid-column: 1 / -1;">
+      <div style="grid-column: 1 / -1;">
         <label for="faltaJustificanteTexto">Justificante</label>
-        <textarea id="faltaJustificanteTexto" rows="2" maxlength="400" placeholder="ej: incapacidad médica adjunta, avisó con anticipación por..."></textarea>
+        <textarea id="faltaJustificanteTexto" rows="2" maxlength="400" placeholder="ej: Dia rojo, incapacidad médica, avisó con anticipación..."></textarea>
       </div>
     </div>
     <div class="fix-actions" style="margin-top:16px;">
@@ -403,11 +391,7 @@
     manualError: document.getElementById('manualError'),
     faltaCard: document.getElementById('faltaCard'),
     faltaFecha: document.getElementById('faltaFecha'),
-    faltaMotivo: document.getElementById('faltaMotivo'),
-    faltaMotivoOtroWrap: document.getElementById('faltaMotivoOtroWrap'),
-    faltaMotivoOtro: document.getElementById('faltaMotivoOtro'),
     faltaJustificada: document.getElementById('faltaJustificada'),
-    faltaJustificanteWrap: document.getElementById('faltaJustificanteWrap'),
     faltaJustificanteTexto: document.getElementById('faltaJustificanteTexto'),
     btnFaltaGuardar: document.getElementById('btnFaltaGuardar'),
     faltaError: document.getElementById('faltaError'),
@@ -694,36 +678,30 @@
   }
   el.btnManualGuardar.addEventListener('click', guardarManual);
 
-  el.faltaMotivo.addEventListener('change', function () {
-    el.faltaMotivoOtroWrap.style.display = el.faltaMotivo.value === 'otro' ? 'block' : 'none';
-  });
-  el.faltaJustificada.addEventListener('change', function () {
-    el.faltaJustificanteWrap.style.display = el.faltaJustificada.checked ? 'block' : 'none';
-  });
-
   async function guardarFalta() {
     el.faltaError.style.display = 'none';
     var username = el.filtro.value;
     var workDate = el.faltaFecha.value;
     if (!username || !workDate) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Elige el día.'; return; }
-    var note = el.faltaMotivo.value === 'otro' ? el.faltaMotivoOtro.value.trim() : el.faltaMotivo.value;
-    if (el.faltaMotivo.value === 'otro' && !note) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Especifica el motivo.'; return; }
+    // Pedido 2026-10-03: un solo campo de texto para todo -- antes había
+    // "Motivo"+"Especificar motivo" (lo que pasó) Y "Justificante" (lo mismo
+    // otra vez si justificaba), redundante. Ahora ese texto único sirve de
+    // `note` siempre y de `justification_body` cuando está marcado el
+    // checkbox -- ver la misma nota en server.js.
+    var texto = el.faltaJustificanteTexto.value.trim();
+    if (!texto) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Escribe qué pasó.'; return; }
     // Pedido 2026-09-17: separar la falta SIN justificar (paga seguridad
     // social, como siempre) de la falta CON justificante (queda tipificada
     // igual como falta, pero no penaliza) -- ver la nota junto a este mismo
     // campo en server.js.
     var justified = el.faltaJustificada.checked;
-    var justificationBody = justified ? el.faltaJustificanteTexto.value.trim() : '';
-    if (justified && !justificationBody) { el.faltaError.style.display = 'block'; el.faltaError.textContent = 'Escribe el justificante antes de guardar.'; return; }
     var r = await fetch('/api/attendance/day/no-show', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, work_date: workDate, note: note, justified: justified, justification_body: justificationBody }),
+      body: JSON.stringify({ username: username, work_date: workDate, note: texto, justified: justified, justification_body: texto }),
     });
     var res = await r.json().catch(function () { return {}; });
     if (!r.ok) { el.faltaError.style.display = 'block'; el.faltaError.textContent = res.error || 'No se pudo guardar'; return; }
-    el.faltaMotivoOtro.value = '';
     el.faltaJustificada.checked = false;
-    el.faltaJustificanteWrap.style.display = 'none';
     el.faltaJustificanteTexto.value = '';
     var d = await fetch('/api/attendance').then(function (x) { return x.ok ? x.json() : null; });
     if (d) { data = d; render(); }

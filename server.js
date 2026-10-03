@@ -2636,7 +2636,11 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/me' && req.method === 'GET') {
     const session = await getSession(req);
     if (!session) return sendJson(res, 401, { error: 'No autenticado' });
-    return sendJson(res, 200, { username: session.username, role: session.role, gender: session.gender || null, must_change_password: !!session.must_change_password });
+    return sendJson(res, 200, {
+      username: session.username, role: session.role, gender: session.gender || null,
+      must_change_password: !!session.must_change_password,
+      impersonating: session.admin_return ? { username: session.admin_return.username } : null,
+    });
   }
 
   // Invalida todas las sesiones abiertas de esta cuenta (este dispositivo incluido).
@@ -2836,6 +2840,71 @@ async function handleRequest(req, res) {
     await sbBumpSessionVersion(type, username);
     await sbLogAudit(session, 'force_logout', username, { type });
     return sendJson(res, 200, { ok: true });
+  }
+
+  // "Entrar como ella" (pedido 2026-10-03): el administrador entra a la
+  // cuenta de una modelo SIN su contraseña, para ver exactamente lo que ella
+  // ve, y puede volver a su propia cuenta admin despues sin volver a
+  // loguearse. Solo administrador -- a diferencia de resetear contraseña/
+  // forzar logout (admin+ceo desde 2026-09-09), esto es acceso total a la
+  // cuenta sin que la modelo se entere ni participe, así que se deja más
+  // restringido a propósito; si el usuario pide que CEO también lo tenga,
+  // es un cambio de permisos deliberado a pedir aparte.
+  //
+  // Mecanismo: las sesiones de esta app son un cookie firmado SIN estado en
+  // el servidor (ver signSession/verifySession arriba) -- no hay una tabla
+  // de sesiones activas donde "guardar" la sesion admin mientras se presta
+  // la de la modelo. En vez de eso, la identidad del admin que inicio el
+  // prestamo viaja DENTRO del mismo cookie firmado, bajo `admin_return` --
+  // como el cookie entero esta firmado con SESSION_SECRET, nadie puede
+  // alterar ese campo desde el navegador sin invalidar la firma completa.
+  // Mientras dura el prestamo, la sesion actua 100% como esa modelo (mismo
+  // `type`/`role`/`v` que si ella hubiera iniciado sesion con su propia
+  // contraseña) -- requireAdmin/requireAdminOrCeo la tratan igual que a
+  // cualquier modelo, asi que el admin ve exactamente su panel, ni mas ni
+  // menos. `/api/accounts/stop-impersonation` es la unica ruta que no exige
+  // rol admin -- exige que el cookie ACTUAL traiga `admin_return`.
+  if (parsed.pathname === '/api/accounts/impersonate' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const username = sanitizeUsername(body.username);
+    if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
+    const modelAuth = await sbFindModelAuth(username);
+    if (!modelAuth) return sendJson(res, 400, { error: 'Esa modelo no existe' });
+    const token = signSession({
+      type: 'model',
+      username,
+      role: 'modelo',
+      v: modelAuth.session_version || 1,
+      admin_return: { type: session.type, username: session.username, role: session.role, gender: session.gender || null },
+    });
+    setSessionCookie(res, token);
+    await sbLogAudit(session, 'admin_impersonate_start', username, {});
+    return sendJson(res, 200, { ok: true, username, role: 'modelo' });
+  }
+
+  if (parsed.pathname === '/api/accounts/stop-impersonation' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session || !session.admin_return) return sendJson(res, 403, { error: 'No estás en una sesión prestada' });
+    const back = session.admin_return;
+    // Se vuelve a traer la version/estado ACTUAL de la cuenta admin (no la
+    // que viajaba guardada en el cookie desde que empezo el prestamo) --
+    // si justo en el medio alguien le reseteo la contraseña o forzo su
+    // logout, "volver" respeta eso en vez de reabrirle una sesion vieja.
+    const adminInfo = await getSessionAccountInfo(back.type, back.username);
+    if (!adminInfo) return sendJson(res, 400, { error: 'Esa cuenta admin ya no existe' });
+    const token = signSession({
+      type: back.type,
+      username: back.username,
+      role: back.role,
+      gender: back.gender || null,
+      v: adminInfo.version,
+    });
+    setSessionCookie(res, token);
+    await sbLogAudit({ username: back.username, role: back.role }, 'admin_impersonate_end', session.username, {});
+    return sendJson(res, 200, { ok: true, username: back.username, role: back.role, must_change_password: adminInfo.mustChangePassword });
   }
 
   // ---- Tracking (solo administrador) ----

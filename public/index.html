@@ -713,6 +713,16 @@
       </div>
     </div>
 
+    <div class="att-warning" id="impersonateBanner" style="display:none; margin: 0 20px 16px;">
+      <div class="att-warning-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="att-warning-title">Estás viendo como <span id="impersonateUser"></span></div>
+        <div class="att-warning-body">Entraste a esta cuenta sin su contraseña desde Cuentas. <button type="button" id="btnStopImpersonate" class="btn-primary" style="margin-top:8px; padding:7px 14px; font-size:11.5px; display:block;">Volver a mi cuenta admin</button></div>
+      </div>
+    </div>
+
     <div class="tabnav" id="tabnav">
       <button class="tabbtn tabIcon" data-tab="modelos" id="tabBtnModelos" title="Modelos">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="var(--pink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-3.8 3.4-6.4 7.5-6.4s7.5 2.6 7.5 6.4"/></svg>
@@ -1241,6 +1251,9 @@
     btnEnablePush: document.getElementById('btnEnablePush'),
     btnLogoutEverywhere: document.getElementById('btnLogoutEverywhere'),
     btnLogout: document.getElementById('btnLogout'),
+    impersonateBanner: document.getElementById('impersonateBanner'),
+    impersonateUser: document.getElementById('impersonateUser'),
+    btnStopImpersonate: document.getElementById('btnStopImpersonate'),
     username: document.getElementById('username'),
     token: document.getElementById('token'),
     btnAdd: document.getElementById('btnAdd'),
@@ -2912,9 +2925,15 @@
       el.modelAccountsList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>';
       return;
     }
+    // "Entrar como ella" (pedido 2026-10-03) solo para administrador -- esta
+    // card también la ve ceo (desde 2026-09-09), pero tomar la cuenta de una
+    // modelo sin su contraseña es más sensible que resetearle la contraseña
+    // o cerrarle sesiones, así que se deja más restringido a propósito.
+    const puedeEntrarComo = currentRole === 'administrador';
     el.modelAccountsList.innerHTML = models.map(function (m) {
       return '<div class="admin-list-row"><span>' + escapeHtml(m.account) + ' <span class="role-badge modelo">modelo</span></span>' +
         '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
+        (puedeEntrarComo ? '<button class="btnImpersonate" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Entrar como ella</button>' : '') +
         '<button class="btnKeyModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
         '<button class="btnLogoutModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
         '</span></div>';
@@ -2925,6 +2944,33 @@
     el.modelAccountsList.querySelectorAll('.btnLogoutModel').forEach(function (btn) {
       btn.addEventListener('click', function () { forceLogoutAccount('model', btn.getAttribute('data-user')); });
     });
+    el.modelAccountsList.querySelectorAll('.btnImpersonate').forEach(function (btn) {
+      btn.addEventListener('click', function () { impersonateModel(btn.getAttribute('data-user')); });
+    });
+  }
+
+  async function impersonateModel(username) {
+    if (!(await uiConfirm('¿Entrar a la cuenta de "' + username + '" sin su contraseña? Vas a ver exactamente su panel; podés volver a tu cuenta admin cuando quieras.'))) return;
+    const r = await fetch('/api/accounts/impersonate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      uiToast(err.error || 'No se pudo entrar a esa cuenta', 'error');
+      return;
+    }
+    location.reload();
+  }
+
+  async function stopImpersonation() {
+    const r = await fetch('/api/accounts/stop-impersonation', { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(function () { return {}; });
+      uiToast(err.error || 'No se pudo volver a tu cuenta admin', 'error');
+      return;
+    }
+    location.reload();
   }
 
   async function forceLogoutAccount(type, username) {
@@ -2956,6 +3002,8 @@
     delete_account: 'eliminó la cuenta',
     logout_everywhere: 'cerró todas sus sesiones',
     force_logout: 'forzó el cierre de sesiones de',
+    admin_impersonate_start: 'entró a la cuenta de',
+    admin_impersonate_end: 'volvió a su cuenta admin desde la de',
     stripchat_earnings_save: 'guardó tokens de Stripchat pegados a mano',
     chaturbate_extra_earnings_save: 'guardó otros ingresos de Chaturbate a mano',
     chaturbate_csv_upload: 'subió un historial de transacciones de Chaturbate para',
@@ -3464,6 +3512,12 @@
     el.appArea.style.display = 'block';
     el.whoUser.textContent = session.username;
     el.whoRoleBadge.innerHTML = roleBadgeHtml(session.role, session.gender);
+    if (session.impersonating) {
+      el.impersonateUser.textContent = session.username;
+      el.impersonateBanner.style.display = 'flex';
+    } else {
+      el.impersonateBanner.style.display = 'none';
+    }
 
     const isAdmin = session.role === 'administrador';
     const isCeo = session.role === 'ceo';
@@ -3648,6 +3702,8 @@
     await fetch('/api/logout', { method: 'POST' });
     showLogin();
   });
+
+  el.btnStopImpersonate.addEventListener('click', stopImpersonation);
 
   el.btnLogoutEverywhere.addEventListener('click', async function () {
     const ok = await uiConfirm('Esto va a cerrar tu sesión en este y en cualquier otro dispositivo donde hayas iniciado sesión. ¿Continuar?');
