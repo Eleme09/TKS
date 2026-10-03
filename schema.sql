@@ -343,7 +343,7 @@ create index if not exists cb_attendance_days_user_date on public.cb_attendance_
 -- excuse_* son opcionales: una justificacion puede llevar un archivo adjunto
 -- (ej. la foto/PDF de una incapacidad medica) en vez de vivir en una tabla
 -- aparte -- fusionado 2026-09-22, ver CLAUDE.md. El archivo va en base64 en
--- la propia fila (tope 2.5 MB por archivo, validado en el servidor); para el
+-- la propia fila (tope 5 MB por archivo, validado en el servidor); para el
 -- volumen real de esto es mas simple que montar un bucket aparte, y si la
 -- tabla crece mucho esa es la señal para mudarlo.
 create table if not exists public.cb_attendance_justifications (

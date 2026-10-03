@@ -154,9 +154,10 @@ const BALANCE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
 // simple y no suma infraestructura nueva. El tope de 2.5 MB existe para que
 // la base no se llene con fotos de 12 MP; si alguna vez esto crece mucho, la
 // senal para mudarlo a almacenamiento de archivos es el tamaño de esa tabla.
-const ATTENDANCE_EXCUSE_MAX_BYTES = Math.round(2.5 * 1024 * 1024);
-// base64 infla ~33%, y ademas viaja dentro de un JSON: se deja margen.
-const ATTENDANCE_EXCUSE_BODY_LIMIT = 5 * 1024 * 1024;
+const ATTENDANCE_EXCUSE_MAX_BYTES = Math.round(5 * 1024 * 1024);
+// base64 infla ~33%, y ademas viaja dentro de un JSON: se deja margen
+// (5 MB reales de archivo ya pesan ~6.7 MB en base64 solo).
+const ATTENDANCE_EXCUSE_BODY_LIMIT = 7 * 1024 * 1024;
 // Hora de reloj real: \d{2}:\d{2} a secas dejaba pasar cosas como "25:99",
 // que Postgres despues rechaza con un 500 poco util para quien la escribio.
 const VALID_HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -3782,7 +3783,7 @@ async function handleRequest(req, res) {
       if (!filename) return sendJson(res, 400, { error: 'Falta el nombre del archivo' });
       if (!ATTENDANCE_EXCUSE_MIMES.includes(mime)) return sendJson(res, 400, { error: 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF' });
       const sizeBytes = Math.floor(body.excuse_content_base64.length * 3 / 4);
-      if (sizeBytes > ATTENDANCE_EXCUSE_MAX_BYTES) return sendJson(res, 400, { error: 'El archivo no puede pesar más de 2.5 MB' });
+      if (sizeBytes > ATTENDANCE_EXCUSE_MAX_BYTES) return sendJson(res, 400, { error: 'El archivo no puede pesar más de 5 MB' });
       row.excuse_filename = filename;
       row.excuse_mime_type = mime;
       row.excuse_size_bytes = sizeBytes;

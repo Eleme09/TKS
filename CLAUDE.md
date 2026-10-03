@@ -3199,6 +3199,54 @@ desapareciendo y que la vista impersonada es la vista real de modelo (sin
 pestaña Cuentas). `node -c` + `npm test` 134/134 sin cambios (ninguna lógica
 nueva es pura, todo vive en `server.js`/frontend).
 
+## Límite de excusas médicas subido de 2.5 MB a 5 MB (2026-10-03)
+
+Pedido explícito, preguntando si 5 MB "es muy pesado": no lo es para este
+caso (una foto de incapacidad médica desde el celular ya suele pesar
+2-4 MB sin comprimir, así que el tope viejo de 2.5 MB probablemente
+rechazaba fotos reales de cámara). `ATTENDANCE_EXCUSE_MAX_BYTES`
+(server.js) subió de 2.5 a 5 MB. **Ojo con esto si se vuelve a tocar**:
+hay un SEGUNDO límite, `ATTENDANCE_EXCUSE_BODY_LIMIT` — el tope del
+cuerpo HTTP completo que entra a `readBody`, no el tamaño del archivo —
+que también tuvo que subir (de 5 a 7 MB) porque el archivo viaja
+codificado en base64 dentro del JSON, y eso infla el tamaño real ~33%
+(5 MB de foto ≈ 6.7 MB en base64 solo, sin contar el resto del JSON). Si
+algún día se sube el tope de archivo de nuevo, estos dos números van
+juntos — subir solo `ATTENDANCE_EXCUSE_MAX_BYTES` sin tocar
+`ATTENDANCE_EXCUSE_BODY_LIMIT` habría dejado un rango roto (ej. con el
+viejo límite de 5 MB en el body, un archivo de 3.8-5 MB real pasaba la
+validación de tamaño de archivo pero el cuerpo HTTP ya lo cortaba antes de
+llegar, con el mensaje genérico "Archivo demasiado grande o inválido" en
+vez del mensaje real). Se actualizaron los 3 lugares con el número viejo
+hardcodeado: el mensaje de error del servidor, el check + mensaje del lado
+del cliente en `index.html` (el único archivo con formulario de subida —
+`asistencia.html` solo tiene el link de descarga, nunca subida) y el
+comentario de `schema.sql`.
+
+**Sobre el costo real de esto (el usuario no lo preguntó pero vale
+dejarlo escrito, dado el historial reciente de cuota de Supabase):** el
+archivo se guarda en base64 DENTRO de la fila de Postgres, no en un bucket
+aparte — así que cada excusa ahora puede pesar hasta ~6.7 MB en la base en
+vez de ~3.3 MB. Esto es tamaño de base de datos (`Database size`, hoy
+174/500 MB en el plan gratis), no Egress/Log Ingestion (lo que causó la
+caída de 402 de septiembre) — subir este límite no reintroduce ese
+problema, porque no es tráfico recurrente: una excusa se sube una vez y se
+descarga manualmente de vez en cuando, nunca en el polling de 3 minutos
+(`sbListAttendanceJustifications` excluye `excuse_content_base64` del
+select de siempre, a propósito, desde la fusión del 2026-09-22). El
+volumen real de excusas subidas en la vida del proyecto hasta ahora es
+bajo (un puñado), así que no hay riesgo inmediato — pero si esto se vuelve
+un hábito frecuente de varias modelos, el tamaño de la tabla es la señal
+a vigilar, no el tráfico.
+
+Verificado de verdad con la misma instancia `SOLO_UI=1` + Supabase falso
+de sesiones anteriores: tres archivos sintéticos (3.8 MB, 4.9 MB, 5.3 MB)
+contra `/api/attendance/justification` con sesión de modelo real — los dos
+primeros se aceptaron e insertaron con el `size_bytes` exacto esperado
+(3.800.001 y 4.900.002), el de 5.3 MB se rechazó con el mensaje nuevo ("no
+puede pesar más de 5 MB"). `node -c` + `npm test` 134/134 sin cambios (fix
+de límites, no toca `chaturbate-lib.js`).
+
 ## How this user likes to work
 
 Non-technical, moves fast, dislikes long back-and-forth or being asked

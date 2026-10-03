@@ -946,7 +946,7 @@
 
         <div class="card">
           <h3 class="card-title">Justificaciones</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Cuenta qué pasó y adjunta una excusa si aplica (foto o PDF, máx. 2.5 MB). Opcional.</div>
+          <div class="meta-small" style="margin-bottom:12px;">Cuenta qué pasó y adjunta una excusa si aplica (foto o PDF, máx. 5 MB). Opcional.</div>
           <label for="attJustKind">Motivo</label>
           <select id="attJustKind">
             <option value="retraso">Llegué tarde</option>
@@ -2548,7 +2548,7 @@
     const file = el.attJustFile.files && el.attJustFile.files[0];
     const payload = { kind: el.attJustKind.value, body: body };
     if (file) {
-      if (file.size > 2.5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 2.5 MB');
+      if (file.size > 5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 5 MB');
       const base64 = await new Promise(function (resolve, reject) {
         const reader = new FileReader();
         reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
