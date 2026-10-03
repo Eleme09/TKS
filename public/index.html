@@ -691,7 +691,7 @@
     <div class="topbar">
       <div class="who">Conectado como <b id="whoUser"></b> <span id="whoRoleBadge"></span></div>
       <div class="topbar-actions">
-        <a id="btnTienda" class="btnAnon" href="https://tienda.placerstudios.online/admin.html" title="Tienda" aria-label="Tienda" style="text-decoration:none;">
+        <a id="btnTienda" class="btnAnon" href="https://tienda.placerstudios.online/" title="Tienda" aria-label="Tienda" style="text-decoration:none;">
           <span class="btnAnon-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5.5 12.5V20h13v-7.5"/></svg></span>
           <span class="btnAnon-txt">Tienda</span>
         </a>
@@ -3676,6 +3676,45 @@
     } catch (e) {
       showLogin();
     }
+  })();
+
+  // Boton "Tienda": modelo va directo al autoservicio del cliente;
+  // administrador y CEO eligen entre cliente y panel del dueño.
+  (function () {
+    var TIENDA_CLIENTE = 'https://tienda.placerstudios.online/';
+    var TIENDA_DUENO = 'https://tienda.placerstudios.online/admin.html';
+    var btn = document.getElementById('btnTienda');
+    if (!btn) return;
+    function closeChooser() {
+      var o = document.getElementById('tiendaChooser');
+      if (o) o.remove();
+    }
+    function openChooser() {
+      closeChooser();
+      var o = document.createElement('div');
+      o.id = 'tiendaChooser';
+      o.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,0.65);';
+      var linkCss = 'display:block;text-align:center;text-decoration:none;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px;font-weight:600;';
+      o.innerHTML =
+        '<div role="dialog" aria-modal="true" aria-label="Elegir panel de la tienda" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px;">' +
+          '<div style="font-weight:700;text-align:center;margin-bottom:4px;">¿A qué panel de la tienda querés entrar?</div>' +
+          '<a href="' + TIENDA_CLIENTE + '" style="' + linkCss + '">Panel del cliente</a>' +
+          '<a href="' + TIENDA_DUENO + '" style="' + linkCss + 'border-color:var(--pink-line);color:var(--pink);">Panel del dueño</a>' +
+          '<button type="button" id="tiendaChooserCancel" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px;">Cancelar</button>' +
+        '</div>';
+      o.addEventListener('click', function (e) { if (e.target === o) closeChooser(); });
+      document.body.appendChild(o);
+      document.getElementById('tiendaChooserCancel').addEventListener('click', closeChooser);
+    }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeChooser(); });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (currentRole === 'administrador' || currentRole === 'ceo') {
+        openChooser();
+      } else {
+        window.location.href = TIENDA_CLIENTE;
+      }
+    });
   })();
 })();
 </script>
