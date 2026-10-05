@@ -2127,6 +2127,13 @@ async function resyncClosedStripchatPeriodIfDue() {
     if (lastClosedPeriodResyncKey === key) return;
     if (now - closedPeriod.end < STRIPCHAT_CLOSED_PERIOD_RESYNC_DELAY_MS) return;
     lastClosedPeriodResyncKey = key;
+    // BUG REAL visto en vivo el mismo 2026-10-05, primera corrida de esto:
+    // sin pausa, este segundo barrido de 8 modelos caía pegado al barrido
+    // normal de arriba (unos segundos de diferencia) y Stripchat devolvió
+    // HTTP 429 (demasiadas solicitudes) para 2 modelos -- no se perdio nada
+    // porque el proximo poll de 10 min las reintenta igual, pero no hace
+    // falta arriesgarse: separar los dos barridos evita la ráfaga.
+    await sleep(60 * 1000);
     const count = await syncStripchatEarningsForPeriod(closedPeriod);
     console.log('Stripchat: segunda pasada de cierre (' + closedPeriod.startDate + ' al ' + closedPeriod.endDate + '), ' + count + ' modelo(s) re-sincronizadas.');
   } catch (e) {
