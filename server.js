@@ -2098,6 +2098,40 @@ async function pollStripchatEarnings() {
   } catch (e) {
     console.error('Error en el sondeo de Stripchat: ' + e.message);
   }
+  await resyncClosedStripchatPeriodIfDue();
+}
+
+// Segunda pasada de cierre de quincena (añadida 2026-10-05, tras encontrar
+// que jax_f00x quedó con 47 tokens de más en 16-30 sept pese a que el sync
+// automático corre siempre): el poll normal de arriba solo guarda la última
+// foto que alcanza a tomar justo antes de que la quincena cambie — si
+// Stripchat sigue ajustando sus números un rato después del cierre (ej. un
+// show que termina de liquidarse), esa foto queda vieja para siempre, nada
+// la vuelve a pedir. Esta función, llamada desde el mismo poll de 10 min,
+// re-sincroniza la quincena que ACABA de cerrar una sola vez,
+// STRIPCHAT_CLOSED_PERIOD_RESYNC_DELAY_MS después de su cierre -- tiempo
+// suficiente para que Stripchat ya haya terminado de asentar cualquier
+// ajuste tardío. `lastClosedPeriodResyncKey` es en memoria (no en DB): si el
+// servidor se reinicia y vuelve a correr para el mismo período, el upsert es
+// idempotente, solo reescribe el mismo número o lo corrige si cambió — no
+// hay riesgo de duplicar nada.
+const STRIPCHAT_CLOSED_PERIOD_RESYNC_DELAY_MS = 6 * 60 * 60 * 1000; // 6 horas
+let lastClosedPeriodResyncKey = null;
+
+async function resyncClosedStripchatPeriodIfDue() {
+  try {
+    const now = Date.now();
+    const current = stripchatQuincenaWindow(now);
+    const closedPeriod = stripchatQuincenaWindow(current.start - 1);
+    const key = closedPeriod.startDate + '|' + closedPeriod.endDate;
+    if (lastClosedPeriodResyncKey === key) return;
+    if (now - closedPeriod.end < STRIPCHAT_CLOSED_PERIOD_RESYNC_DELAY_MS) return;
+    lastClosedPeriodResyncKey = key;
+    const count = await syncStripchatEarningsForPeriod(closedPeriod);
+    console.log('Stripchat: segunda pasada de cierre (' + closedPeriod.startDate + ' al ' + closedPeriod.endDate + '), ' + count + ' modelo(s) re-sincronizadas.');
+  } catch (e) {
+    console.error('Error en la segunda pasada de cierre de Stripchat: ' + e.message);
+  }
 }
 
 // buildModelReports() vuelve a traer TODAS las propinas/balances de TODAS
@@ -3134,7 +3168,11 @@ async function handleRequest(req, res) {
     if (!username) return sendJson(res, 400, { error: 'Elegí una modelo' });
     const models = await sbFetchAllModels();
     if (!models.some((m) => m.username === username)) return sendJson(res, 400, { error: 'Esa modelo no existe' });
-    const idx = Math.min(2, Math.max(0, parseInt(body.periodIndex, 10) || 1));
+    // BUG REAL encontrado 2026-10-05: "parseInt(...) || 1" trataba periodIndex:0
+    // (la quincena ACTUAL) como si no se hubiera mandado nada, porque 0 es falsy
+    // en JS -- siempre caia en 1 (la anterior), sin forma de pedir la actual.
+    const parsedIdx = parseInt(body.periodIndex, 10);
+    const idx = Math.min(2, Math.max(0, Number.isNaN(parsedIdx) ? 1 : parsedIdx));
     const period = getQuincenaHistory(3, Date.now())[idx];
     const tokens = await fetchStripchatModelEarnings(username, period.start, period.end);
     if (tokens == null) return sendJson(res, 400, { error: 'Stripchat no respondió válido para esa modelo/período' });
