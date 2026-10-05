@@ -233,6 +233,21 @@ const ERROR_ALERT_THRESHOLD = 6;
 // se asume que el "stop" real se perdio en el pasado y no se confia.
 const ONLINE_SEED_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 horas
 
+// Cuanto esperar como maximo la respuesta de UN fetch del long-poll de la
+// Events API antes de abortarlo y reintentar. La URL ya lleva su propio
+// ?timeout=10 (el long-poll de Chaturbate responde solo en <=10s, con o sin
+// eventos) pero eso es un parametro que CHATURBATE puede ignorar de su lado
+// -- de este lado no habia ningun limite propio. BUG REAL encontrado
+// 2026-10-05: sin esto, si la conexion queda a medias (sin error, sin
+// respuesta, sin que se cierre el socket), el `await fetch(...)` se cuelga
+// PARA SIEMPRE -- no tira excepcion, no entra al backoff, no reintenta
+// nunca. Pasó de verdad: conni_f00x, iris_f00x, jax_f00x, pinky_f00x y
+// kitty_f00x quedaron asi desde el 2026-10-04 (varias clavadas justo en la
+// ventana de corte 04:30 UTC) sin que nada las reconectara, mientras el
+// proceso seguia vivo y sin reiniciarse -- sus tokens dejaron de contarse
+// en la app mientras seguian ganando en Chaturbate de verdad.
+const EVENTS_POLL_TIMEOUT_MS = 30 * 1000;
+
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
 // El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
 const trackers = new Map();
@@ -2319,10 +2334,12 @@ async function pollLoop(tracker) {
 
   while (tracker.running) {
     tracker.abortCtl = new AbortController();
+    const pollTimeoutId = setTimeout(() => tracker.abortCtl.abort(), EVENTS_POLL_TIMEOUT_MS);
     let resp;
     try {
       resp = await fetch(nextUrl, { signal: tracker.abortCtl.signal });
     } catch (e) {
+      clearTimeout(pollTimeoutId);
       if (!tracker.running) break;
       tracker.status = 'error';
       tracker.lastError = 'Error de red: ' + e.message;
@@ -2333,6 +2350,7 @@ async function pollLoop(tracker) {
       await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
       continue;
     }
+    clearTimeout(pollTimeoutId);
 
     if (!resp.ok) {
       // Si el cursor guardado ya no sirve (expiro, o Chaturbate lo rechaza),
