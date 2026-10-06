@@ -689,6 +689,13 @@ async function sbFetchNewsPostType(postId) {
   return rows.length ? rows[0].post_type : null;
 }
 
+async function sbFetchNewsPostTitle(postId) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?id=eq.' + encodeURIComponent(postId) + '&select=title', { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0].title : null;
+}
+
 // Cambiar hilo <-> aviso DESPUES de publicado (pedido 2026-09-09) — solo
 // administrador, ver el endpoint /api/news/set-type.
 async function sbSetNewsPostType(id, postType) {
@@ -3448,6 +3455,28 @@ async function handleRequest(req, res) {
     const ok = await sbSetNewsPostType(id, postType);
     if (!ok) return sendJson(res, 500, { error: 'No se pudo cambiar el tipo' });
     await sbLogAudit(session, 'news_set_type', null, { id, type: postType });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Reenviar el push de una noticia YA publicada (pedido 2026-10-06): la
+  // notificacion normal solo sale una vez, al publicar -- esto es para el
+  // caso de un aviso importante (ej. una reunion) que no todos vieron a
+  // tiempo. Mismo permiso que crear (administrador o CEO), no solo el autor
+  // original -- cualquiera que pueda publicar un aviso puede reforzarlo.
+  if (parsed.pathname === '/api/news/resend-notification' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const title = await sbFetchNewsPostTitle(id);
+    if (!title) return sendJson(res, 400, { error: 'Esa noticia ya no existe' });
+    // "Recordatorio", no "Nueva noticia" (eso ya salio al publicar) -- y tag
+    // distinto para que no se confunda con el push original si todavia
+    // sigue mostrandose en el dispositivo de alguien.
+    await sendPushToRole(null, 'Recordatorio: ' + title, { tag: 'placer-news-resend' });
+    await sbLogAudit(session, 'news_resend_notification', null, { id, title });
     return sendJson(res, 200, { ok: true });
   }
 

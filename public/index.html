@@ -2702,6 +2702,7 @@
     }
     const isAdmin = currentRole === 'administrador';
     const canSeeViewers = currentRole === 'administrador' || currentRole === 'ceo';
+    const canResend = currentRole === 'administrador' || currentRole === 'ceo';
     const eyeIcon = '<svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align:-2px; display:inline-block;"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
     el.newsList.innerHTML = posts.map(function (p, idx) {
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
@@ -2745,7 +2746,10 @@
         '<div class="meta-small" style="margin-bottom:10px;">' + pname + ' — ' + when + '</div>' +
         '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
         viewersHtml +
-        (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px; margin:12px 0;">Eliminar noticia</button>' : '') +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap; margin:12px 0;">' +
+        (canResend ? '<button class="btnResendNews" data-id="' + p.id + '" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Reenviar notificación</button>' : '') +
+        (isAdmin ? '<button class="btnDeletePost" data-id="' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px;">Eliminar noticia</button>' : '') +
+        '</div>' +
         (isAviso ? '' :
           '<div style="border-top:1px solid var(--border-soft); padding-top:10px; margin-top:10px;">' + (commentsHtml || '<div class="meta-small">Sin respuestas todavía.</div>') + '</div>' +
           '<div class="row" style="margin-top:10px; gap:8px;">' +
@@ -2761,6 +2765,16 @@
     el.newsList.querySelectorAll('.newsCommentInput').forEach(function (input) {
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitNewsComment(input.getAttribute('data-post-id')); });
     });
+    if (canResend) {
+      el.newsList.querySelectorAll('.btnResendNews').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!(await uiConfirm('¿Reenviar la notificación push de esta noticia a todos?'))) return;
+          const r = await fetch('/api/news/resend-notification', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: Number(btn.getAttribute('data-id')) }) });
+          if (!r.ok) { const err = await r.json().catch(function () { return {}; }); uiToast(err.error || 'No se pudo reenviar', 'error'); return; }
+          uiToast('Notificación reenviada', 'success');
+        });
+      });
+    }
     if (isAdmin) {
       el.newsList.querySelectorAll('.newsTypeSelect').forEach(function (sel) {
         sel.addEventListener('click', function (ev) { ev.stopPropagation(); });
