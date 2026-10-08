@@ -2398,12 +2398,24 @@ async function pollLoop(tracker) {
       await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
       continue;
     }
-    clearTimeout(pollTimeoutId);
 
+    // OJO: el timeout NO se limpia aca todavia. `fetch()` resuelve apenas
+    // llegan las cabeceras -- si el cuerpo de la respuesta se queda a medias
+    // (cabeceras si, body nunca termina de llegar), `resp.text()`/`resp.json()`
+    // de mas abajo pueden colgarse exactamente igual que el fetch sin
+    // timeout que se arreglo el 2026-10-05, porque ya no hay nada vigilando.
+    // BUG REAL encontrado 2026-10-08 investigando kitty_f00x: seguia
+    // "inactiva" 3 dias despues de ese fix (con el token de siempre, que
+    // resulto seguir siendo valido -- lo confirmo un reinicio manual, que
+    // resucito el tracker usandolo sin problema). El mismo AbortController
+    // sigue vivo y sigue abortando la lectura del body si no limpiamos el
+    // timeout antes de leerlo -- por eso ahora se limpia solo DESPUES de
+    // terminar de leer el body, en cada rama.
     if (!resp.ok) {
       // Si el cursor guardado ya no sirve (expiro, o Chaturbate lo rechaza),
       // no lo tratamos como token invalido: reintentamos desde cero una vez.
       if (triedSavedCursor && nextUrl === tracker.savedCursor) {
+        clearTimeout(pollTimeoutId);
         triedSavedCursor = false;
         nextUrl = freshUrl;
         // el cursor guardado fallo: ya no hay garantia de no haber perdido
@@ -2413,6 +2425,7 @@ async function pollLoop(tracker) {
         continue;
       }
       const body = await resp.text().catch(() => '');
+      clearTimeout(pollTimeoutId);
       tracker.status = 'error';
       if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
         tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
@@ -2442,12 +2455,14 @@ async function pollLoop(tracker) {
     try {
       data = await resp.json();
     } catch (e) {
+      clearTimeout(pollTimeoutId);
       tracker.status = 'error';
       tracker.lastError = 'Respuesta no-JSON de la API';
       noteTrackerError(tracker);
       await sleep(5000);
       continue;
     }
+    clearTimeout(pollTimeoutId);
 
     tracker.status = 'connected';
     tracker.lastError = null;
