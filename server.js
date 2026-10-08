@@ -2417,6 +2417,16 @@ async function pollLoop(tracker) {
       if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
         tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
         tracker.running = false;
+        // Esto mata el tracker para siempre (no se reintenta solo, ni con un
+        // reconectar que reuse el mismo token guardado) y antes no quedaba
+        // ningun rastro en cb_api_errors -- solo el push/email de
+        // sendConnectionAlert, que no aparece en ningun log revisable desde
+        // este lado. BUG REAL encontrado 2026-10-08: kitty_f00x (y
+        // conni_f00x) quedaron "inactivas" varios dias seguidos sin que
+        // ningun chequeo (vigia, Salud del sistema) lo viera. Una sola
+        // insercion por muerte real (no por reintento) -- no reintroduce el
+        // problema de volumen de Log Ingestion que este proyecto ya resolvio.
+        sbLogApiError('chaturbate_events', 'HTTP ' + resp.status + ' para ' + username).catch(() => {});
         sendConnectionAlert(username, 'el token quedó inválido, hay que agregarla de nuevo.').catch(() => {});
         break;
       }
