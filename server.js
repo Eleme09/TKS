@@ -646,6 +646,30 @@ async function sbCheckStaleBalances() {
     .map((m) => ({ username: m.username, last_balance_at: m.last_balance_at || null }));
 }
 
+// Cuenta, por modelo, cuantos retiros automaticos de la quincena ACTUAL
+// cayeron en el patron que causo la perdida real de tokens del 2026-10-15
+// (balance bajo pero no a 0 -- senal de que hubo un hueco de conexion justo
+// encima de un retiro). Desde ese fix ya se acreditan solos como tick, asi
+// que esto no es una alarma de plata perdida -- es visibilidad temprana de
+// que modelo tiene la conexion mas floja, para no enterarse solo cuando
+// ella reclama que sus numeros no cuadran.
+async function sbCheckPartialResets() {
+  const period = getQuincena(Date.now());
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_balance_resets?select=username,to_balance,detected_at&to_balance=gt.0&detected_at=gte.' +
+      encodeURIComponent(new Date(period.start).toISOString()),
+    { headers: SB_HEADERS },
+  );
+  const rows = r.ok ? await r.json() : [];
+  const byUser = {};
+  for (const row of rows) {
+    byUser[row.username] = byUser[row.username] || { username: row.username, count: 0, tokens_recuperados: 0 };
+    byUser[row.username].count++;
+    byUser[row.username].tokens_recuperados += row.to_balance;
+  }
+  return Object.values(byUser);
+}
+
 async function sbCheckStripchatSync() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings?select=username,updated_at', { headers: SB_HEADERS });
   const rows = r.ok ? await r.json() : [];
@@ -2858,13 +2882,14 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/system-health' && req.method === 'GET') {
     if (!(await requireAdmin(req, res))) return;
     try {
-      const [unhandledEvents, apiErrors, staleBalances, stripchatSync] = await Promise.all([
+      const [unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets] = await Promise.all([
         sbCheckUnhandledEvents(),
         sbCheckApiErrorBursts(),
         sbCheckStaleBalances(),
         sbCheckStripchatSync(),
+        sbCheckPartialResets(),
       ]);
-      return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync });
+      return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets });
     } catch (e) {
       console.error('Error en /api/system-health: ' + e.message);
       return sendJson(res, 500, { error: 'Error consultando la base de datos' });
