@@ -1956,6 +1956,21 @@ async function pollChaturbateBalances() {
         // acumulado (lo ya sumado sigue siendo plata que gano), solo se deja
         // rastro y el nuevo balance pasa a ser la base.
         await sbInsertBalanceReset(m.username, m.last_balance, balance, nowIso);
+        // BUG REAL encontrado 2026-10-15 investigando un reclamo real de
+        // pinky_f00x ("mis tokens no cuadran"): si entre un sondeo y el
+        // siguiente el retiro automatico YA paso Y la modelo ya gano algo
+        // nuevo desde entonces (balance aca no es 0, es un numero parcial),
+        // ese numero parcial se perdia para siempre -- quedaba como la nueva
+        // base silenciosa sin sumarse nunca a ningun tick, ni ahora ni
+        // despues (los ticks futuros solo suman el crecimiento POR ENCIMA de
+        // esta base, nunca la base en si). Confirmado con pinky_f00x: 5
+        // retiros de su quincena actual cayeron en este caso exacto (ej.
+        // 719->245, 955->218), perdiendo 638 tokens reales en total. Fix:
+        // ese balance parcial YA es plata ganada desde el retiro real, asi
+        // que se acredita como un tick mas, ademas de registrarse como reset.
+        if (balance > 0) {
+          await sbInsertBalanceTick(m.username, balance, nowIso);
+        }
       }
       await sbUpdateLastBalance(m.username, balance, nowIso);
     }
