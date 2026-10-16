@@ -458,6 +458,12 @@
   .att-warning.att-good { background: linear-gradient(180deg, rgba(111,231,184,0.14), rgba(111,231,184,0.05)); border-color: rgba(111,231,184,0.4); }
   .att-warning.att-good .att-warning-icon { color: var(--good); filter: drop-shadow(0 0 6px rgba(111,231,184,0.5)); }
   .att-warning.att-good .att-warning-title { color: var(--good); }
+  .att-warning-details > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+  .att-warning-details > summary::-webkit-details-marker { display: none; }
+  .att-warning-details > summary::after { content: '▸'; font-size: 11px; margin-left: auto; opacity: 0.8; }
+  .att-warning-details[open] > summary::after { content: '▾'; }
+  .att-warning-details .att-warning-body { margin: 8px 0 0 2px; padding-left: 10px; border-left: 2px solid rgba(255,107,107,0.35); }
+  .att-warning-details .att-warning-body + .att-warning-body { margin-top: 10px; }
   .att-file-link { color: var(--pink); text-decoration: underline; font-size: 12.5px; }
   .att-sheet-link {
     display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
@@ -2082,17 +2088,22 @@
           + '<div class="att-warning-body">' + escapeHtml(carryMine.owes_message || '') + '</div>';
       }
     } else {
+      // Desplegable (pedido 2026-10-16): con 4+ modelos cada una con su
+      // frase completa repetida, el banner se volvía un bloque de texto
+      // enorme en Asistencia. Colapsado por defecto, el resumen en el
+      // <summary> deja ver de un vistazo cuántas hay sin tener que leer
+      // cada mensaje -- se expande solo si el admin/CEO quiere el detalle.
       if (owing.length) {
         const rows = owing.map(function (t) {
           return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
         }).join('');
-        body += '<div class="att-warning-title">Asumen su seguridad social esta quincena</div>' + rows;
+        body += '<details class="att-warning-details"><summary class="att-warning-title">Asumen su seguridad social esta quincena (' + owing.length + ')</summary>' + rows + '</details>';
       }
       if (carry) {
         const rows = carry.totals.map(function (t) {
           return '<div class="att-warning-body">' + escapeHtml(t.owes_message || '') + '</div>';
         }).join('');
-        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Pendiente de la quincena pasada (' + escapeHtml(carry.period.label) + ')</div>' + rows;
+        body += '<details class="att-warning-details" style="margin-top:' + (owing.length ? '10px' : '0') + ';"><summary class="att-warning-title">Pendiente de la quincena pasada (' + escapeHtml(carry.period.label) + ') — ' + carry.totals.length + '</summary>' + rows + '</details>';
       }
     }
     el.attWarning.innerHTML = icon + '<div>' + body + '</div>';
