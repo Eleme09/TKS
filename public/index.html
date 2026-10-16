@@ -1767,11 +1767,21 @@
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       showError(err.error || 'No se pudo iniciar');
+    } else {
+      // Pedido real (2026-10-16): el admin presionaba Iniciar/Detener y
+      // creía que no pasaba nada porque miraba el badge rosa "CONECTADA/
+      // DESCONECTADA" (si está transmitiendo EN VIVO, lo decide Chaturbate,
+      // ningún botón nuestro lo cambia) en vez del texto gris "Conectado/
+      // Desconectado" (la escucha de nuestro servidor, que SÍ controla este
+      // botón). Este toast confirma de inmediato que el servidor sí hizo
+      // algo, aclarando que el badge rosa es otra cosa.
+      uiToast('Reconectando con el servidor — el badge "CONECTADA/DESCONECTADA" solo cambia cuando ella empiece a transmitir de verdad.');
     }
     refresh();
   }
 
   async function stopModel(username) {
+    uiToast('Deteniendo la escucha de nuestro servidor — esto no la saca del aire en Chaturbate, solo deja de rastrearla.');
     await fetch('/api/stop', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
