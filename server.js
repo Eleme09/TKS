@@ -685,6 +685,44 @@ async function sbCheckPartialResets() {
   return Object.values(byUser);
 }
 
+// Cuantos errores de la Stats API (403/429/etc, el "HTTP ### para <modelo>"
+// de sbLogApiError) antes de avisar que una modelo tiene la conexion
+// cronicamente floja esta quincena -- distinto de sbCheckApiErrorBursts
+// (rachas de minutos) y sbCheckStaleBalances (2h+ sin actualizar): el
+// patron real encontrado 2026-10-16 con pinky_f00x (y amaranta_f00x/
+// iris_f00x en el mismo chequeo) es errores ESPARCIDOS a lo largo de toda
+// la quincena, nunca una racha ni un hueco de 2h -- el balance sigue
+// actualizandose entre fallo y fallo, asi que ninguna de las otras dos
+// senales lo detecta. Pinky acumulo 241 en 15 dias (vs. 1-10 de una modelo
+// sana) y terminó con 896 tokens de verdad perdidos que solo se notaron
+// porque ella reclamó al cierre de la quincena. El umbral de 50 dentro de
+// la quincena en curso deja margen de sobra sobre una modelo sana (que no
+// pasa de 10) y se alcanza a los pocos dias con el ritmo real de una
+// conexion rota -- avisa a tiempo de renovar el token antes del cierre,
+// en vez de descubrirlo cuando ya no se puede hacer nada mas que corregir
+// el numero a mano.
+const FLAKY_STATS_ERROR_THRESHOLD = 50;
+
+async function sbCheckFlakyStatsTokens() {
+  const period = getQuincena(Date.now());
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/cb_api_errors?select=message,created_at&source=eq.chaturbate_stats&created_at=gte.' +
+      encodeURIComponent(new Date(period.start).toISOString()),
+    { headers: SB_HEADERS },
+  );
+  const rows = r.ok ? await r.json() : [];
+  const byUser = {};
+  for (const row of rows) {
+    const m = /^HTTP \d+ para (.+)$/.exec(row.message || '');
+    if (!m) continue;
+    const username = m[1];
+    byUser[username] = (byUser[username] || 0) + 1;
+  }
+  return Object.entries(byUser)
+    .filter(([, count]) => count >= FLAKY_STATS_ERROR_THRESHOLD)
+    .map(([username, count]) => ({ username, count }));
+}
+
 async function sbCheckStripchatSync() {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings?select=username,updated_at', { headers: SB_HEADERS });
   const rows = r.ok ? await r.json() : [];
@@ -2908,14 +2946,15 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/system-health' && req.method === 'GET') {
     if (!(await requireAdmin(req, res))) return;
     try {
-      const [unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets] = await Promise.all([
+      const [unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets, flakyStatsTokens] = await Promise.all([
         sbCheckUnhandledEvents(),
         sbCheckApiErrorBursts(),
         sbCheckStaleBalances(),
         sbCheckStripchatSync(),
         sbCheckPartialResets(),
+        sbCheckFlakyStatsTokens(),
       ]);
-      return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets });
+      return sendJson(res, 200, { checked_at: Date.now(), unhandledEvents, apiErrors, staleBalances, stripchatSync, partialResets, flakyStatsTokens });
     } catch (e) {
       console.error('Error en /api/system-health: ' + e.message);
       return sendJson(res, 500, { error: 'Error consultando la base de datos' });

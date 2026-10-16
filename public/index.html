@@ -3078,6 +3078,10 @@
       if (d.stripchatSync && d.stripchatSync.stale) {
         lines.push('⚠ Sincronización de Stripchat sin actualizar' + (d.stripchatSync.hours_since != null ? ' hace ' + d.stripchatSync.hours_since + 'h' : '') + ' — posible API key vencida.');
       }
+      (d.flakyStatsTokens || []).forEach(function (x) {
+        lines.push('⚠ <b>' + escapeHtml(x.username) + '</b>: ' + x.count + ' errores de Stats API en lo que va de la quincena — conexión crónicamente floja, riesgo real de tokens no contados. '
+          + '<span class="shift-mark-btn btn-renew-token" data-user="' + escapeHtml(x.username) + '" title="Pegar un token de Stats API nuevo para esta modelo">Renovar token</span>');
+      });
       const infoLines = [];
       (d.partialResets || []).forEach(function (x) {
         infoLines.push('ℹ <b>' + escapeHtml(x.username) + '</b>: ' + x.count + ' retiro(s) de esta quincena con hueco de conexión (' + x.tokens_recuperados + ' tokens que el servidor ya acreditó solo) — conexión floja con Chaturbate, no es plata perdida.');
@@ -3087,7 +3091,7 @@
       if (infoLines.length) htmlParts.push(infoLines.map(function (l) { return '<div style="padding:4px 0; color:var(--muted);">' + l + '</div>'; }).join(''));
       el.systemHealthResult.innerHTML = htmlParts.length
         ? htmlParts.join('')
-        : '<span style="color:var(--good, #4caf87);">✓ Todo normal — sin nada raro en las 5 señales.</span>';
+        : '<span style="color:var(--good, #4caf87);">✓ Todo normal — sin nada raro en las 6 señales.</span>';
       el.systemHealthResult.querySelectorAll('.btn-renew-token').forEach(function (btn) {
         btn.addEventListener('click', function () { renewStatsToken(btn.getAttribute('data-user')); });
       });
