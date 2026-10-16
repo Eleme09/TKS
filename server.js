@@ -227,6 +227,21 @@ const PAXUM_SPREAD_COP = 205;
 // modelo lleva un rato sin poder conectar, para no avisar por un tropiezo suelto.
 const ERROR_ALERT_THRESHOLD = 6;
 
+// Cuantos 401/403/404 SEGUIDOS antes de dar por muerto el tracker de verdad.
+// BUG REAL encontrado 2026-10-16: un 401/403/404 mataba el tracker para
+// siempre desde el PRIMER intento, sin reintentar -- pero ese mismo dia
+// Chaturbate tiro un bache real (503/401/502 alternado) que tumbo a las 8
+// modelos a la vez con el MISMO token de siempre, y 7 de las 8 reconectaron
+// perfecto con ese mismo token apenas se reinicio el proceso (prueba de que
+// el token nunca estuvo invalido, era un bache pasajero del lado de
+// Chaturbate). Esto era la causa real detras de "cada quincena toca renovar
+// tokens a mano" que el usuario reportaba: la mayoria de esas "muertes" no
+// eran tokens vencidos, eran baches que un simple reintento hubiera resuelto
+// solo. Ahora un 401/403/404 se trata como cualquier otro error (mismo
+// backoff/fresh-url de abajo) hasta completar este umbral de intentos
+// seguidos; recien ahi se declara token invalido de verdad y se avisa.
+const EVENTS_AUTH_ERROR_DEATH_THRESHOLD = 5;
+
 // Al retomar desde un cursor guardado, cuanto tan viejo puede ser el ultimo
 // "start" registrado para todavia confiar en el y marcar a la modelo como en
 // linea de una vez (en vez de esperar un evento nuevo). Mas viejo que esto,
@@ -2371,7 +2386,7 @@ function startTracker(username, token, savedCursor) {
     existing.running = false; // sin esto, el poll loop viejo queda "zombie" reintentando para siempre
     if (existing.abortCtl) existing.abortCtl.abort();
   }
-  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, errorNotified: false, savedCursor: savedCursor || null, lastCursorSaveAt: 0 };
+  const tracker = { username, token, running: true, status: 'connecting', lastError: null, abortCtl: null, online: false, onlineSince: null, consecutiveErrors: 0, authErrorStreak: 0, errorNotified: false, savedCursor: savedCursor || null, lastCursorSaveAt: 0 };
   trackers.set(username, tracker);
   pollLoop(tracker);
 }
@@ -2467,20 +2482,30 @@ async function pollLoop(tracker) {
       clearTimeout(pollTimeoutId);
       tracker.status = 'error';
       if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
-        tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
-        tracker.running = false;
-        // Esto mata el tracker para siempre (no se reintenta solo, ni con un
-        // reconectar que reuse el mismo token guardado) y antes no quedaba
-        // ningun rastro en cb_api_errors -- solo el push/email de
-        // sendConnectionAlert, que no aparece en ningun log revisable desde
-        // este lado. BUG REAL encontrado 2026-10-08: kitty_f00x (y
-        // conni_f00x) quedaron "inactivas" varios dias seguidos sin que
-        // ningun chequeo (vigia, Salud del sistema) lo viera. Una sola
-        // insercion por muerte real (no por reintento) -- no reintroduce el
-        // problema de volumen de Log Ingestion que este proyecto ya resolvio.
-        sbLogApiError('chaturbate_events', 'HTTP ' + resp.status + ' para ' + username).catch(() => {});
-        sendConnectionAlert(username, 'el token quedó inválido, hay que agregarla de nuevo.').catch(() => {});
-        break;
+        tracker.authErrorStreak++;
+        if (tracker.authErrorStreak >= EVENTS_AUTH_ERROR_DEATH_THRESHOLD) {
+          tracker.lastError = 'Token o username inválido (HTTP ' + resp.status + ')';
+          tracker.running = false;
+          // Esto mata el tracker para siempre (no se reintenta solo, ni con un
+          // reconectar que reuse el mismo token guardado) y antes no quedaba
+          // ningun rastro en cb_api_errors -- solo el push/email de
+          // sendConnectionAlert, que no aparece en ningun log revisable desde
+          // este lado. BUG REAL encontrado 2026-10-08: kitty_f00x (y
+          // conni_f00x) quedaron "inactivas" varios dias seguidos sin que
+          // ningun chequeo (vigia, Salud del sistema) lo viera. Una sola
+          // insercion por muerte real (no por reintento) -- no reintroduce el
+          // problema de volumen de Log Ingestion que este proyecto ya resolvio.
+          sbLogApiError('chaturbate_events', 'HTTP ' + resp.status + ' para ' + username).catch(() => {});
+          sendConnectionAlert(username, 'el token quedó inválido, hay que agregarla de nuevo.').catch(() => {});
+          break;
+        }
+        // Todavia no llega al umbral de muerte real: se trata como un error
+        // pasajero mas (ver EVENTS_AUTH_ERROR_DEATH_THRESHOLD arriba).
+        tracker.lastError = 'HTTP ' + resp.status + ' (reintentando, ' + tracker.authErrorStreak + '/' + EVENTS_AUTH_ERROR_DEATH_THRESHOLD + ')';
+        noteTrackerError(tracker);
+        if (tracker.consecutiveErrors % 3 === 0) nextUrl = freshUrl;
+        await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
+        continue;
       }
       tracker.lastError = 'HTTP ' + resp.status + ' — ' + body.slice(0, 200);
       noteTrackerError(tracker);
@@ -2506,6 +2531,7 @@ async function pollLoop(tracker) {
     tracker.status = 'connected';
     tracker.lastError = null;
     tracker.consecutiveErrors = 0;
+    tracker.authErrorStreak = 0;
     tracker.errorNotified = false;
 
     const events = data.events || [];
