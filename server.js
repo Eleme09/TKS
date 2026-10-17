@@ -1411,6 +1411,31 @@ async function buildAttendancePayload(session) {
   if (isStaff) {
     payload.models = usernames;
     payload.pending = days.filter((d) => d.status === 'pendiente');
+    // Pedido 2026-10-17: que esto no obligue a abrir la hoja completa --
+    // visible de una vez en Modelos → Asistencia, igual que "Llegadas por
+    // validar". Un día entra aquí si tiene retraso, nadie lo revisó todavía,
+    // y hay un justificante (cualquier kind salvo 'salida_temprano') subido
+    // para esa misma fecha -- el mismo criterio que checkAutoExcuseLateJustifications
+    // usa para decidir a quién se le acepta sola a los 20 min.
+    payload.pendingLateExcuses = days
+      .filter((d) => d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at)
+      .map((d) => {
+        const just = justifications
+          .filter((j) => j.username === d.username && j.work_date === d.work_date && j.kind !== 'salida_temprano')
+          .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
+        if (!just) return null;
+        return {
+          id: d.id,
+          username: d.username,
+          work_date: d.work_date,
+          late_minutes: d.late_minutes,
+          justification_kind: just.kind,
+          justification_body: just.body,
+          justification_created_at: just.created_at,
+          deadline_at: new Date(Date.parse(just.created_at) + AUTO_EXCUSE_LATE_AFTER_MS).toISOString(),
+        };
+      })
+      .filter(Boolean);
   } else {
     payload.my_day = days.find((d) => d.work_date === today) || null;
     payload.my_open_day = days.find((d) => !d.exit_at && d.status !== 'rechazada') || null;

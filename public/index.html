@@ -1003,6 +1003,19 @@
             <div id="attPendingError" class="errbox"></div>
           </div>
 
+          <!-- Pedido 2026-10-17: antes había que abrir la hoja completa para
+               aceptar/rechazar un justificante de retraso. Visible de una vez
+               acá, con el mismo peso visual que "Llegadas por validar" —
+               tiene 20 min antes de aceptarse solo (ver
+               checkAutoExcuseLateJustifications en server.js), así que no
+               puede depender de que alguien se acuerde de ir a buscarlo. -->
+          <div class="card" id="attPendingExcuseCard" style="display:none;">
+            <h3 class="card-title" style="color:var(--bad);">Justificantes de retraso por revisar</h3>
+            <div class="meta-small" style="margin-bottom:12px;">Si no decides en 20 minutos desde que se subió, se acepta solo.</div>
+            <div id="attPendingExcuseList"></div>
+            <div id="attPendingExcuseError" class="errbox"></div>
+          </div>
+
           <div class="card">
             <label for="attStaffFilter">Modelo</label>
             <select id="attStaffFilter"></select>
@@ -1356,6 +1369,8 @@
     attMyTable: document.getElementById('attMyTable'),
     attPendingCard: document.getElementById('attPendingCard'),
     attPendingList: document.getElementById('attPendingList'),
+    attPendingExcuseCard: document.getElementById('attPendingExcuseCard'),
+    attPendingExcuseList: document.getElementById('attPendingExcuseList'),
     attPendingError: document.getElementById('attPendingError'),
     attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
     attTotalsList: document.getElementById('attTotalsList'),
@@ -2366,6 +2381,18 @@
       });
     }
 
+    if (isAdmin) {
+      const pendingExcuses = attData.pendingLateExcuses || [];
+      el.attPendingExcuseCard.style.display = pendingExcuses.length ? 'block' : 'none';
+      el.attPendingExcuseList.innerHTML = attPendingExcuseHtml(pendingExcuses);
+      pendingExcuses.forEach(function (p) {
+        const okBtn = document.getElementById('attExc-si-' + p.id);
+        const noBtn = document.getElementById('attExc-no-' + p.id);
+        if (okBtn) okBtn.addEventListener('click', function () { attExcuseLate(p.id, true); });
+        if (noBtn) noBtn.addEventListener('click', function () { attExcuseLate(p.id, false); });
+      });
+    }
+
     el.attStaffPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end)
       + '. Límite de retraso acumulado: ' + attHorasMin(attData.threshold_minutes) + '.';
 
@@ -2507,6 +2534,35 @@
         + '</div>'
         + '</div>';
     }).join('');
+  }
+
+  function attPendingExcuseHtml(list) {
+    if (!list.length) return '';
+    return list.map(function (p) {
+      const minsLeft = Math.max(0, Math.round((new Date(p.deadline_at).getTime() - Date.now()) / 60000));
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(p.username) + '</span>'
+        + '<span class="meta-small">' + attFechaCorta(p.work_date) + ' · ' + attHorasMin(p.late_minutes) + ' tarde</span>'
+        + '</div>'
+        + '<div class="meta-small">[' + escapeHtml(attKindShort(p.justification_kind)) + '] ' + escapeHtml(p.justification_body) + '</div>'
+        + '<div class="meta-small" style="color:var(--bad); margin-top:4px;">Se acepta sola en ' + minsLeft + ' min si no decides</div>'
+        + '<div class="att-actions">'
+        + '<button id="attExc-si-' + p.id + '" class="btn-primary">Justificar retraso</button>'
+        + '<button id="attExc-no-' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Rechazar</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  async function attExcuseLate(id, excused) {
+    attClearBox(el.attPendingExcuseError);
+    const r = await fetch('/api/attendance/day/excuse-late', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, excused: excused }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attPendingExcuseError, data.error || 'No se pudo guardar');
+    await refreshAttendance();
   }
 
   async function attReportArrival() {
