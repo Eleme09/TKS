@@ -1628,6 +1628,68 @@ function startAutoValidateArrivalsChecking() {
   setInterval(checkAutoValidateArrivals, 5 * 60 * 1000);
 }
 
+// Pedido real 2026-10-17: "si no se valida un retraso... por más de 20
+// minutos se tipificará como válida la justificación" -- mismo mecanismo que
+// checkAutoValidateArrivals (el admin puede olvidarse de revisar, y el
+// default es aceptar en vez de dejarlo en limbo), pero para la OTRA mitad del
+// flujo: cuando una modelo sube un justificante para un día que YA llegó
+// tarde, el admin tiene 20 min para aceptarlo o rechazarlo a mano
+// (`/api/attendance/day/excuse-late`, que ahora también guarda
+// `late_excuse_reviewed_at`) antes de que se acepte sola. `late_excuse_reviewed_at`
+// es lo que distingue "nunca se revisó" de "el admin ya dijo que no" --
+// sin esa columna, un rechazo explícito (`late_excused: false`) sería
+// indistinguible del estado inicial y este poller lo terminaría aceptando
+// igual pasados los 20 min. Cualquier tipo de justificante sirve EXCEPTO
+// 'salida_temprano' (eso es sobre la hora de SALIDA, no tiene nada que ver
+// con haber llegado tarde).
+const AUTO_EXCUSE_LATE_AFTER_MS = 20 * 60 * 1000;
+let autoExcuseLateRunning = false;
+
+async function checkAutoExcuseLateJustifications() {
+  if (autoExcuseLateRunning) return;
+  autoExcuseLateRunning = true;
+  try {
+    const now = Date.now();
+    const from = studioDateStr(now - 3 * 24 * 3600000);
+    const to = studioDateStr(now);
+    const [days, justifications] = await Promise.all([
+      sbListAttendanceDays(from, to, null),
+      sbListAttendanceJustifications(from, to, null),
+    ]);
+    const justByKey = {};
+    for (const j of justifications) {
+      if (j.kind === 'salida_temprano') continue;
+      const key = j.username + '|' + j.work_date;
+      const cur = justByKey[key];
+      if (!cur || j.created_at < cur.created_at) justByKey[key] = j; // la mas vieja decide el plazo
+    }
+    for (const d of days) {
+      if (!(d.late_minutes > 0) || d.late_excuse_reviewed_at) continue;
+      const just = justByKey[d.username + '|' + d.work_date];
+      if (!just) continue;
+      if (now - Date.parse(just.created_at) < AUTO_EXCUSE_LATE_AFTER_MS) continue;
+      const updated = await sbUpdateAttendanceDay(d.id, {
+        late_excused: true,
+        late_excuse_reviewed_at: new Date(now).toISOString(),
+      });
+      if (updated) {
+        await sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_auto_excuse_late', d.username, {
+          id: d.id, work_date: d.work_date, late_minutes: d.late_minutes, justification_id: just.id,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error auto-aceptando justificantes de retraso: ' + e.message);
+  } finally {
+    autoExcuseLateRunning = false;
+  }
+}
+
+function startAutoExcuseLateChecking() {
+  checkAutoExcuseLateJustifications();
+  setInterval(checkAutoExcuseLateJustifications, 5 * 60 * 1000);
+}
+
 // Escritura critica (mueve dinero): reintenta antes de rendirse, y si aun asi
 // falla, lo deja bien visible en los logs en vez de tragarselo en silencio.
 async function sbWriteCritical(label, url, body) {
@@ -4215,7 +4277,7 @@ async function handleRequest(req, res) {
     const excused = body.excused !== false;
     const day = await sbFetchAttendanceDayById(id);
     if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
-    const result = await sbUpdateAttendanceDay(id, { late_excused: excused });
+    const result = await sbUpdateAttendanceDay(id, { late_excused: excused, late_excuse_reviewed_at: new Date().toISOString() });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_day_excuse_late', day.username, {
       id, work_date: day.work_date, late_minutes: day.late_minutes, excused, antes: { late_excused: day.late_excused || false },
@@ -4420,5 +4482,6 @@ server.listen(PORT, () => {
   startChaturbateBalancePolling();
   startAutoExitChecking();
   startAutoValidateArrivalsChecking();
+  startAutoExcuseLateChecking();
   startShiftConfirmationChecking();
 });
