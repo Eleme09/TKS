@@ -1,0 +1,1348 @@
+/* TIENDA- : mismo lenguaje visual del tracker de estudio (TKS) — fondo
+   oscuro, tipografía Unbounded/Hanken Grotesk/Quicksand, acento rosa.
+   No se reutiliza logo ni nombre de esa marca, solo el sistema de diseño. */
+
+:root {
+  --bg: #0a0a0b;
+  --surface: #131315;
+  --surface-2: #1a1a1d;
+  --surface-3: #1f1f23;
+  --border: #242427;
+  --border-strong: #2c2c30;
+  --text: #f5f5f7;
+  --muted: #a19fa6;
+  --accent: #ff8fbe;
+  --accent-contrast: #1a0a12;
+  --danger: #ff6b6b;
+  --success: #6fe7b8;
+  --fs: 1.05; /* escala de letra: sube en pantallas grandes (ver @media al final) */
+  --radius: 20px;
+  --radius-sm: 13px;
+  --font: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Quicksand", "Hanken Grotesk", sans-serif;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 14px 30px -18px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 20px 40px -20px rgba(0, 0, 0, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+  touch-action: manipulation;
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: calc(14px * var(--fs));
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.topbar-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: calc(15px * var(--fs));
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: calc(13.5px * var(--fs));
+  text-decoration: none;
+  transition: filter 0.18s ease, border-color 0.18s ease, box-shadow 0.2s cubic-bezier(0.2, 0.8, 0.3, 1),
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-accent {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--accent) 7%, transparent));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 26%, transparent), color-mix(in srgb, var(--accent) 12%, transparent));
+  box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+
+.btn-sm {
+  min-height: 34px;
+  padding: 7px 11px;
+  font-size: calc(12.5px * var(--fs));
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.field label {
+  font-size: calc(12.5px * var(--fs));
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  width: 100%;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.pin-input {
+  letter-spacing: 0.5em;
+  text-align: center;
+  font-size: calc(22px * var(--fs));
+  font-weight: 700;
+}
+
+.card-box {
+  background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.card-box:hover {
+  border-color: var(--border-strong);
+}
+
+.card-box h2 {
+  font-family: var(--font-display);
+  font-size: calc(13px * var(--fs));
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.auth-shell {
+  max-width: 360px;
+  margin: 60px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 24px;
+}
+
+.auth-shell h1 {
+  font-family: var(--font-display);
+  font-size: calc(16px * var(--fs));
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.persona-chip {
+  padding: 14px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.persona-chip:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.persona-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+/* Nombre de persona en "letra de neón": script elegante, sin relleno,
+   solo el brillo delineando la letra — como un cartel de neón, no un
+   texto plano con color. Fondo siempre transparente. */
+.neon-name {
+  font-family: "Alex Brush", cursive;
+  font-size: 1.4em;
+  line-height: 1;
+  color: #fff8fb;
+  background: none;
+  text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 90%, transparent), 0 0 11px
+      color-mix(in srgb, var(--accent) 70%, transparent), 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 42px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.persona-chip .neon-name {
+  font-size: 1.6em;
+  display: block;
+}
+
+.carrito-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop);
+}
+
+.carrito-bar span {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: calc(13.5px * var(--fs));
+  color: var(--text);
+}
+
+/* Mismo sistema de tarjetas que el catálogo de VENTA-WEB (proyecto
+   "padre" de este sub-servicio) — grid de tarjetas con foto, no lista. */
+.producto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.producto-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.producto-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--muted);
+}
+
+.producto-foto {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  object-fit: cover;
+  background: var(--surface-2);
+  display: block;
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.producto-card:hover .producto-foto {
+  transform: scale(1.06);
+}
+
+.producto-foto-empty {
+  aspect-ratio: 1 / 1;
+  background: var(--surface-2);
+  border-bottom: 1px dashed var(--border);
+}
+
+.producto-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.producto-nombre {
+  font-weight: 600;
+  font-size: calc(14.5px * var(--fs));
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.producto-precio {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: calc(15.5px * var(--fs));
+  letter-spacing: 0.01em;
+  margin-top: auto;
+}
+
+.badge-out {
+  display: inline-block;
+  font-size: calc(10.5px * var(--fs));
+  color: var(--danger);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  padding: 2px 7px;
+  border-radius: 999px;
+  width: fit-content;
+}
+
+.qty-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.qty-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: calc(16px * var(--fs));
+  line-height: 1;
+  transition: background-color 0.15s ease, transform 0.12s ease;
+}
+
+.qty-btn:hover {
+  background: var(--border);
+}
+
+.qty-btn:active {
+  transform: scale(0.9);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(13px * var(--fs));
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: calc(12px * var(--fs));
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: calc(11.5px * var(--fs));
+  font-weight: 600;
+}
+
+.pill-ok {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.pill-warn {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.tabnav {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.tabnav button {
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: calc(11.5px * var(--fs));
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.tabnav button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.panel {
+  display: none;
+}
+
+.panel.active {
+  display: block;
+}
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-label {
+  font-family: var(--font-display);
+  font-size: calc(10.5px * var(--fs));
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-size: calc(22px * var(--fs));
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: calc(13px * var(--fs));
+  margin: 8px 0 0;
+}
+
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upload-row input[type='file'] {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.upload-row button {
+  flex: none;
+}
+
+/* ── Toasts y modal (mismo patrón que VENTA-WEB) ── */
+
+.vw-toast-stack {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.vw-toast {
+  background: var(--text);
+  color: var(--surface);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: calc(13.5px * var(--fs));
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.vw-toast--show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.vw-toast--ok {
+  background: var(--success);
+  color: var(--accent-contrast);
+}
+
+.vw-toast--error {
+  background: var(--danger);
+  color: var(--accent-contrast);
+}
+
+.vw-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 12, 18, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1001;
+}
+
+.vw-modal-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 360px;
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.vw-modal-box p {
+  margin: 0 0 16px;
+  font-size: calc(14.5px * var(--fs));
+}
+
+.vw-modal-box .producto-foto {
+  max-width: 140px;
+  border-radius: var(--radius-sm);
+}
+
+.vw-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 16px 12px;
+  }
+
+  /* Toda tabla del sitio (Personas, Productos, Reporte, historial del
+     autoservicio, detalle de consumo) pasa de grilla angosta de columnas
+     a tarjetas apiladas — una tabla de 5-6 columnas no entra en una
+     pantalla de celular sin scroll horizontal, y con varios botones por
+     fila quedaba ilegible. Cada <tr> se convierte en una tarjeta, cada
+     <td> en una línea dentro de ella. */
+  .table-wrap table,
+  .table-wrap tbody,
+  .table-wrap tr {
+    display: block;
+    width: 100%;
+  }
+
+  .table-wrap thead {
+    display: none;
+  }
+
+  .table-wrap tr {
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+
+  .table-wrap td {
+    display: block;
+    width: 100%;
+    padding: 4px 0;
+    border: none;
+  }
+
+  .table-wrap td:empty {
+    display: none;
+  }
+
+  /* Varios botones juntos en una fila (Editar/Vaciar/Ver consumo, etc.)
+     se apilan a todo el ancho, cada uno fácil de tocar. */
+  td:has(.btn) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  td .btn {
+    flex: 1 1 28%;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .table-wrap td[data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--muted);
+    font-size: calc(11.5px * var(--fs));
+  }
+
+  /* Formularios en fila (agregar persona/producto, filtros de reporte)
+     se apilan uno debajo del otro en vez de amontonarse. */
+  .row-inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row-inline > * {
+    width: 100%;
+  }
+
+  .row-inline .btn {
+    width: 100%;
+  }
+
+  /* Los botones de los modales (confirmar/cancelar, elegir motivo) se
+     apilan a todo el ancho — más fácil de tocar que en fila angosta. */
+  .vw-modal-actions {
+    flex-direction: column;
+  }
+
+  .vw-modal-actions .btn {
+    width: 100%;
+  }
+
+  .vw-modal-box {
+    width: calc(100% - 24px);
+  }
+}
+
+/* Aviso de pago pendiente tras el cierre de quincena (panel del cliente). */
+.deuda-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  animation: deudaPulse 2.4s ease-in-out infinite;
+}
+
+.deuda-banner span {
+  flex: 1 1 200px;
+  font-weight: 600;
+}
+
+@keyframes deudaPulse {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deuda-banner {
+    animation: none;
+  }
+}
+
+.comprobante-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 40vh;
+  margin: 12px auto 0;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+label.btn {
+  cursor: pointer;
+  text-align: center;
+}
+
+/* Admin: cierres y desprendibles legibles en cualquier ancho. */
+details.card-box > summary {
+  cursor: pointer;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tabnav {
+  scrollbar-width: thin;
+}
+
+td a {
+  overflow-wrap: anywhere;
+}
+
+/* Letra: más grande en pantallas medianas y grandes (en celular ya sube de
+   1 a 1.1 en la base; el texto de 10-13 px se leía muy chico). */
+@media (min-width: 641px) {
+  :root {
+    --fs: 1.08;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --fs: 1.12;
+  }
+
+  .container {
+    max-width: 920px;
+  }
+}
+
+@media (max-width: 380px) {
+  .tabnav button {
+    padding: 10px 10px;
+  }
+
+  .stat-tiles {
+    grid-template-columns: 1fr;
+  }
+}
+
+td a, summary a {
+  color: var(--accent);
+}
+
+.nequi-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.nequi-box > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.nequi-logo {
+  width: 72px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.nequi-num {
+  font-weight: 700;
+  font-size: calc(17px * var(--fs));
+}
+
+/* Pestañas del admin: todas visibles (rejilla), sin tener que deslizar. */
+@media (max-width: 640px) {
+  #panelSection .tabnav {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    overflow: visible;
+    border-bottom: none;
+  }
+
+  #panelSection .tabnav button {
+    padding: 10px 4px;
+    white-space: normal;
+    line-height: 1.2;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+  }
+
+  #panelSection .tabnav button.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+
+.quick-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+/* Aviso de comprobante: entrada suave y estado de éxito. */
+.comp-box {
+  max-width: 400px;
+}
+
+.vw-modal-overlay:not([hidden]) {
+  animation: compFade 0.25s ease both;
+}
+
+#comprobanteOverlay {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+#comprobanteOverlay:not([hidden]) .comp-box {
+  animation: compRise 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+
+@keyframes compFade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes compRise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.96);
+  }
+}
+
+.comp-actions {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comp-actions .btn {
+  width: 100%;
+}
+
+.btn-foto {
+  border-style: dashed;
+}
+
+.nequi-num {
+  white-space: nowrap;
+}
+
+.comprobante-preview:not([hidden]) {
+  animation: compFade 0.3s ease both;
+}
+
+#btnComprobanteEnviar:not(:disabled) {
+  animation: compReady 1.8s ease-in-out infinite;
+}
+
+@keyframes compReady {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+}
+
+.comp-ok {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0;
+  text-align: center;
+}
+
+.comp-ok svg {
+  width: 72px;
+  height: 72px;
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.comp-ok circle {
+  stroke-dasharray: 145;
+  stroke-dashoffset: 145;
+  animation: compDraw 0.6s ease-out forwards;
+}
+
+.comp-ok path {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: compDraw 0.4s 0.45s ease-out forwards;
+}
+
+@keyframes compDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Banner: respiración suave en vez de parpadeo. */
+.deuda-banner {
+  animation: deudaPulse 3.2s ease-in-out infinite, compRise 0.5s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vw-modal-overlay:not([hidden]),
+  #comprobanteOverlay:not([hidden]) .comp-box,
+  #btnComprobanteEnviar:not(:disabled),
+  .comp-ok circle,
+  .comp-ok path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Ventanas emergentes: nunca más altas que la pantalla, con scroll propio y
+   sin arrastrar la página de atrás. */
+body.modal-lock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.vw-modal-overlay {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+}
+
+.vw-modal-box {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.comp-box {
+  position: relative;
+}
+
+.comp-x {
+  position: sticky;
+  top: 0;
+  float: right;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  margin: -6px -6px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* El botón de enviar siempre a la vista, aunque la ventana haga scroll. */
+.comp-actions {
+  position: sticky;
+  bottom: -20px;
+  margin: 12px -20px -20px;
+  padding: 12px 20px 20px;
+  background: linear-gradient(180deg, transparent, var(--surface) 22%);
+}
+
+/* Admin: cierres y desprendible compactos. */
+.cierre-resumen {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.cierre-head {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-deuda {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.desp-q {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.desp-q > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.desp-q > .pago-fila,
+.desp-q > .lineas,
+.desp-q > .btn {
+  margin: 0 12px 12px;
+}
+
+.pago-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lineas {
+  border-top: 1px solid var(--border);
+}
+
+.linea {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.linea-fecha {
+  color: var(--muted);
+}
+
+.linea-monto {
+  font-weight: 600;
+}
+
+.linea.anulada {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.add-box > summary {
+  display: inline-flex;
+  list-style: none;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.add-box > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Etiquetas redundantes fuera: el nombre y el estado se entienden solos. */
+.table-wrap td[data-label="Nombre"]::before,
+.table-wrap td[data-label="Estado"]::before,
+.table-wrap td[data-label="Persona"]::before {
+  display: none;
+}
+
+/* Personas: vista sobria, una sola persona a la vez. */
+.cierre-resumen {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+
+.cierre-resumen > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.cierre-resumen > .nombres,
+.cierre-resumen > .btn {
+  margin: 0 12px 12px;
+}
+
+.nombres {
+  display: flex;
+  flex-direction: column;
+}
+
+.nombre-fila {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 8px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nombre-fila.pagada {
+  color: var(--muted);
+}
+
+.nombre-fila.sel {
+  background: var(--surface-3);
+}
+
+.persona-estado {
+  margin-bottom: 10px;
+}
+
+.debe {
+  color: var(--danger);
+}
+
+.persona-botones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn-quiet-danger {
+  margin-left: auto;
+  color: var(--danger);
+  background: none;
+  border-color: transparent;
+}
+
+.add-box > summary {
+  display: block;
+  text-align: center;
+}
+
+.persona-estado {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.grande {
+  font-size: calc(22px * var(--fs));
+}
+
+.gestion {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.gestion > summary {
+  cursor: pointer;
+}
+
+.gestion .persona-botones {
+  margin-top: 10px;
+}
+
+/* Catálogo compacto del autoservicio: 3 columnas en celular, 4-5 en pantalla grande. */
+.producto-grid {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 641px) {
+  .producto-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .producto-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.producto-card {
+  border-radius: var(--radius-sm);
+}
+
+.producto-card:hover {
+  transform: none;
+}
+
+.producto-card:hover .producto-foto {
+  transform: none;
+}
+
+.producto-foto,
+.producto-foto-empty {
+  aspect-ratio: 4 / 3;
+}
+
+.producto-body {
+  padding: 8px;
+  gap: 3px;
+}
+
+.producto-nombre {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: calc(12px * var(--fs));
+  line-height: 1.25;
+  min-height: 2.5em;
+}
+
+.producto-precio {
+  font-size: calc(13px * var(--fs));
+}
+
+.producto-body .qty-controls {
+  margin-top: 4px;
+  gap: 4px;
+}
+
+.producto-body .qty-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.consumo-det {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.consumo-det > summary {
+  cursor: pointer;
+}
+
+.linea.consumo {
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+}
+
+.btn-quiet {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.buscador {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Productos en el admin: mismo catálogo compacto, cada tarjeta es un botón. */
+.admin-prod {
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-prod.inactivo {
+  opacity: 0.5;
+}
+
+.prod-stock {
+  font-size: calc(11.5px * var(--fs));
+}

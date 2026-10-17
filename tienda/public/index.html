@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Autoservicio</title>
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Quicksand:wght@500;600;700&family=Alex+Brush&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand" id="businessName">Autoservicio</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Paso 1: elegir persona -->
+      <section id="stepPersona">
+        <div class="card-box">
+          <h2>¿Quién eres?</h2>
+          <div id="personaGrid" class="persona-grid"></div>
+        </div>
+      </section>
+
+      <!-- Paso 2: PIN -->
+      <section id="stepPin" hidden>
+        <div class="card-box">
+          <h2>PIN de <span id="pinPersonaName" class="neon-name"></span></h2>
+          <form id="pinForm">
+            <div class="field">
+              <label for="pinInput">PIN (3 dígitos)</label>
+              <input id="pinInput" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" required />
+            </div>
+            <button type="submit" class="btn btn-accent btn-block">Entrar</button>
+            <button type="button" class="btn btn-block" id="btnBackPersona" style="margin-top:8px">Volver</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Paso 3: registrar consumo / ver historial -->
+      <section id="stepMenu" hidden>
+        <div class="card-box">
+          <h2>Hola, <span id="menuPersonaName" class="neon-name"></span></h2>
+          <div id="deudaBanner" class="deuda-banner" hidden>
+            <span id="deudaTexto"></span>
+            <button type="button" class="btn btn-accent btn-sm" id="btnSubirComprobante">Subir comprobante</button>
+          </div>
+          <div class="tabnav">
+            <button type="button" class="tab-btn active" data-tab="tabAgregar">Anotar consumo</button>
+            <button type="button" class="tab-btn" data-tab="tabHistorial">Mi historial</button>
+          </div>
+
+          <div id="tabAgregar" class="panel active">
+            <input id="productoBuscar" type="search" placeholder="Buscar producto…" aria-label="Buscar producto" class="buscador" />
+            <div id="productoList" class="producto-grid"></div>
+            <p id="productoVacio" class="muted" hidden>No hay productos que coincidan.</p>
+          </div>
+
+          <div id="carritoBar" class="carrito-bar" hidden>
+            <span id="carritoResumen"></span>
+            <button type="button" class="btn btn-accent" id="btnAnotarTodo">Anotar todo</button>
+          </div>
+
+          <div id="tabHistorial" class="panel">
+            <div class="stat-tiles">
+              <div class="stat-tile">
+                <div class="stat-label" id="quincenaLabel">Quincena actual</div>
+                <div class="stat-value" id="quincenaTotal">$0</div>
+              </div>
+            </div>
+            <div id="historialLista"></div>
+          </div>
+
+          <button type="button" class="btn btn-block" id="btnSalir" style="margin-top:16px">Salir</button>
+        </div>
+      </section>
+    </main>
+
+    <div id="comprobanteOverlay" class="vw-modal-overlay" hidden>
+      <div class="vw-modal-box comp-box">
+        <div id="comprobanteForm">
+        <button type="button" class="comp-x" id="btnComprobanteX" aria-label="Cerrar">✕</button>
+        <h2 style="margin-top:0">Sube tu comprobante de pago</h2>
+        <p id="comprobanteDetalle"></p>
+        <div class="nequi-box">
+          <img src="/nequi.svg" alt="Nequi" class="nequi-logo" />
+          <div>
+            <div class="nequi-num" id="nequiNum">310 562 5283</div>
+            <div class="muted">Jeiner Mena</div>
+          </div>
+          <button type="button" class="btn btn-sm" id="btnCopiarNequi">Copiar</button>
+        </div>
+        <p class="muted">Envía el pago a esa cuenta Nequi y sube la foto del comprobante. Al subirla, tu quincena queda como pagada.</p>
+        <label class="btn btn-block btn-foto" for="comprobanteFile">Tomar o elegir foto</label>
+        <input id="comprobanteFile" type="file" accept="image/*" hidden />
+        <img id="comprobantePreview" class="comprobante-preview" alt="Vista previa del comprobante" hidden />
+        <div class="vw-modal-actions comp-actions">
+          <button type="button" class="btn btn-accent" id="btnComprobanteEnviar" disabled>Enviar comprobante</button>
+          <button type="button" class="btn" id="btnComprobanteLuego">Después</button>
+        </div>
+        </div>
+        <div class="comp-ok" id="comprobanteOk" hidden>
+          <svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23" /><path d="M15 27l8 8 14-16" /></svg>
+          <strong>¡Comprobante recibido!</strong>
+          <span class="muted">Tu quincena quedó como pagada.</span>
+        </div>
+      </div>
+    </div>
+
+    <script src="/ui.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

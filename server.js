@@ -4459,7 +4459,26 @@ async function handleRequest(req, res) {
 // request. Reproducido de verdad probando el arreglo de getClientIp de
 // arriba contra un Supabase inalcanzable: el proceso moría con
 // "TypeError: fetch failed" sin nada que lo atajara.
+// Tienda de autoservicio/fiado (carpeta tienda/): vive dentro de este mismo servicio
+// y se atiende solo cuando la petición llega por TIENDA_HOST (ej. tienda.placerstudios.online).
+// Sin TIENDA_HOST, o si la tienda falla al cargar, TKS queda exactamente igual que antes.
+const TIENDA_HOST = (process.env.TIENDA_HOST || '').trim().toLowerCase();
+let tiendaApp = null;
+if (TIENDA_HOST) {
+  try {
+    const tienda = require('./tienda/server');
+    tiendaApp = tienda.app;
+    tienda.init();
+  } catch (e) {
+    console.error('La tienda no se cargó (TKS sigue normal): ' + e.message);
+  }
+}
+
 const server = http.createServer((req, res) => {
+  if (tiendaApp && String(req.headers.host || '').split(':')[0].toLowerCase() === TIENDA_HOST) {
+    tiendaApp(req, res);
+    return;
+  }
   handleRequest(req, res).catch((e) => {
     console.error('Error no manejado en ' + req.method + ' ' + req.url + ': ' + e.message);
     if (!res.headersSent) sendJson(res, 500, { error: 'Error interno del servidor' });

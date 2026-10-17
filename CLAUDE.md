@@ -3256,3 +3256,22 @@ browser tool, against the real Supabase project) before saying
 something works or asking him to check. Keep any engineering
 justification ("we did X because Chaturbate's API doesn't support Y")
 out of the product's own UI copy — that reasoning belongs in chat only.
+
+## Tienda (autoservicio / fiado) embebida — carpeta `tienda/`
+
+La tienda de autoservicio (antes repo `TIENDA-`, servicio `tienda-fiado`) vive
+dentro de este mismo servicio de Render para no depender de un servicio
+gratuito (que se suspende al agotar las 750 h/mes). Es una app Express
+independiente: `tienda/server.js` exporta `{ app, init }`.
+
+- `server.js` (raíz) la atiende SOLO si la petición llega por el host
+  `TIENDA_HOST` (ej. `tienda.placerstudios.online`); cualquier otro host va a
+  TKS como siempre. Sin `TIENDA_HOST`, o si la tienda falla al cargar, TKS no
+  cambia (el `require` va en try/catch).
+- Variables de entorno (Render → TKS): `TIENDA_HOST`, `TIENDA_SUPABASE_URL`,
+  `TIENDA_SUPABASE_SERVICE_ROLE_KEY`, `TIENDA_SESSION_SECRET`. Llevan prefijo
+  porque TKS ya usa `SUPABASE_URL`/`SESSION_SECRET`. La tienda usa **su propio**
+  proyecto de Supabase (tablas `tf_*`, ver `tienda/schema.sql`), no el de TKS.
+- Ya no tiene lectura de facturas por foto (OCR): se quitó para no cargar
+  `tesseract.js` (memoria) en el proceso de TKS.
+- Los cambios a la tienda se hacen aquí; el repo `TIENDA-` queda como histórico.
