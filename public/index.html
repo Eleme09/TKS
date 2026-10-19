@@ -139,6 +139,34 @@
     animation: fadeUp .4s cubic-bezier(.2,.8,.3,1) both;
   }
   .card:hover { border-color: var(--border-strong); box-shadow: 0 14px 30px -18px rgba(0,0,0,0.55); }
+
+  /* Pedido 2026-10-19: las noticias que publica el administrador se ven
+     "legendarias" (dorado, brillo suave) sin importar si son aviso o hilo —
+     es por quién la escribió, no por el tipo. Deliberadamente sutil: un
+     glow que respira despacio (3s) y pocas chispas lentas, no un efecto de
+     videojuego a toda pantalla — el pedido explícito fue "que no haga ver
+     payasa la página". */
+  @keyframes newsLegendaryGlow {
+    0%, 100% { box-shadow: 0 0 10px 0 rgba(255,196,64,0.15), inset 0 0 20px 0 rgba(255,196,64,0.03); }
+    50% { box-shadow: 0 0 20px 2px rgba(255,196,64,0.38), inset 0 0 20px 0 rgba(255,196,64,0.06); }
+  }
+  @keyframes newsSparkFloat {
+    0% { transform: translateY(0) scale(0.5); opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { transform: translateY(-16px) scale(1); opacity: 0; }
+  }
+  .news-legendary {
+    position: relative; overflow: hidden;
+    border-color: rgba(255,196,64,0.55) !important;
+    background: linear-gradient(165deg, rgba(255,196,64,0.10), var(--surface) 55%) !important;
+    animation: fadeUp .4s cubic-bezier(.2,.8,.3,1) both, newsLegendaryGlow 3.2s ease-in-out infinite;
+  }
+  .news-spark {
+    position: absolute; width: 3px; height: 3px; border-radius: 50%;
+    background: #ffd76a; box-shadow: 0 0 6px 1px rgba(255,214,110,0.85);
+    animation: newsSparkFloat 3.4s ease-in-out infinite; pointer-events: none;
+  }
   #loginCard { max-width: 420px; margin-left: 0; }
   #addModelCard { max-width: 480px; }
   #adminAccountsCard { max-width: 560px; }
@@ -2803,8 +2831,14 @@
         : (isAviso
             ? '<span class="role-badge" style="background:var(--pink); color:#1a0a12; border:1px solid var(--pink);">AVISO</span>'
             : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>');
+      const isLegendary = p.author_role === 'administrador';
       const cardStyle = 'animation-delay:' + (idx * 40) + 'ms;'
-        + (isAviso ? ' border-color:var(--pink-line); background:linear-gradient(165deg, rgba(255,143,190,0.09), var(--surface) 55%);' : '');
+        + (isLegendary ? '' : (isAviso ? ' border-color:var(--pink-line); background:linear-gradient(165deg, rgba(255,143,190,0.09), var(--surface) 55%);' : ''));
+      const sparksHtml = isLegendary
+        ? '<span class="news-spark" style="left:8%; top:18%; animation-delay:0s;"></span>'
+          + '<span class="news-spark" style="right:12%; top:35%; animation-delay:1.1s;"></span>'
+          + '<span class="news-spark" style="left:22%; bottom:14%; animation-delay:2.2s;"></span>'
+        : '';
       const commentsHtml = (p.comments || []).map(function (c) {
         const cwhen = new Date(c.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
         const cname = c.author_anonymous ? 'Anónimo' : escapeHtml(c.author_display_name || c.author_username);
@@ -2820,7 +2854,8 @@
       const viewersHtml = canSeeViewers
         ? '<div class="meta-small" style="margin-top:8px; color:var(--muted-dim);" title="' + (viewers.length ? escapeHtml(viewers.join(', ')) : 'todavía nadie') + '">' + eyeIcon + ' ' + (viewers.length ? viewers.length + ' modelo(s) la vieron' : 'todavía ninguna modelo la ha visto') + '</div>'
         : '';
-      return '<div class="card" style="' + cardStyle + '">' +
+      return '<div class="card' + (isLegendary ? ' news-legendary' : '') + '" style="' + cardStyle + '">' +
+        sparksHtml +
         '<div class="model-name-row" style="margin-bottom:4px; flex-wrap:wrap;"><div class="model-name">' + escapeHtml(p.title) + '</div>' + roleBadgeHtml(p.author_role, p.author_gender) + typeBadge + '</div>' +
         '<div class="meta-small" style="margin-bottom:10px;">' + pname + ' — ' + when + '</div>' +
         '<div style="white-space:pre-wrap; margin-bottom:12px;">' + escapeHtml(p.body) + '</div>' +
