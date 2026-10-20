@@ -18,7 +18,7 @@ const {
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
-  computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
+  isStudioSunday, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
@@ -1259,6 +1259,24 @@ async function sbUpdateScheduleOwesMessage(username, message) {
 // modelo solo ve lo suyo (la lista es privada), administrador y CEO ven todo.
 // El filtrado se hace ACA, en el servidor — nunca mandando todo y escondiendo
 // en el navegador.
+// Domingo = día de extras (pedido 2026-10-20): la fila se pinta según lo que
+// reclamó en el calendario ese día (extra o recuperación); si no reclamó nada
+// igual queda como extra, porque pudo ser algo hablado. Sin conteo de horas
+// transmitidas ni retraso (ver isStudioSunday en chaturbate-lib.js).
+async function annotateSundays(days, period) {
+  if (!days.some((d) => isStudioSunday(d.work_date))) return;
+  const allShifts = await sbListShiftsCached();
+  const kindByKey = {};
+  for (const sh of allShifts) {
+    if (!sh.claimed_by || sh.shift_date < period.start || sh.shift_date > period.end) continue;
+    const k = sh.claimed_by + '|' + sh.shift_date;
+    if (!kindByKey[k] || sh.kind === 'recuperacion') kindByKey[k] = sh.kind === 'recuperacion' ? 'recuperacion' : 'extra';
+  }
+  for (const d of days) {
+    if (isStudioSunday(d.work_date)) d.special_day = kindByKey[d.username + '|' + d.work_date] || 'extra';
+  }
+}
+
 async function buildAttendancePayload(session) {
   const now = Date.now();
   const today = studioDateStr(now);
@@ -1298,7 +1316,13 @@ async function buildAttendancePayload(session) {
   const broadcastEvents = await sbListBroadcastEventsRange(relevantUsernames, periodStartMs, now);
   const eventsByUser = {};
   for (const e of broadcastEvents) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
+  // Domingo = día de extras (pedido 2026-10-20): la fila se pinta según lo
+  // que reclamó en el calendario ese día (extra o recuperación); si no
+  // reclamó nada igual queda como extra, porque pudo ser algo hablado. No
+  // lleva conteo de horas transmitidas ni retraso.
+  await annotateSundays(days, period);
   for (const d of days) {
+    if (d.special_day) continue;
     const hers = scheduleByUser[d.username];
     if (!d.scheduled_at || !hers || !hers.exit_time) continue;
     const durationMin = shiftDurationMinutes(hers.entry_time, hers.exit_time);
@@ -1466,6 +1490,7 @@ async function buildAttendanceHistoryPayload(session, refDateStr) {
   const socialSecurityEnabled = settings.social_security_enabled !== false;
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s;
+  await annotateSundays(days, period);
 
   const usernames = isStaff
     ? models.filter((m) => m.role === 'modelo').map((m) => m.username)
@@ -1510,6 +1535,12 @@ async function buildAttendanceHistoryPayload(session, refDateStr) {
 async function notifyAttendanceValidated(username, officialMs, lateMinutes, workDate) {
   const hora = studioTimeStr(officialMs);
   let msg;
+  // Domingo: día de extras, no hay retraso que reportar ni aviso de "todas
+  // entraron a tiempo" (cada una tiene un horario distinto ese día).
+  if (isStudioSunday(workDate)) {
+    await sendPushToRole(['administrador', 'ceo'], username + ' entró a las ' + hora + ' (domingo).', { tag: 'placer-asistencia-' + username });
+    return;
+  }
   if (lateMinutes == null) {
     msg = username + ' entró a las ' + hora + '.';
   } else if (lateMinutes > 0) {
@@ -1542,6 +1573,7 @@ async function notifyAttendanceValidated(username, officialMs, lateMinutes, work
 // la salida antes de que termine su turno real seria injusto. Se avisa
 // solo a administrador/ceo, con la modelo y la hora que quedo marcada.
 let autoExitRunning = false;
+const BROADCAST_EARLY_EXIT_CONFIRM_MS = 3 * 60 * 60 * 1000;
 async function checkAutoExits() {
   if (autoExitRunning) return;
   autoExitRunning = true;
@@ -1552,13 +1584,47 @@ async function checkAutoExits() {
     const [days, schedule] = await Promise.all([sbListAttendanceDays(from, to, null), sbListAttendanceSchedule()]);
     const scheduleByUser = {};
     for (const s of schedule) scheduleByUser[s.username] = s;
-    for (const d of days) {
-      if (d.exit_at || d.status !== 'validada' || !d.official_at) continue;
+    const open = days.filter((d) => !d.exit_at && d.status === 'validada' && d.official_at);
+    const openUsers = Array.from(new Set(open.map((d) => d.username)));
+    const events = openUsers.length ? await sbListBroadcastEventsRange(openUsers, now - 5 * 24 * 3600000, now) : [];
+    const eventsByUser = {};
+    for (const e of events) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
+    for (const d of open) {
       const hers = scheduleByUser[d.username];
       if (!hers || !hers.exit_time) continue;
       const durationMin = shiftDurationMinutes(hers.entry_time, hers.exit_time);
       if (durationMin == null) continue;
       const shiftEndMs = Date.parse(d.official_at) + durationMin * 60000;
+
+      // Pedido 2026-10-20: si nunca tocó "Salir" pero dejó de transmitir y no
+      // volvió en 3 h, la salida es la hora en que dejó de transmitir, y si
+      // fue antes de su hora de salida ese tiempo se cobra (sin justificante,
+      // mismo flujo que una salida antes de tiempo marcada por ella). Domingo
+      // no aplica: es día de extras.
+      if (!isStudioSunday(d.work_date) && hers.entry_time) {
+        const scheduledExitMs = studioInstantAfter(d.work_date, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time));
+        const det = findBroadcastEarlyExit(eventsByUser[d.username] || [], Date.parse(d.official_at), scheduledExitMs, now, BROADCAST_EARLY_EXIT_CONFIRM_MS);
+        if (det.state === 'wait') continue;
+        if (det.state === 'early') {
+          const early = computeEarlyExitMinutes(det.stopMs, scheduledExitMs);
+          if (early != null && early > 0) {
+            const upd = await sbUpdateAttendanceDay(d.id, {
+              exit_at: new Date(det.stopMs).toISOString(), exit_source: 'temprano',
+              early_exit_minutes: early, early_exit_excused: false, early_exit_reviewed_at: null,
+            });
+            if (upd) {
+              sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_auto_exit_broadcast', d.username,
+                { work_date: d.work_date, stop_at: new Date(det.stopMs).toISOString(), early_exit_minutes: early }).catch(() => {});
+              sendPushToRole(['administrador', 'ceo'],
+                d.username + ' dejó de transmitir a las ' + studioTimeStr(det.stopMs) + ' y no volvió en 3 h — quedó como salida ' + early + ' min antes de su hora.',
+                { tag: 'placer-asistencia-autoexit-' + d.username + '-' + d.work_date }
+              ).catch(() => {});
+            }
+            continue;
+          }
+        }
+      }
+
       if (now - shiftEndMs < 60 * 60000) continue;
       const updated = await sbUpdateAttendanceDay(d.id, { exit_at: new Date(shiftEndMs).toISOString(), exit_source: 'auto' });
       if (updated) {
@@ -1672,6 +1738,7 @@ function findPendingExcuses(days, justifications) {
   const oldest = (list) => list.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
   const out = [];
   for (const d of days) {
+    if (isStudioSunday(d.work_date)) continue;
     const mine = justifications.filter((j) => j.username === d.username && j.work_date === d.work_date);
     if (d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at) {
       const just = oldest(mine.filter((j) => j.kind !== 'salida_temprano'));
@@ -4051,7 +4118,7 @@ async function handleRequest(req, res) {
     let exitSource = null;
     let earlyMinutes = null;
     let reason = '';
-    if (hers && hers.exit_time && hers.entry_time) {
+    if (hers && hers.exit_time && hers.entry_time && !isStudioSunday(open.work_date)) {
       const scheduledExitMs = studioInstantAfter(open.work_date, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time));
       const early = computeEarlyExitMinutes(now, scheduledExitMs);
       if (early != null && early > 0) {

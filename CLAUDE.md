@@ -3288,3 +3288,35 @@ independiente: `tienda/server.js` exporta `{ app, init }`.
 - `details.fold`: "Publicar noticia" (`index.html`) y, en `asistencia.html`,
   "Agregar o corregir hora" y "Marcar falta" arrancan plegados. Así la tabla de
   jornadas queda arriba. `manualPrefill` abre `#manualFold` antes de hacer scroll.
+
+## Domingos = día de extras + salida detectada por transmisión (2026-10-20)
+
+- **Domingo** (`isStudioSunday(work_date)` en `chaturbate-lib.js`): ese día los
+  horarios se cruzan (las de la mañana entran en la tarde y al revés), así que
+  no cuenta como jornada normal. `sumLateMinutes`/`sumEarlyExitMinutes` lo
+  saltan, y como el filtro va en la suma también aplica a domingos pasados.
+  `/api/attendance/exit` no calcula salida temprano ese día, y
+  `findPendingExcuses` lo ignora. `notifyAttendanceValidated` solo avisa "entró
+  a las X (domingo)", sin retraso ni "todas a tiempo". `late_minutes` se guarda
+  igual en la fila, pero no se cobra.
+- `annotateSundays` (server.js) pone `d.special_day` = `'recuperacion'` si
+  reclamó una recuperación ese domingo en `cb_shifts`; si no, `'extra'` (pudo
+  ser algo hablado). Se usa en el payload actual y en el de historial. Ese día
+  no se calculan horas transmitidas.
+- Las dos hojas (`index.html` y `asistencia.html`) pintan la fila con
+  `tr.day-extra` (verde) o `tr.day-recuperacion` (azul), con una etiqueta bajo
+  la fecha y "domingo, no cuenta" en Retraso. Los botones de justificar se
+  ocultan en esas filas.
+- **Salida por transmisión**: si la modelo nunca toca "Salir",
+  `checkAutoExits` usa `findBroadcastEarlyExit`. Toma el último `stop` dentro
+  de su jornada; si no vuelve a transmitir en 3 h
+  (`BROADCAST_EARLY_EXIT_CONFIRM_MS`), la salida queda a la hora de ese corte
+  como `exit_source: 'temprano'` con `early_exit_minutes`, y se cobra igual que
+  una salida temprano sin justificar. Mientras no pasen las 3 h, espera. Si sigue
+  en línea al final o no hay eventos, la salida automática sigue como antes. No
+  aplica el domingo. Se audita como `attendance_auto_exit_broadcast`.
+- Prueba: 7 tests nuevos (151/151) y payload/capturas contra un Supabase falso.
+  El poller real no se corrió localmente, porque sin `SOLO_UI` se conectaría a
+  Chaturbate de verdad.
+- Ojo al probar: `pkill -f "node server.js"` dentro de un comando compuesto
+  mata la propia shell. Usa `kill` con el PID.

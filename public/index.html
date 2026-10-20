@@ -683,6 +683,18 @@
   .ui-modal-actions { display: flex; gap: 10px; margin-top: 22px; }
   .ui-modal-actions button { flex: 1; }
   .ui-modal-cancel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); }
+
+  /* Domingo = día de extras (2026-10-20): la fila entera lleva un tinte suave,
+     verde si fue extra y azul si fue recuperación. background-image en vez de
+     background-color para no tapar el fondo opaco de la primera columna
+     sticky. */
+  tr.day-extra td { background-image: linear-gradient(rgba(111,231,184,0.09), rgba(111,231,184,0.09)); }
+  tr.day-recuperacion td { background-image: linear-gradient(rgba(124,183,255,0.11), rgba(124,183,255,0.11)); }
+  tr.day-extra td:first-child { box-shadow: inset 3px 0 0 #6fe7b8; }
+  tr.day-recuperacion td:first-child { box-shadow: inset 3px 0 0 #7cb7ff; }
+  .day-tag { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+  tr.day-extra .day-tag { color: #6fe7b8; }
+  tr.day-recuperacion .day-tag { color: #7cb7ff; }
 </style>
 </head>
 <body>
@@ -2375,13 +2387,14 @@
       } else {
         salida = attHora(d.exit_at);
       }
-      return '<tr>'
-        + '<td class="num">' + attFechaCorta(d.work_date) + '</td>'
+      var spDay = d.special_day;
+      return '<tr' + (spDay ? ' class="day-' + spDay + '"' : '') + '>'
+        + '<td class="num">' + attFechaCorta(d.work_date) + (spDay ? '<span class="day-tag">' + (spDay === 'recuperacion' ? 'Recuperación' : 'Extra') + '</span>' : '') + '</td>'
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
         + '<td class="num">' + salida + '</td>'
-        + '<td class="num">' + attRetrasoHtml(d.late_minutes, d.late_excused,
-              !d.late_excused && !d.late_excuse_reviewed_at && mine.some(function (j) { return j.kind !== 'salida_temprano'; })) + '</td>'
+        + '<td class="num">' + (spDay ? '<span class="muted">domingo, no cuenta</span>' : attRetrasoHtml(d.late_minutes, d.late_excused,
+              !d.late_excused && !d.late_excuse_reviewed_at && mine.some(function (j) { return j.kind !== 'salida_temprano'; }))) + '</td>'
         + '<td class="num">' + attBcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="att-just-col">' + textos + '</td>'

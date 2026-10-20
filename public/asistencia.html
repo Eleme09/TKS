@@ -237,6 +237,18 @@
   .ui-modal-actions button { flex: 1; font-family: inherit; font-weight: 700; font-size: 13px; padding: 10px; border-radius: 10px; border: none; cursor: pointer; }
   .ui-modal-ok { background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07)); color: var(--pink); border: 1px solid var(--pink-line) !important; }
   .ui-modal-cancel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong) !important; }
+
+  /* Domingo = día de extras (2026-10-20): la fila entera lleva un tinte suave,
+     verde si fue extra y azul si fue recuperación. background-image en vez de
+     background-color para no tapar el fondo opaco de la primera columna
+     sticky. */
+  tr.day-extra td { background-image: linear-gradient(rgba(111,231,184,0.09), rgba(111,231,184,0.09)); }
+  tr.day-recuperacion td { background-image: linear-gradient(rgba(124,183,255,0.11), rgba(124,183,255,0.11)); }
+  tr.day-extra td:first-child { box-shadow: inset 3px 0 0 #6fe7b8; }
+  tr.day-recuperacion td:first-child { box-shadow: inset 3px 0 0 #7cb7ff; }
+  .day-tag { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+  tr.day-extra .day-tag { color: #6fe7b8; }
+  tr.day-recuperacion .day-tag { color: #7cb7ff; }
 </style>
 </head>
 <body>
@@ -560,13 +572,14 @@
       }
       else salida = hora(d.exit_at);
 
-      return '<tr>'
-        + '<td class="num">' + fecha(d.work_date) + '</td>'
+      var spDay = d.special_day;
+      return '<tr' + (spDay ? ' class="day-' + spDay + '"' : '') + '>'
+        + '<td class="num">' + fecha(d.work_date) + (spDay ? '<span class="day-tag">' + (spDay === 'recuperacion' ? 'Recuperación' : 'Extra') + '</span>' : '') + '</td>'
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
         + '<td class="num">' + salida + '</td>'
-        + '<td class="num">' + retrasoHtml(d.late_minutes, d.late_excused,
-              !d.late_excused && !d.late_excuse_reviewed_at && mine.some(function (j) { return j.kind !== 'salida_temprano'; })) + '</td>'
+        + '<td class="num">' + (spDay ? '<span class="muted">domingo, no cuenta</span>' : retrasoHtml(d.late_minutes, d.late_excused,
+              !d.late_excused && !d.late_excuse_reviewed_at && mine.some(function (j) { return j.kind !== 'salida_temprano'; }))) + '</td>'
         + '<td class="num">' + bcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'
         + '<td class="just-col">' + textos + '</td>'
@@ -574,7 +587,7 @@
         + (puedeCorregir
             ? '<td><div class="fix-actions">'
               + '<button type="button" class="fix-btn" data-editar-user="' + escapeHtml(d.username) + '" data-editar-fecha="' + d.work_date + '">Editar hora</button>'
-              + (d.late_minutes > 0
+              + (!spDay && d.late_minutes > 0
                   ? '<button type="button" class="fix-btn" data-excusar="' + d.id + '" data-excusado="' + (d.late_excused ? '1' : '0') + '">'
                     + (d.late_excused ? 'Quitar justificación' : 'Justificar retraso') + '</button>'
                   : '')
@@ -582,16 +595,16 @@
               // todavía, se acepta solo a los 20 min (checkAutoExcuseLateJustifications
               // en server.js) -- este botón es la única forma de decir "no"
               // antes de que eso pase.
-              + (d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at
+              + (!spDay && d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at
                   && mine.some(function (j) { return j.kind !== 'salida_temprano'; })
                   ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '">Rechazar justificación</button>'
                   : '')
               // Salida antes de tiempo (2026-10-20): mismo par de botones, otro endpoint.
-              + (d.early_exit_minutes > 0
+              + (!spDay && d.early_exit_minutes > 0
                   ? '<button type="button" class="fix-btn" data-excusar="' + d.id + '" data-tipo="early" data-excusado="' + (d.early_exit_excused ? '1' : '0') + '">'
                     + (d.early_exit_excused ? 'Quitar justif. salida' : 'Justificar salida') + '</button>'
                   : '')
-              + (d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at
+              + (!spDay && d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at
                   && mine.some(function (j) { return j.kind !== 'retraso'; })
                   ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '" data-tipo="early">Rechazar justif. salida</button>'
                   : '')

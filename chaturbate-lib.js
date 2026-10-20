@@ -639,10 +639,19 @@ function previousAttendancePeriod(dateStr) {
 // salida se cobra igual que un retraso (mismo acumulado que alimenta deuda y
 // umbral de seguridad social), salvo que quede justificado
 // (`early_exit_excused`, mismo mecanismo que `late_excused`).
+// Domingo (pedido 2026-10-20): es día de extras/recuperaciones con horarios
+// cruzados (las de la mañana entran en la tarde y al revés), no una jornada
+// normal. No suma retraso ni salida antes de tiempo, haya o no una extra
+// reclamada en el calendario — puede ser algo hablado de palabra.
+function isStudioSunday(workDate) {
+  if (typeof workDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return false;
+  return new Date(workDate + 'T12:00:00Z').getUTCDay() === 0;
+}
+
 function sumLateMinutes(days) {
   let total = 0;
   for (const d of days) {
-    if (d.status !== 'validada') continue;
+    if (d.status !== 'validada' || isStudioSunday(d.work_date)) continue;
     if (!d.late_excused && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
       total += d.late_minutes;
     }
@@ -658,7 +667,7 @@ function sumLateMinutes(days) {
 function sumEarlyExitMinutes(days) {
   let total = 0;
   for (const d of days) {
-    if (d.status !== 'validada' || d.early_exit_excused) continue;
+    if (d.status !== 'validada' || d.early_exit_excused || isStudioSunday(d.work_date)) continue;
     if (typeof d.early_exit_minutes === 'number' && d.early_exit_minutes > 0) total += d.early_exit_minutes;
   }
   return total;
@@ -836,6 +845,30 @@ function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
   return { onlineMinutes: Math.round(onlineMs / 60000), maxGapMinutes: Math.round(maxGapMs / 60000) };
 }
 
+// Salida antes de tiempo detectada por la transmisión (pedido 2026-10-20),
+// para la modelo que nunca toca "Salir". Se toma el último corte de
+// transmisión dentro de su jornada; si no vuelve a transmitir en
+// `confirmGapMs` (3 h) desde ese corte, se asume que se fue a esa hora. Un
+// corte corto (un show, se cayó el internet) no cuenta porque vuelve antes.
+// Devuelve { state: 'none' } (siguió hasta el final o no hay datos),
+// { state: 'wait' } (todavía no pasan las 3 h para confirmar) o
+// { state: 'early', stopMs }.
+function findBroadcastEarlyExit(events, windowStartMs, shiftEndMs, nowMs, confirmGapMs) {
+  if (windowStartMs == null || shiftEndMs == null || shiftEndMs <= windowStartMs) return { state: 'none' };
+  const sorted = (events || [])
+    .map((e) => ({ type: e.event_type, ms: typeof e.created_at === 'number' ? e.created_at : Date.parse(e.created_at) }))
+    .filter((e) => Number.isFinite(e.ms) && (e.type === 'start' || e.type === 'stop'))
+    .sort((a, b) => a.ms - b.ms);
+  const inWindow = sorted.filter((e) => e.ms >= windowStartMs && e.ms < shiftEndMs);
+  if (!inWindow.length) return { state: 'none' };
+  const last = inWindow[inWindow.length - 1];
+  if (last.type !== 'stop') return { state: 'none' };
+  const stopMs = last.ms;
+  if (sorted.some((e) => e.type === 'start' && e.ms > stopMs && e.ms <= stopMs + confirmGapMs)) return { state: 'none' };
+  if (nowMs < stopMs + confirmGapMs) return { state: 'wait' };
+  return { state: 'early', stopMs };
+}
+
 // Umbral de desconexion que cuenta como "problema real" (no un blip de unos
 // minutos) dentro de un turno — pedido explicito del usuario 2026-09-09.
 const BROADCAST_GAP_ALERT_MINUTES = 30;
@@ -859,6 +892,7 @@ function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMin
 }
 
 module.exports = {
+  isStudioSunday, findBroadcastEarlyExit,
   MESES,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr,

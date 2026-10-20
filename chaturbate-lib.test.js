@@ -887,3 +887,41 @@ describe('resolveOwesAlertMessage', () => {
     assert.equal(r, 'kitty_f00x: debe la quincena pasada.');
   });
 });
+
+describe('Domingos y salida detectada por transmisión (2026-10-20)', () => {
+  const { isStudioSunday, findBroadcastEarlyExit, sumLateMinutes, sumEarlyExitMinutes } = require('./chaturbate-lib');
+  const H = 3600000;
+  test('isStudioSunday reconoce el domingo', () => {
+    assert.strictEqual(isStudioSunday('2026-10-18'), true);
+    assert.strictEqual(isStudioSunday('2026-10-19'), false);
+    assert.strictEqual(isStudioSunday(undefined), false);
+  });
+  test('el domingo no suma retraso ni salida antes de tiempo', () => {
+    const days = [
+      { status: 'validada', work_date: '2026-10-18', late_minutes: 300, early_exit_minutes: 60 },
+      { status: 'validada', work_date: '2026-10-19', late_minutes: 10, early_exit_minutes: 5 },
+    ];
+    assert.strictEqual(sumLateMinutes(days), 15);
+    assert.strictEqual(sumEarlyExitMinutes(days), 5);
+  });
+  const ev = (type, ms) => ({ event_type: type, created_at: ms });
+  test('corte sin volver en 3 h = salida a la hora del corte', () => {
+    const r = findBroadcastEarlyExit([ev('start', 0), ev('stop', 5 * H)], 0, 8 * H, 9 * H, 3 * H);
+    assert.deepStrictEqual(r, { state: 'early', stopMs: 5 * H });
+  });
+  test('si vuelve antes de 3 h no es salida', () => {
+    const r = findBroadcastEarlyExit([ev('start', 0), ev('stop', 5 * H), ev('start', 6 * H)], 0, 8 * H, 9 * H, 3 * H);
+    assert.strictEqual(r.state, 'none');
+  });
+  test('espera hasta confirmar las 3 h', () => {
+    const r = findBroadcastEarlyExit([ev('start', 0), ev('stop', 7 * H)], 0, 8 * H, 9 * H, 3 * H);
+    assert.strictEqual(r.state, 'wait');
+  });
+  test('si sigue en línea al final del turno no hay nada', () => {
+    const r = findBroadcastEarlyExit([ev('start', 0)], 0, 8 * H, 9 * H, 3 * H);
+    assert.strictEqual(r.state, 'none');
+  });
+  test('sin eventos en la jornada no inventa nada', () => {
+    assert.strictEqual(findBroadcastEarlyExit([], 0, 8 * H, 12 * H, 3 * H).state, 'none');
+  });
+});
