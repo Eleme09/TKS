@@ -3275,3 +3275,16 @@ independiente: `tienda/server.js` exporta `{ app, init }`.
 - Ya no tiene lectura de facturas por foto (OCR): se quitó para no cargar
   `tesseract.js` (memoria) en el proceso de TKS.
 - Los cambios a la tienda se hacen aquí; el repo `TIENDA-` queda como histórico.
+
+## Ajustes de celular: etiquetas, botones táctiles y formularios plegados (2026-10-20)
+
+- Barra superior: en el celular, Anónimo/Mostrar, Avisos (campana) y Cerrar todo
+  llevan etiqueta corta bajo el ícono. En escritorio siguen solo-ícono (pedido
+  anterior que no se revirtió). `applyAnonButtonState` escribe "Anónimo"/"Mostrar"
+  en el span; el title/aria-label sigue con el texto largo.
+- Bajo 640px, los botones de Cuentas/Noticias/Asistencia tienen `min-height: 40px`.
+  También `.att-sheet-link`, `.fix-btn` y los checkboxes (22px). `.newsTypeSelect`
+  queda en 34px, porque a 40px se veía como un botón gordo.
+- `details.fold`: "Publicar noticia" (`index.html`) y, en `asistencia.html`,
+  "Agregar o corregir hora" y "Marcar falta" arrancan plegados. Así la tabla de
+  jornadas queda arriba. `manualPrefill` abre `#manualFold` antes de hacer scroll.
