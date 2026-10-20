@@ -648,14 +648,22 @@ function isStudioSunday(workDate) {
   return new Date(workDate + 'T12:00:00Z').getUTCDay() === 0;
 }
 
-function sumLateMinutes(days) {
+// Interruptor (2026-10-21): el cobro por salir antes de tiempo está PAUSADO a
+// pedido del usuario mientras lo consulta con el dueño. La lógica sigue entera
+// (se calcula y se guarda early_exit_minutes, hay justificar/rechazar), pero
+// con esto en false esos minutos NO suman a retraso, deuda ni seguridad
+// social. Para reactivarlo basta ponerlo en true.
+const EARLY_EXIT_CHARGE_ENABLED = false;
+
+function sumLateMinutes(days, opts) {
+  const chargeEarly = opts && opts.chargeEarlyExit != null ? opts.chargeEarlyExit : EARLY_EXIT_CHARGE_ENABLED;
   let total = 0;
   for (const d of days) {
     if (d.status !== 'validada' || isStudioSunday(d.work_date)) continue;
     if (!d.late_excused && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
       total += d.late_minutes;
     }
-    if (!d.early_exit_excused && typeof d.early_exit_minutes === 'number' && d.early_exit_minutes > 0) {
+    if (chargeEarly && !d.early_exit_excused && typeof d.early_exit_minutes === 'number' && d.early_exit_minutes > 0) {
       total += d.early_exit_minutes;
     }
   }
@@ -664,7 +672,9 @@ function sumLateMinutes(days) {
 
 // Solo la parte de salidas antes de tiempo sin justificar (para mostrarla
 // aparte del retraso de entrada; ya va incluida en sumLateMinutes).
-function sumEarlyExitMinutes(days) {
+function sumEarlyExitMinutes(days, opts) {
+  const chargeEarly = opts && opts.chargeEarlyExit != null ? opts.chargeEarlyExit : EARLY_EXIT_CHARGE_ENABLED;
+  if (!chargeEarly) return 0;
   let total = 0;
   for (const d of days) {
     if (d.status !== 'validada' || d.early_exit_excused || isStudioSunday(d.work_date)) continue;
@@ -892,6 +902,7 @@ function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMin
 }
 
 module.exports = {
+  EARLY_EXIT_CHARGE_ENABLED,
   isStudioSunday, findBroadcastEarlyExit,
   MESES,
   STUDIO_UTC_OFFSET_HOURS,

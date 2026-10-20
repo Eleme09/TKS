@@ -3361,3 +3361,23 @@ hora la haya puesto el admin (`exit_source` null). La edición manual sigue sin
 dejar rastro de que la hizo el admin. Solo se ve el hecho de que salió antes. Si
 no hay justificante, se cobra. El botón "Justificar salida" está en la hoja
 completa (`asistencia.html`), columna Corregir, solo para administrador.
+
+## Cobro por salida antes de tiempo PAUSADO (2026-10-21)
+
+Pedido del usuario: "no borrar la lógica, pero quitarlo un momento porque lo
+voy a consultar con el dueño; que no aparezca el cobro por esos minutos". Quedó
+detrás de un interruptor: `EARLY_EXIT_CHARGE_ENABLED = false` en
+`chaturbate-lib.js`. Con eso en false:
+- `sumLateMinutes`/`sumEarlyExitMinutes` NO suman `early_exit_minutes`, así que
+  no afecta retraso acumulado, deuda ni seguridad social. El retraso de entrada
+  sigue igual.
+- La hoja solo informa "salió −3 h 30 min antes", sin "se cobra" ni "sin
+  justificar". Los botones "Justificar/Rechazar salida" no salen. La card
+  "Justificantes por revisar" no lista salidas (`findPendingExcuses`). Los
+  payloads mandan `early_exit_charge` para que el frontend lo sepa.
+- Sigue calculándose y guardándose `early_exit_minutes` (salida manual,
+  salida de la modelo, salida detectada por transmisión), así que al reactivar
+  no se pierde nada. Para reactivar, pon el interruptor en `true`. Los tests
+  usan `{ chargeEarlyExit: true }` para probar la lógica completa.
+- Las filas corregidas a mano el 2026-10-21 (kitty 210 min, tamar4 214 min del
+  19 de octubre) quedaron guardadas, pero no cobran mientras esté pausado.

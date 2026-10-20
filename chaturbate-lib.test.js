@@ -456,17 +456,25 @@ describe('asistencia — cálculo de retraso y acumulado', () => {
       { status: 'validada', late_minutes: 10, early_exit_minutes: 90 },
       { status: 'validada', late_minutes: -5, early_exit_minutes: 30 },
     ];
-    assert.equal(lib.sumLateMinutes(days), 130);
-    assert.equal(lib.sumEarlyExitMinutes(days), 120);
+    assert.equal(lib.sumLateMinutes(days, { chargeEarlyExit: true }), 130);
+    assert.equal(lib.sumEarlyExitMinutes(days, { chargeEarlyExit: true }), 120);
+    assert.equal(lib.sumLateMinutes(days), 10);
+    assert.equal(lib.sumEarlyExitMinutes(days), 0);
   });
   test('early_exit_excused saca solo la salida, no el retraso de entrada del mismo día', () => {
     const days = [{ status: 'validada', late_minutes: 15, early_exit_minutes: 60, early_exit_excused: true }];
-    assert.equal(lib.sumLateMinutes(days), 15);
-    assert.equal(lib.sumEarlyExitMinutes(days), 0);
+    assert.equal(lib.sumLateMinutes(days, { chargeEarlyExit: true }), 15);
+    assert.equal(lib.sumEarlyExitMinutes(days, { chargeEarlyExit: true }), 0);
   });
   test('late_excused saca solo el retraso, la salida temprano sigue contando', () => {
     const days = [{ status: 'validada', late_minutes: 15, late_excused: true, early_exit_minutes: 60 }];
-    assert.equal(lib.sumLateMinutes(days), 60);
+    assert.equal(lib.sumLateMinutes(days, { chargeEarlyExit: true }), 60);
+  });
+  test('cobro de salida temprano pausado (2026-10-21): por defecto no suma nada', () => {
+    assert.equal(lib.EARLY_EXIT_CHARGE_ENABLED, false);
+    const days = [{ status: 'validada', late_minutes: 20, early_exit_minutes: 210 }];
+    assert.equal(lib.sumLateMinutes(days), 20);
+    assert.equal(lib.sumEarlyExitMinutes(days), 0);
   });
 });
 
@@ -901,8 +909,8 @@ describe('Domingos y salida detectada por transmisión (2026-10-20)', () => {
       { status: 'validada', work_date: '2026-10-18', late_minutes: 300, early_exit_minutes: 60 },
       { status: 'validada', work_date: '2026-10-19', late_minutes: 10, early_exit_minutes: 5 },
     ];
-    assert.strictEqual(sumLateMinutes(days), 15);
-    assert.strictEqual(sumEarlyExitMinutes(days), 5);
+    assert.strictEqual(sumLateMinutes(days, { chargeEarlyExit: true }), 15);
+    assert.strictEqual(sumEarlyExitMinutes(days, { chargeEarlyExit: true }), 5);
   });
   const ev = (type, ms) => ({ event_type: type, created_at: ms });
   test('corte sin volver en 3 h = salida a la hora del corte', () => {

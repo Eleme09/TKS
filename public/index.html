@@ -2103,6 +2103,8 @@
   function attEarlyExitNote(d, mine) {
     const mins = d.early_exit_minutes;
     if (!(mins > 0)) return '<div class="att-sub att-late">salida temprano</div>';
+    // Cobro pausado (2026-10-21): solo se informa que salió antes, sin estado de cobro.
+    if (attData && attData.early_exit_charge === false) return '<div class="att-sub">salió −' + attHorasMin(mins) + ' antes</div>';
     const pendiente = !d.early_exit_excused && !d.early_exit_reviewed_at
       && (mine || []).some(function (j) { return j.kind !== 'retraso'; });
     const estado = d.early_exit_excused ? 'justificado, no cuenta'

@@ -18,7 +18,7 @@ const {
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
-  isStudioSunday, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
+  EARLY_EXIT_CHARGE_ENABLED, isStudioSunday, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
@@ -1453,6 +1453,7 @@ async function buildAttendancePayload(session) {
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
     social_security_enabled: socialSecurityEnabled,
+    early_exit_charge: EARLY_EXIT_CHARGE_ENABLED,
     shifts: ATTENDANCE_SHIFTS,
     schedule,
     days,
@@ -1548,6 +1549,7 @@ async function buildAttendanceHistoryPayload(session, refDateStr) {
     threshold_minutes: threshold,
     late_hour_fee_cop: feeCop,
     social_security_enabled: socialSecurityEnabled,
+    early_exit_charge: EARLY_EXIT_CHARGE_ENABLED,
     days,
     justifications,
     totals,
@@ -1772,7 +1774,7 @@ function findPendingExcuses(days, justifications) {
       const just = oldest(mine.filter((j) => j.kind !== 'salida_temprano'));
       if (just) out.push({ day: d, which: 'late', minutes: d.late_minutes, just });
     }
-    if (d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at) {
+    if (EARLY_EXIT_CHARGE_ENABLED && d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at) {
       const just = oldest(mine.filter((j) => j.kind !== 'retraso'));
       if (just) out.push({ day: d, which: 'early', minutes: d.early_exit_minutes, just });
     }

@@ -579,7 +579,9 @@
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
       else if (d.exit_source === 'temprano' || d.early_exit_minutes > 0) {
         var earlyPend = !d.early_exit_excused && !d.early_exit_reviewed_at && mine.some(function (j) { return j.kind !== 'retraso'; });
-        salida = hora(d.exit_at) + (d.early_exit_minutes > 0
+        salida = hora(d.exit_at) + (d.early_exit_minutes > 0 && data.early_exit_charge === false
+          ? '<div class="sub2">salió −' + horasMin(d.early_exit_minutes) + ' antes</div>'
+          : d.early_exit_minutes > 0
           ? '<div class="sub2"' + (d.early_exit_excused ? '' : ' style="color:var(--bad, #ff6b6b);"') + '>−' + horasMin(d.early_exit_minutes) + ' antes · '
             + (d.early_exit_excused ? 'justificado, no cuenta' : earlyPend ? 'justificante sin revisar' : 'sin justificar, se cobra') + '</div>'
           : '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>');
@@ -614,11 +616,11 @@
                   ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '">Rechazar justificación</button>'
                   : '')
               // Salida antes de tiempo (2026-10-20): mismo par de botones, otro endpoint.
-              + (!spDay && d.early_exit_minutes > 0
+              + (!spDay && data.early_exit_charge !== false && d.early_exit_minutes > 0
                   ? '<button type="button" class="fix-btn" data-excusar="' + d.id + '" data-tipo="early" data-excusado="' + (d.early_exit_excused ? '1' : '0') + '">'
                     + (d.early_exit_excused ? 'Quitar justif. salida' : 'Justificar salida') + '</button>'
                   : '')
-              + (!spDay && d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at
+              + (!spDay && data.early_exit_charge !== false && d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at
                   && mine.some(function (j) { return j.kind !== 'retraso'; })
                   ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '" data-tipo="early">Rechazar justif. salida</button>'
                   : '')
