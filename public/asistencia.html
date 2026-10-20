@@ -577,7 +577,7 @@
       if (d.official_source === 'falta' || d.official_source === 'falta_justificada') salida = '<span class="muted">—</span>';
       else if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
-      else if (d.exit_source === 'temprano') {
+      else if (d.exit_source === 'temprano' || d.early_exit_minutes > 0) {
         var earlyPend = !d.early_exit_excused && !d.early_exit_reviewed_at && mine.some(function (j) { return j.kind !== 'retraso'; });
         salida = hora(d.exit_at) + (d.early_exit_minutes > 0
           ? '<div class="sub2"' + (d.early_exit_excused ? '' : ' style="color:var(--bad, #ff6b6b);"') + '>−' + horasMin(d.early_exit_minutes) + ' antes · '

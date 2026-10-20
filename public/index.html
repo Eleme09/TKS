@@ -2396,7 +2396,7 @@
         salida = '<span class="muted">—</span>';
       } else if (d.exit_source === 'auto') {
         salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
-      } else if (d.exit_source === 'temprano') {
+      } else if (d.exit_source === 'temprano' || d.early_exit_minutes > 0) {
         salida = attHora(d.exit_at) + attEarlyExitNote(d, mine);
       } else {
         salida = attHora(d.exit_at);

@@ -3347,3 +3347,17 @@ dos hojas y en el CSV:
 - **Retraso** en una falta justificada muestra "—", no "a tiempo".
 - El tipo del justificante (`kind`) se sigue guardando y sale en la lista de
   la card "Justificantes", solo que ya no en la tabla.
+
+## Salida puesta a mano por el admin sí se ve y se puede justificar (2026-10-21)
+
+Caso real: kitty y tamar4 salieron temprano el 2026-10-19, el admin les puso la
+hora de salida a mano ese día, pero esas filas quedaron con `early_exit_minutes`
+vacío (la edición se hizo antes de que `day/edit` calculara ese campo). Sin
+minutos, no se cobraba y tampoco salía el botón "Justificar salida". Se arreglaron
+las dos filas con un UPDATE (210 y 214 min, con registro en `cb_audit_log`,
+acción `attendance_backfill_early_exit`). Además, la columna Salida muestra "−X
+antes · sin justificar, se cobra" siempre que `early_exit_minutes > 0`, aunque la
+hora la haya puesto el admin (`exit_source` null). La edición manual sigue sin
+dejar rastro de que la hizo el admin. Solo se ve el hecho de que salió antes. Si
+no hay justificante, se cobra. El botón "Justificar salida" está en la hoja
+completa (`asistencia.html`), columna Corregir, solo para administrador.
