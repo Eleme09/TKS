@@ -695,6 +695,11 @@
   .day-tag { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
   tr.day-extra .day-tag { color: #6fe7b8; }
   tr.day-recuperacion .day-tag { color: #7cb7ff; }
+  /* Extra/recuperación cumplida ese día (2026-10-20): horas al lado de las
+     normales y etiqueta en Problemática, verde extra / azul recuperación. */
+  .xh { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+  .xh-extra { color: #6fe7b8; background: rgba(111,231,184,0.12); border: 1px solid rgba(111,231,184,0.3); }
+  .xh-recuperacion { color: #7cb7ff; background: rgba(124,183,255,0.12); border: 1px solid rgba(124,183,255,0.32); }
 </style>
 </head>
 <body>
@@ -2306,9 +2311,13 @@
   };
 
   function attBcastHtml(d) {
-    if (d.broadcast_minutes == null) return '<span class="muted">—</span>';
+    var xs = (d.extra_shifts || []).map(function (x) {
+      return '<span class="xh xh-' + x.kind + '" title="' + (x.kind === 'recuperacion' ? 'Recuperación' : 'Extra') + '">+'
+        + (x.minutes == null ? '?' : attHorasMin(x.minutes)) + ' ' + (x.kind === 'recuperacion' ? 'recup.' : 'extra') + '</span>';
+    }).join('');
+    if (d.broadcast_minutes == null) return xs || '<span class="muted">—</span>';
     const cls = d.broadcast_color ? ' att-bcast-' + d.broadcast_color : '';
-    return '<span class="att-bcast' + cls + '">' + attHorasMin(d.broadcast_minutes) + '</span>';
+    return '<span class="att-bcast' + cls + '">' + attHorasMin(d.broadcast_minutes) + '</span>' + xs;
   }
 
   function attTh(label, iconKey) {
@@ -2354,8 +2363,9 @@
       // muestra cada tipo una sola vez en vez de repetir la etiqueta.
       const tipos = [];
       mine.forEach(function (j) { if (tipos.indexOf(j.kind) === -1) tipos.push(j.kind); });
-      const problemas = tipos.length
-        ? tipos.map(function (k) { return '<span class="att-tag">' + attKindShort(k) + '</span>'; }).join(' ')
+      var xTags = (d.extra_shifts || []).map(function (x) { return '<span class="att-tag xh-' + x.kind + '">' + (x.kind === 'recuperacion' ? 'Recuperó' : 'Hizo extra') + '</span>'; }).join(' ');
+      const problemas = (tipos.length || xTags)
+        ? tipos.map(function (k) { return '<span class="att-tag">' + attKindShort(k) + '</span>'; }).join(' ') + (xTags ? (tipos.length ? ' ' : '') + xTags : '')
         : '<span class="muted">—</span>';
       const textos = mine.length
         ? mine.map(function (j) { return '<div class="att-just-cell" title="' + escapeHtml(j.body) + '">' + escapeHtml(j.body) + '</div>'; }).join('')

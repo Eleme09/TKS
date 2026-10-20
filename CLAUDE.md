@@ -3320,3 +3320,13 @@ independiente: `tienda/server.js` exporta `{ app, init }`.
   Chaturbate de verdad.
 - Ojo al probar: `pkill -f "node server.js"` dentro de un comando compuesto
   mata la propia shell. Usa `kill` con el PID.
+- **Extras/recuperaciones entre semana (misma fecha, segunda parte):** su turno
+  normal se juzga igual. Si reclamó una extra o recuperación en el calendario y
+  admin/CEO la marcó `cumplio`, `annotateSpecialShifts` (antes
+  `annotateSundays`) pone `d.extra_shifts = [{kind, minutes}]` en la fila de
+  ese día. `minutes` es lo que transmitió dentro de la ventana de la extra
+  (`computeBroadcastSummary`). La hoja muestra, al lado de "Transmitido", una
+  pastilla "+Xh extra" (verde) o "+Xh recup." (azul), y en Problemática la
+  etiqueta "Hizo extra"/"Recuperó". Las que siguen pendientes o quedaron
+  `no_cumplio` no salen. Si ese día no tiene fila de asistencia, no aparece en
+  la hoja.

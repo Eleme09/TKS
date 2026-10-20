@@ -1263,17 +1263,45 @@ async function sbUpdateScheduleOwesMessage(username, message) {
 // reclamó en el calendario ese día (extra o recuperación); si no reclamó nada
 // igual queda como extra, porque pudo ser algo hablado. Sin conteo de horas
 // transmitidas ni retraso (ver isStudioSunday en chaturbate-lib.js).
-async function annotateSundays(days, period) {
-  if (!days.some((d) => isStudioSunday(d.work_date))) return;
+//
+// Extras/recuperaciones en cualquier día (mismo pedido, segunda parte): si la
+// modelo reclamó una en el calendario y admin/CEO la marcó como cumplida
+// (attendance_status 'cumplio'), la fila de ese día lleva `extra_shifts` con
+// cuánto transmitió DENTRO de la ventana de esa extra. Su turno normal se sigue
+// juzgando igual: la extra va aparte, al lado de las horas normales.
+async function annotateSpecialShifts(days, period, eventsByUser, now) {
+  if (!days.length) return;
   const allShifts = await sbListShiftsCached();
+  const inPeriod = allShifts.filter((sh) => sh.claimed_by && sh.shift_date >= period.start && sh.shift_date <= period.end);
   const kindByKey = {};
-  for (const sh of allShifts) {
-    if (!sh.claimed_by || sh.shift_date < period.start || sh.shift_date > period.end) continue;
+  const doneByKey = {};
+  for (const sh of inPeriod) {
     const k = sh.claimed_by + '|' + sh.shift_date;
-    if (!kindByKey[k] || sh.kind === 'recuperacion') kindByKey[k] = sh.kind === 'recuperacion' ? 'recuperacion' : 'extra';
+    const kind = sh.kind === 'recuperacion' ? 'recuperacion' : 'extra';
+    if (!kindByKey[k] || kind === 'recuperacion') kindByKey[k] = kind;
+    if (sh.attendance_status === 'cumplio') (doneByKey[k] = doneByKey[k] || []).push(sh);
+  }
+  const needEvents = Object.keys(doneByKey).length > 0;
+  if (needEvents && !eventsByUser) {
+    const users = Array.from(new Set(Object.keys(doneByKey).map((k) => k.split('|')[0])));
+    const fromMs = Date.parse(period.start + 'T00:00:00Z') - 24 * 3600000;
+    const toMs = Math.min(now, Date.parse(period.end + 'T00:00:00Z') + 2 * 24 * 3600000);
+    eventsByUser = {};
+    for (const e of await sbListBroadcastEventsRange(users, fromMs, toMs)) (eventsByUser[e.username] = eventsByUser[e.username] || []).push(e);
   }
   for (const d of days) {
-    if (isStudioSunday(d.work_date)) d.special_day = kindByKey[d.username + '|' + d.work_date] || 'extra';
+    const k = d.username + '|' + d.work_date;
+    if (isStudioSunday(d.work_date)) d.special_day = kindByKey[k] || 'extra';
+    const done = doneByKey[k];
+    if (!done) continue;
+    d.extra_shifts = done.map((sh) => {
+      const kind = sh.kind === 'recuperacion' ? 'recuperacion' : 'extra';
+      if (!sh.start_time || !sh.end_time) return { kind, minutes: null };
+      const startMs = studioScheduledMs(sh.shift_date, normalizeClock(sh.start_time));
+      const endMs = Math.min(studioInstantAfter(sh.shift_date, normalizeClock(sh.end_time), normalizeClock(sh.start_time)), now);
+      if (endMs <= startMs) return { kind, minutes: 0 };
+      return { kind, minutes: computeBroadcastSummary((eventsByUser && eventsByUser[d.username]) || [], startMs, endMs).onlineMinutes };
+    });
   }
 }
 
@@ -1320,7 +1348,7 @@ async function buildAttendancePayload(session) {
   // que reclamó en el calendario ese día (extra o recuperación); si no
   // reclamó nada igual queda como extra, porque pudo ser algo hablado. No
   // lleva conteo de horas transmitidas ni retraso.
-  await annotateSundays(days, period);
+  await annotateSpecialShifts(days, period, eventsByUser, now);
   for (const d of days) {
     if (d.special_day) continue;
     const hers = scheduleByUser[d.username];
@@ -1490,7 +1518,7 @@ async function buildAttendanceHistoryPayload(session, refDateStr) {
   const socialSecurityEnabled = settings.social_security_enabled !== false;
   const scheduleByUser = {};
   for (const s of schedule) scheduleByUser[s.username] = s;
-  await annotateSundays(days, period);
+  await annotateSpecialShifts(days, period, null, Date.now());
 
   const usernames = isStaff
     ? models.filter((m) => m.role === 'modelo').map((m) => m.username)
