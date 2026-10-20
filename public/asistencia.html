@@ -535,7 +535,13 @@
       if (d.official_source === 'falta' || d.official_source === 'falta_justificada') salida = '<span class="muted">—</span>';
       else if (!d.exit_at) salida = '<span class="muted">—</span>';
       else if (d.exit_source === 'auto') salida = hora(d.exit_at) + '<div class="sub2">automática</div>';
-      else if (d.exit_source === 'temprano') salida = hora(d.exit_at) + '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>';
+      else if (d.exit_source === 'temprano') {
+        var earlyPend = !d.early_exit_excused && !d.early_exit_reviewed_at && mine.some(function (j) { return j.kind !== 'retraso'; });
+        salida = hora(d.exit_at) + (d.early_exit_minutes > 0
+          ? '<div class="sub2"' + (d.early_exit_excused ? '' : ' style="color:var(--bad, #ff6b6b);"') + '>−' + horasMin(d.early_exit_minutes) + ' antes · '
+            + (d.early_exit_excused ? 'justificado, no cuenta' : earlyPend ? 'justificante sin revisar' : 'sin justificar, se cobra') + '</div>'
+          : '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>');
+      }
       else salida = hora(d.exit_at);
 
       return '<tr>'
@@ -563,6 +569,15 @@
               + (d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at
                   && mine.some(function (j) { return j.kind !== 'salida_temprano'; })
                   ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '">Rechazar justificación</button>'
+                  : '')
+              // Salida antes de tiempo (2026-10-20): mismo par de botones, otro endpoint.
+              + (d.early_exit_minutes > 0
+                  ? '<button type="button" class="fix-btn" data-excusar="' + d.id + '" data-tipo="early" data-excusado="' + (d.early_exit_excused ? '1' : '0') + '">'
+                    + (d.early_exit_excused ? 'Quitar justif. salida' : 'Justificar salida') + '</button>'
+                  : '')
+              + (d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at
+                  && mine.some(function (j) { return j.kind !== 'retraso'; })
+                  ? '<button type="button" class="fix-btn danger" data-rechazar-pendiente="' + d.id + '" data-tipo="early">Rechazar justif. salida</button>'
                   : '')
               + '<button type="button" class="fix-btn" data-reset="' + d.id + '">Reiniciar</button>'
               + '<button type="button" class="fix-btn danger" data-borrar-dia="' + d.id + '">Borrar</button>'
@@ -911,17 +926,22 @@
     if (editar) { manualPrefill(editar.getAttribute('data-editar-fecha')); return; }
     var rechazarPendiente = e.target.closest && e.target.closest('[data-rechazar-pendiente]');
     if (rechazarPendiente) {
-      postFix('/api/attendance/day/excuse-late', { id: Number(rechazarPendiente.getAttribute('data-rechazar-pendiente')), excused: false },
-        '¿Rechazar esta justificación de retraso? Seguirá sumando hacia la deuda y el umbral de seguridad social, y ya no se acepta sola.');
+      var esSalidaR = rechazarPendiente.getAttribute('data-tipo') === 'early';
+      postFix(esSalidaR ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late',
+        { id: Number(rechazarPendiente.getAttribute('data-rechazar-pendiente')), excused: false },
+        '¿Rechazar esta justificación de ' + (esSalidaR ? 'salida antes de tiempo' : 'retraso') + '? Seguirá sumando hacia la deuda y el umbral de seguridad social, y ya no se acepta sola.');
       return;
     }
     var excusar = e.target.closest && e.target.closest('[data-excusar]');
     if (excusar) {
       var yaExcusado = excusar.getAttribute('data-excusado') === '1';
-      postFix('/api/attendance/day/excuse-late', { id: Number(excusar.getAttribute('data-excusar')), excused: !yaExcusado },
+      var esSalida = excusar.getAttribute('data-tipo') === 'early';
+      var que = esSalida ? 'esta salida antes de tiempo' : 'este retraso';
+      postFix(esSalida ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late',
+        { id: Number(excusar.getAttribute('data-excusar')), excused: !yaExcusado },
         yaExcusado
-          ? '¿Quitar la justificación de este retraso? Volverá a sumar hacia la deuda y el umbral de seguridad social.'
-          : '¿Marcar este retraso como justificado? Deja de sumar hacia la deuda y el umbral de seguridad social — se puede deshacer volviendo a tocar el botón.');
+          ? '¿Quitar la justificación de ' + que + '? Volverá a sumar hacia la deuda y el umbral de seguridad social.'
+          : '¿Marcar ' + que + ' como justificado? Deja de sumar hacia la deuda y el umbral de seguridad social — se puede deshacer volviendo a tocar el botón.');
       return;
     }
     var t = e.target.closest && e.target.closest('[data-borrar-just],[data-reset],[data-borrar-dia]');

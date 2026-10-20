@@ -18,7 +18,7 @@ const {
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
-  computeLateMinutes, sumLateMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
+  computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
@@ -1325,6 +1325,7 @@ async function buildAttendancePayload(session) {
     return {
       username,
       late_minutes: lateMinutes,
+      early_exit_minutes: sumEarlyExitMinutes(mine),
       entry_time: (scheduleByUser[username] && scheduleByUser[username].entry_time) || null,
       exit_time: (scheduleByUser[username] && scheduleByUser[username].exit_time) || null,
       shift: scheduleByUser[username]
@@ -1417,25 +1418,17 @@ async function buildAttendancePayload(session) {
     // y hay un justificante (cualquier kind salvo 'salida_temprano') subido
     // para esa misma fecha -- el mismo criterio que checkAutoExcuseLateJustifications
     // usa para decidir a quién se le acepta sola a los 20 min.
-    payload.pendingLateExcuses = days
-      .filter((d) => d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at)
-      .map((d) => {
-        const just = justifications
-          .filter((j) => j.username === d.username && j.work_date === d.work_date && j.kind !== 'salida_temprano')
-          .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
-        if (!just) return null;
-        return {
-          id: d.id,
-          username: d.username,
-          work_date: d.work_date,
-          late_minutes: d.late_minutes,
-          justification_kind: just.kind,
-          justification_body: just.body,
-          justification_created_at: just.created_at,
-          deadline_at: new Date(Date.parse(just.created_at) + AUTO_EXCUSE_LATE_AFTER_MS).toISOString(),
-        };
-      })
-      .filter(Boolean);
+    payload.pendingLateExcuses = findPendingExcuses(days, justifications).map((p) => ({
+      id: p.day.id,
+      username: p.day.username,
+      work_date: p.day.work_date,
+      which: p.which,
+      late_minutes: p.minutes,
+      justification_kind: p.just.kind,
+      justification_body: p.just.body,
+      justification_created_at: p.just.created_at,
+      deadline_at: new Date(Date.parse(p.just.created_at) + AUTO_EXCUSE_LATE_AFTER_MS).toISOString(),
+    }));
   } else {
     payload.my_day = days.find((d) => d.work_date === today) || null;
     payload.my_open_day = days.find((d) => !d.exit_at && d.status !== 'rechazada') || null;
@@ -1670,6 +1663,28 @@ function startAutoValidateArrivalsChecking() {
 const AUTO_EXCUSE_LATE_AFTER_MS = 20 * 60 * 1000;
 let autoExcuseLateRunning = false;
 
+// Retrasos y salidas antes de tiempo SIN revisar que tienen un justificante
+// del mismo día. 2026-10-20: se sumó la salida antes de tiempo. Qué
+// justificante cubre qué: 'salida_temprano' solo la salida, 'retraso' solo la
+// entrada, cualquier otro (salud, internet, otro...) cubre las dos. Por cada
+// día+tipo decide el justificante más viejo (el que arranca los 20 min).
+function findPendingExcuses(days, justifications) {
+  const oldest = (list) => list.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
+  const out = [];
+  for (const d of days) {
+    const mine = justifications.filter((j) => j.username === d.username && j.work_date === d.work_date);
+    if (d.late_minutes > 0 && !d.late_excused && !d.late_excuse_reviewed_at) {
+      const just = oldest(mine.filter((j) => j.kind !== 'salida_temprano'));
+      if (just) out.push({ day: d, which: 'late', minutes: d.late_minutes, just });
+    }
+    if (d.early_exit_minutes > 0 && !d.early_exit_excused && !d.early_exit_reviewed_at) {
+      const just = oldest(mine.filter((j) => j.kind !== 'retraso'));
+      if (just) out.push({ day: d, which: 'early', minutes: d.early_exit_minutes, just });
+    }
+  }
+  return out;
+}
+
 async function checkAutoExcuseLateJustifications() {
   if (autoExcuseLateRunning) return;
   autoExcuseLateRunning = true;
@@ -1681,26 +1696,18 @@ async function checkAutoExcuseLateJustifications() {
       sbListAttendanceDays(from, to, null),
       sbListAttendanceJustifications(from, to, null),
     ]);
-    const justByKey = {};
-    for (const j of justifications) {
-      if (j.kind === 'salida_temprano') continue;
-      const key = j.username + '|' + j.work_date;
-      const cur = justByKey[key];
-      if (!cur || j.created_at < cur.created_at) justByKey[key] = j; // la mas vieja decide el plazo
-    }
-    for (const d of days) {
-      if (!(d.late_minutes > 0) || d.late_excuse_reviewed_at) continue;
-      const just = justByKey[d.username + '|' + d.work_date];
-      if (!just) continue;
-      if (now - Date.parse(just.created_at) < AUTO_EXCUSE_LATE_AFTER_MS) continue;
-      const updated = await sbUpdateAttendanceDay(d.id, {
-        late_excused: true,
-        late_excuse_reviewed_at: new Date(now).toISOString(),
-      });
+    for (const p of findPendingExcuses(days, justifications)) {
+      if (now - Date.parse(p.just.created_at) < AUTO_EXCUSE_LATE_AFTER_MS) continue;
+      const nowIso = new Date(now).toISOString();
+      const patch = p.which === 'late'
+        ? { late_excused: true, late_excuse_reviewed_at: nowIso }
+        : { early_exit_excused: true, early_exit_reviewed_at: nowIso };
+      const updated = await sbUpdateAttendanceDay(p.day.id, patch);
       if (updated) {
-        await sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_auto_excuse_late', d.username, {
-          id: d.id, work_date: d.work_date, late_minutes: d.late_minutes, justification_id: just.id,
-        });
+        await sbLogAudit({ username: 'sistema', role: 'sistema' },
+          p.which === 'late' ? 'attendance_auto_excuse_late' : 'attendance_auto_excuse_early', p.day.username, {
+            id: p.day.id, work_date: p.day.work_date, minutes: p.minutes, justification_id: p.just.id,
+          });
       }
     }
   } catch (e) {
@@ -4042,20 +4049,32 @@ async function handleRequest(req, res) {
     if (!open) return sendJson(res, 400, { error: 'No tienes una jornada abierta para cerrar' });
     const hers = await sbFetchScheduleForUser(session.username);
     let exitSource = null;
+    let earlyMinutes = null;
+    let reason = '';
     if (hers && hers.exit_time && hers.entry_time) {
       const scheduledExitMs = studioInstantAfter(open.work_date, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time));
-      if (scheduledExitMs != null && now < scheduledExitMs) {
-        const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 1000) : '';
-        if (!reason) return sendJson(res, 400, { error: 'Sales antes de tu hora de salida — cuéntanos por qué', early_exit: true });
+      const early = computeEarlyExitMinutes(now, scheduledExitMs);
+      if (early != null && early > 0) {
+        // Pedido 2026-10-20: el motivo ya NO es obligatorio — si sale sin
+        // justificar, ese tiempo se cobra (early_exit_minutes entra en
+        // sumLateMinutes). Primer llamado avisa cuánto le falta; el segundo
+        // (confirm_early, o un `reason` de clientes viejos) cierra igual.
+        reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 1000) : '';
+        if (body.confirm_early !== true && !reason) {
+          return sendJson(res, 400, { error: 'Sales antes de tu hora de salida', early_exit: true, early_minutes: early });
+        }
         exitSource = 'temprano';
-        await sbInsertAttendanceJustification({ username: session.username, work_date: open.work_date, kind: 'salida_temprano', body: reason });
+        earlyMinutes = early;
       }
     }
-    const patch = { exit_at: new Date(now).toISOString() };
+    const patch = { exit_at: new Date(now).toISOString(), early_exit_minutes: earlyMinutes, early_exit_excused: false, early_exit_reviewed_at: null };
     if (exitSource) patch.exit_source = exitSource;
     const updated = await sbUpdateAttendanceDay(open.id, patch);
     if (!updated) return sendJson(res, 500, { error: 'No se pudo registrar la salida' });
-    await sbLogAudit(session, 'attendance_exit', session.username, { work_date: open.work_date, exit_source: exitSource });
+    if (reason) {
+      await sbInsertAttendanceJustification({ username: session.username, work_date: open.work_date, kind: 'salida_temprano', body: reason });
+    }
+    await sbLogAudit(session, 'attendance_exit', session.username, { work_date: open.work_date, exit_source: exitSource, early_exit_minutes: earlyMinutes });
     return sendJson(res, 200, { ok: true, day: updated });
   }
 
@@ -4204,6 +4223,7 @@ async function handleRequest(req, res) {
       official_at: null, official_source: null,
       validated_at: null, validated_by: null,
       reject_reason: null, late_minutes: null, exit_at: null,
+      early_exit_minutes: null, early_exit_excused: false, early_exit_reviewed_at: null,
     });
     if (!updated) return sendJson(res, 500, { error: 'No se pudo reiniciar la jornada' });
     await sbLogAudit(session, 'attendance_day_reset', day.username, {
@@ -4268,6 +4288,12 @@ async function handleRequest(req, res) {
       if (exitMs != null) {
         patch.exit_at = new Date(exitMs).toISOString();
         patch.exit_source = null;
+        // Si el admin corrige la salida, la salida antes de tiempo se recalcula
+        // contra su horario (antes quedaba el valor viejo y se seguía cobrando).
+        const scheduledExitMs = hers && hers.exit_time && hers.entry_time
+          ? studioInstantAfter(workDate, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time))
+          : null;
+        patch.early_exit_minutes = computeEarlyExitMinutes(exitMs, scheduledExitMs) || null;
       }
     }
 
@@ -4306,6 +4332,25 @@ async function handleRequest(req, res) {
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_day_excuse_late', day.username, {
       id, work_date: day.work_date, late_minutes: day.late_minutes, excused, antes: { late_excused: day.late_excused || false },
+    });
+    return sendJson(res, 200, { ok: true, day: result });
+  }
+
+  // Igual que excuse-late pero para la salida antes de tiempo (2026-10-20).
+  if (parsed.pathname === '/api/attendance/day/excuse-early' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const excused = body.excused !== false;
+    const day = await sbFetchAttendanceDayById(id);
+    if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
+    const result = await sbUpdateAttendanceDay(id, { early_exit_excused: excused, early_exit_reviewed_at: new Date().toISOString() });
+    if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_day_excuse_early', day.username, {
+      id, work_date: day.work_date, early_exit_minutes: day.early_exit_minutes, excused, antes: { early_exit_excused: day.early_exit_excused || false },
     });
     return sendJson(res, 200, { ok: true, day: result });
   }
@@ -4352,6 +4397,7 @@ async function handleRequest(req, res) {
       official_source: justified ? 'falta_justificada' : 'falta',
       exit_at: null,
       exit_source: null,
+      early_exit_minutes: null,
       // Justificada: no penaliza -- 0 no suma nada en sumLateMinutes (solo
       // suma late_minutes > 0), así que no afecta ni el umbral de seguridad
       // social ni la deuda por retrasos. Sin justificar: el turno completo,

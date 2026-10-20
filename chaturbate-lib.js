@@ -635,15 +635,40 @@ function previousAttendancePeriod(dateStr) {
 // `justified` (ahi el propio late_minutes se guarda en 0; aca el dia SI
 // reporta su retraso real, solo se excluye de la suma), asi que no hizo
 // falta duplicar la logica de negocio, solo el punto de exclusion.
+// Pedido 2026-10-20: el tiempo que una modelo se va ANTES de su hora de
+// salida se cobra igual que un retraso (mismo acumulado que alimenta deuda y
+// umbral de seguridad social), salvo que quede justificado
+// (`early_exit_excused`, mismo mecanismo que `late_excused`).
 function sumLateMinutes(days) {
   let total = 0;
   for (const d of days) {
-    if (d.late_excused) continue;
-    if (d.status === 'validada' && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
+    if (d.status !== 'validada') continue;
+    if (!d.late_excused && typeof d.late_minutes === 'number' && d.late_minutes > 0) {
       total += d.late_minutes;
+    }
+    if (!d.early_exit_excused && typeof d.early_exit_minutes === 'number' && d.early_exit_minutes > 0) {
+      total += d.early_exit_minutes;
     }
   }
   return total;
+}
+
+// Solo la parte de salidas antes de tiempo sin justificar (para mostrarla
+// aparte del retraso de entrada; ya va incluida en sumLateMinutes).
+function sumEarlyExitMinutes(days) {
+  let total = 0;
+  for (const d of days) {
+    if (d.status !== 'validada' || d.early_exit_excused) continue;
+    if (typeof d.early_exit_minutes === 'number' && d.early_exit_minutes > 0) total += d.early_exit_minutes;
+  }
+  return total;
+}
+
+// Minutos COMPLETOS que se fue antes de su hora de salida (0 si salió a la
+// hora o después). Mismo criterio de trunc que computeLateMinutes.
+function computeEarlyExitMinutes(exitMs, scheduledExitMs) {
+  if (exitMs == null || scheduledExitMs == null) return null;
+  return Math.max(0, Math.trunc((scheduledExitMs - exitMs) / 60000));
 }
 
 // Aviso REACTIVO de seguridad social (ya cruzo el umbral) -- el aviso
@@ -857,6 +882,8 @@ module.exports = {
   shiftLabel,
   computeLateMinutes,
   sumLateMinutes,
+  sumEarlyExitMinutes,
+  computeEarlyExitMinutes,
   DEFAULT_OWES_ALERT_MESSAGE,
   resolveOwesAlertMessage,
   getQuincena,

@@ -451,6 +451,40 @@ describe('asistencia — cálculo de retraso y acumulado', () => {
     ];
     assert.equal(lib.sumLateMinutes(days), 30);
   });
+  test('salida antes de tiempo sin justificar se cobra igual que un retraso', () => {
+    const days = [
+      { status: 'validada', late_minutes: 10, early_exit_minutes: 90 },
+      { status: 'validada', late_minutes: -5, early_exit_minutes: 30 },
+    ];
+    assert.equal(lib.sumLateMinutes(days), 130);
+    assert.equal(lib.sumEarlyExitMinutes(days), 120);
+  });
+  test('early_exit_excused saca solo la salida, no el retraso de entrada del mismo día', () => {
+    const days = [{ status: 'validada', late_minutes: 15, early_exit_minutes: 60, early_exit_excused: true }];
+    assert.equal(lib.sumLateMinutes(days), 15);
+    assert.equal(lib.sumEarlyExitMinutes(days), 0);
+  });
+  test('late_excused saca solo el retraso, la salida temprano sigue contando', () => {
+    const days = [{ status: 'validada', late_minutes: 15, late_excused: true, early_exit_minutes: 60 }];
+    assert.equal(lib.sumLateMinutes(days), 60);
+  });
+});
+
+describe('asistencia — minutos de salida antes de tiempo', () => {
+  const sched = Date.parse('2026-10-20T05:00:00Z');
+  test('salió 2h antes', () => {
+    assert.equal(lib.computeEarlyExitMinutes(sched - 120 * 60000, sched), 120);
+  });
+  test('salió a la hora o después: 0', () => {
+    assert.equal(lib.computeEarlyExitMinutes(sched, sched), 0);
+    assert.equal(lib.computeEarlyExitMinutes(sched + 600000, sched), 0);
+  });
+  test('menos de un minuto completo antes no cuenta', () => {
+    assert.equal(lib.computeEarlyExitMinutes(sched - 40000, sched), 0);
+  });
+  test('sin datos: null', () => {
+    assert.equal(lib.computeEarlyExitMinutes(null, sched), null);
+  });
 });
 
 describe('asistencia — quincena en fechas del estudio', () => {

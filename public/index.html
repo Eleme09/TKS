@@ -988,6 +988,7 @@
             <option value="conexion">Me conecté tarde</option>
             <option value="room">Problema con el room</option>
             <option value="salud">Tema de salud</option>
+            <option value="salida_temprano">Salí antes de mi hora</option>
             <option value="otro">Otro</option>
           </select>
           <label for="attJustBody">Qué pasó</label>
@@ -1038,7 +1039,7 @@
                checkAutoExcuseLateJustifications en server.js), así que no
                puede depender de que alguien se acuerde de ir a buscarlo. -->
           <div class="card" id="attPendingExcuseCard" style="display:none;">
-            <h3 class="card-title" style="color:var(--bad);">Justificantes de retraso por revisar</h3>
+            <h3 class="card-title" style="color:var(--bad);">Justificantes por revisar</h3>
             <div class="meta-small" style="margin-bottom:12px;">Si no decides en 20 minutos desde que se subió, se acepta solo.</div>
             <div id="attPendingExcuseList"></div>
             <div id="attPendingExcuseError" class="errbox"></div>
@@ -2060,6 +2061,18 @@
   // `excused`: mismo criterio que asistencia.html — un retraso justificado
   // (botón admin-only en la hoja completa) sigue mostrando cuánto tardó de
   // verdad, solo marcado como que no cuenta hacia deuda/seguridad social.
+  // Debajo de la hora de salida: cuánto se fue antes y si eso se cobra.
+  function attEarlyExitNote(d, mine) {
+    const mins = d.early_exit_minutes;
+    if (!(mins > 0)) return '<div class="att-sub att-late">salida temprano</div>';
+    const pendiente = !d.early_exit_excused && !d.early_exit_reviewed_at
+      && (mine || []).some(function (j) { return j.kind !== 'retraso'; });
+    const estado = d.early_exit_excused ? 'justificado, no cuenta'
+      : pendiente ? 'justificante sin revisar — se acepta solo en 20 min'
+      : 'sin justificar, se cobra';
+    return '<div class="att-sub' + (d.early_exit_excused ? '' : ' att-late') + '">−' + attHorasMin(mins) + ' antes · ' + estado + '</div>';
+  }
+
   function attRetrasoHtml(lateMinutes, excused, pendiente) {
     if (lateMinutes == null) return '<span class="muted">—</span>';
     if (lateMinutes > 0) {
@@ -2235,7 +2248,7 @@
     const btnReport = document.getElementById('btnAttReport');
     if (btnReport) btnReport.addEventListener('click', attReportArrival);
     const btnExit = document.getElementById('btnAttExit');
-    if (btnExit) btnExit.addEventListener('click', attRegisterExit);
+    if (btnExit) btnExit.addEventListener('click', function () { attRegisterExit(); });
 
     el.attMyPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end) + '.';
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
@@ -2337,7 +2350,7 @@
       } else if (d.exit_source === 'auto') {
         salida = attHora(d.exit_at) + '<div class="att-sub">automática</div>';
       } else if (d.exit_source === 'temprano') {
-        salida = attHora(d.exit_at) + '<div class="att-sub att-late">salida temprano</div>';
+        salida = attHora(d.exit_at) + attEarlyExitNote(d, mine);
       } else {
         salida = attHora(d.exit_at);
       }
@@ -2414,10 +2427,10 @@
       el.attPendingExcuseCard.style.display = pendingExcuses.length ? 'block' : 'none';
       el.attPendingExcuseList.innerHTML = attPendingExcuseHtml(pendingExcuses);
       pendingExcuses.forEach(function (p) {
-        const okBtn = document.getElementById('attExc-si-' + p.id);
-        const noBtn = document.getElementById('attExc-no-' + p.id);
-        if (okBtn) okBtn.addEventListener('click', function () { attExcuseLate(p.id, true); });
-        if (noBtn) noBtn.addEventListener('click', function () { attExcuseLate(p.id, false); });
+        const okBtn = document.getElementById('attExc-si-' + p.which + '-' + p.id);
+        const noBtn = document.getElementById('attExc-no-' + p.which + '-' + p.id);
+        if (okBtn) okBtn.addEventListener('click', function () { attExcuseLate(p.id, true, p.which); });
+        if (noBtn) noBtn.addEventListener('click', function () { attExcuseLate(p.id, false, p.which); });
       });
     }
 
@@ -2466,7 +2479,9 @@
           ? '<span class="att-pill rechazada">' + (pastTense ? 'asumió' : 'asume') + ' seguridad social</span>'
           : '<span class="att-pill validada">al día</span>')
       + '</div>'
-      + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b> · Días validados: ' + t.days_validated
+      + '<div class="meta-small">Retraso acumulado: <b>' + attHorasMin(t.late_minutes) + '</b>'
+      + (t.early_exit_minutes > 0 ? ' (incluye ' + attHorasMin(t.early_exit_minutes) + ' de salidas antes de tiempo)' : '')
+      + ' · Días validados: ' + t.days_validated
       + ' · Turno: ' + escapeHtml(t.shift_label || 'sin asignar') + '</div>'
       + (t.debt_cop > 0
           ? '<div class="meta-small">Deuda por retrasos: <b style="color:var(--bad);">' + attCop(t.debt_cop) + '</b> ('
@@ -2571,21 +2586,22 @@
       return '<div class="att-row">'
         + '<div class="att-row-head">'
         + '<span class="att-row-name">' + escapeHtml(p.username) + '</span>'
-        + '<span class="meta-small">' + attFechaCorta(p.work_date) + ' · ' + attHorasMin(p.late_minutes) + ' tarde</span>'
+        + '<span class="meta-small">' + attFechaCorta(p.work_date) + ' · '
+          + (p.which === 'early' ? 'salió ' + attHorasMin(p.late_minutes) + ' antes' : attHorasMin(p.late_minutes) + ' tarde') + '</span>'
         + '</div>'
         + '<div class="meta-small">[' + escapeHtml(attKindShort(p.justification_kind)) + '] ' + escapeHtml(p.justification_body) + '</div>'
         + '<div class="meta-small" style="color:var(--bad); margin-top:4px;">Se acepta sola en ' + minsLeft + ' min si no decides</div>'
         + '<div class="att-actions">'
-        + '<button id="attExc-si-' + p.id + '" class="btn-primary">Justificar retraso</button>'
-        + '<button id="attExc-no-' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Rechazar</button>'
+        + '<button id="attExc-si-' + p.which + '-' + p.id + '" class="btn-primary">' + (p.which === 'early' ? 'Justificar salida' : 'Justificar retraso') + '</button>'
+        + '<button id="attExc-no-' + p.which + '-' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Rechazar</button>'
         + '</div>'
         + '</div>';
     }).join('');
   }
 
-  async function attExcuseLate(id, excused) {
+  async function attExcuseLate(id, excused, which) {
     attClearBox(el.attPendingExcuseError);
-    const r = await fetch('/api/attendance/day/excuse-late', {
+    const r = await fetch(which === 'early' ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, excused: excused }),
     });
     const data = await r.json().catch(function () { return {}; });
@@ -2603,20 +2619,19 @@
     await refreshAttendance();
   }
 
-  async function attRegisterExit(reason) {
+  async function attRegisterExit(confirmPayload) {
     attClearBox(el.attMyError);
     const r = await fetch('/api/attendance/exit', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reason ? { reason: reason } : {}),
+      body: JSON.stringify(confirmPayload || {}),
     });
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) {
       if (data.early_exit) {
-        const motivo = await uiPrompt('Sales antes de tu hora de salida. ¿Por qué?');
+        const falta = data.early_minutes ? attHorasMin(data.early_minutes) : 'tiempo';
+        const motivo = await uiPrompt('Te vas ' + falta + ' antes de tu hora. Ese tiempo se cobra como retraso si no lo justificas. Escribe el motivo (o déjalo vacío para salir igual):');
         if (motivo === null) return;
-        const clean = motivo.trim();
-        if (!clean) return attShowBox(el.attMyError, 'Escribe el motivo para poder salir antes de tu hora');
-        return attRegisterExit(clean);
+        return attRegisterExit({ confirm_early: true, reason: motivo.trim() });
       }
       return attShowBox(el.attMyError, data.error || 'No se pudo registrar la salida');
     }
