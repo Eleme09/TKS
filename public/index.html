@@ -696,7 +696,7 @@
   tr.day-extra .day-tag { color: #6fe7b8; }
   tr.day-recuperacion .day-tag { color: #7cb7ff; }
   /* Extra/recuperación cumplida ese día (2026-10-20): horas al lado de las
-     normales y etiqueta en Problemática, verde extra / azul recuperación. */
+     normales y etiqueta en Novedad, verde extra / azul recuperación. */
   .xh { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
   .xh-extra { color: #6fe7b8; background: rgba(111,231,184,0.12); border: 1px solid rgba(111,231,184,0.3); }
   .xh-recuperacion { color: #7cb7ff; background: rgba(124,183,255,0.12); border: 1px solid rgba(124,183,255,0.32); }
@@ -2352,32 +2352,36 @@
       + attTh('Salida', 'salida')
       + attTh('Retraso', 'retraso')
       + attTh('Transmitido', 'transmitido')
-      + attTh('Problemática', 'problema')
+      + attTh('Novedad', 'problema')
       + attTh('Justificante', 'justificante')
       + attTh('Estado', 'estado')
       + '</tr>';
 
     const rows = days.map(function (d) {
       const mine = index[d.username + '|' + d.work_date] || [];
-      // Un mismo dia puede tener varios justificantes del mismo tipo; se
-      // muestra cada tipo una sola vez en vez de repetir la etiqueta.
-      const tipos = [];
-      mine.forEach(function (j) { if (tipos.indexOf(j.kind) === -1) tipos.push(j.kind); });
-      var xTags = (d.extra_shifts || []).map(function (x) { return '<span class="att-tag xh-' + x.kind + '">' + (x.kind === 'recuperacion' ? 'Recuperó' : 'Hizo extra') + '</span>'; }).join(' ');
-      const problemas = (tipos.length || xTags)
-        ? tipos.map(function (k) { return '<span class="att-tag">' + attKindShort(k) + '</span>'; }).join(' ') + (xTags ? (tipos.length ? ' ' : '') + xTags : '')
-        : '<span class="muted">—</span>';
-      const textos = mine.length
-        ? mine.map(function (j) { return '<div class="att-just-cell" title="' + escapeHtml(j.body) + '">' + escapeHtml(j.body) + '</div>'; }).join('')
+      // Pedido 2026-10-20: la tabla muestra el justificante UNA sola vez (sin
+      // repetir su tipo como título aparte). La columna "Novedad" es lo que
+      // pasó ese día según el sistema, no un problema: falta, extra, recuperó.
+      var isFalta = d.official_source === 'falta' || d.official_source === 'falta_justificada';
+      var nov = [];
+      if (d.official_source === 'falta') nov.push('<span class="att-tag" style="color:var(--bad, #ff6b6b);">Falta</span>');
+      if (d.official_source === 'falta_justificada') nov.push('<span class="att-tag" style="color:var(--muted); border-color:var(--border); background:transparent;">Falta justificada</span>');
+      (d.extra_shifts || []).forEach(function (x) { nov.push('<span class="att-tag xh-' + x.kind + '">' + (x.kind === 'recuperacion' ? 'Recuperó' : 'Hizo extra') + '</span>'); });
+      const problemas = nov.length ? nov.join(' ') : '<span class="muted">—</span>';
+      // En una falta, el texto que escribió el admin al marcarla ES el
+      // justificante (mismo campo del formulario); si no hay fila de
+      // justificación aparte se muestra ese texto aquí, no en Entrada.
+      var textList = mine.map(function (j) { return j.body; });
+      if (!textList.length && isFalta && d.note) textList.push(d.note);
+      const textos = textList.length
+        ? textList.map(function (t) { return '<div class="att-just-cell" title="' + escapeHtml(t) + '">' + escapeHtml(t) + '</div>'; }).join('')
         : '<span class="muted">—</span>';
       // La entrada muestra la hora que cuenta. Si el admin la corrigió, debajo
       // queda en chico lo que la modelo había reportado: sin eso se pierde la
       // única pista visible de que hubo una corrección.
       let entrada;
-      if (d.official_source === 'falta') {
-        entrada = '<span class="att-late">' + escapeHtml(d.note || 'No se presentó') + '</span>';
-      } else if (d.official_source === 'falta_justificada') {
-        entrada = '<span class="muted">' + escapeHtml(d.note || 'No se presentó') + '</span><div class="att-sub">justificada, no penaliza</div>';
+      if (isFalta) {
+        entrada = '<span class="muted">—</span>';
       } else if (!d.official_at) {
         entrada = '<span class="muted">—</span>';
       } else if (d.official_source && d.official_source !== 'reportada') {
@@ -2403,7 +2407,7 @@
         + (withName ? '<td class="num">' + escapeHtml(d.username) + '</td>' : '')
         + '<td class="num">' + entrada + '</td>'
         + '<td class="num">' + salida + '</td>'
-        + '<td class="num">' + (spDay ? '<span class="muted">domingo, no cuenta</span>' : attRetrasoHtml(d.late_minutes, d.late_excused,
+        + '<td class="num">' + (spDay ? '<span class="muted">domingo, no cuenta</span>' : d.official_source === 'falta_justificada' ? '<span class="muted">—</span>' : attRetrasoHtml(d.late_minutes, d.late_excused,
               !d.late_excused && !d.late_excuse_reviewed_at && mine.some(function (j) { return j.kind !== 'salida_temprano'; }))) + '</td>'
         + '<td class="num">' + attBcastHtml(d) + '</td>'
         + '<td>' + problemas + '</td>'

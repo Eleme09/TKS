@@ -3330,3 +3330,20 @@ independiente: `tienda/server.js` exporta `{ app, init }`.
   etiqueta "Hizo extra"/"Recuperó". Las que siguen pendientes o quedaron
   `no_cumplio` no salen. Si ese día no tiene fila de asistencia, no aparece en
   la hoja.
+
+## Tabla de asistencia: "Novedad" en vez de "Problemática", justificante una sola vez (2026-10-20)
+
+Pedido: el justificante salía dos veces, una como título (tipo) en
+"Problemática" y otra como texto, y en una falta además el texto salía en
+Entrada. "Problemática: hizo extra" tampoco tenía sentido. Así quedó, en las
+dos hojas y en el CSV:
+- **Novedad**: lo que pasó ese día según el sistema. Muestra "Falta" (rojo),
+  "Falta justificada" (gris), "Hizo extra" (verde) o "Recuperó" (azul). Ya no
+  muestra el tipo del justificante.
+- **Justificante**: solo el texto. En una falta, si no hay fila de
+  justificación aparte, muestra el `note` que escribió el admin, que sale del
+  mismo campo del formulario.
+- **Entrada** en una falta muestra "—", ya no el motivo.
+- **Retraso** en una falta justificada muestra "—", no "a tiempo".
+- El tipo del justificante (`kind`) se sigue guardando y sale en la lista de
+  la card "Justificantes", solo que ya no en la tabla.
