@@ -3381,3 +3381,22 @@ detrás de un interruptor: `EARLY_EXIT_CHARGE_ENABLED = false` en
   usan `{ chargeEarlyExit: true }` para probar la lógica completa.
 - Las filas corregidas a mano el 2026-10-21 (kitty 210 min, tamar4 214 min del
   19 de octubre) quedaron guardadas, pero no cobran mientras esté pausado.
+
+## Borrar una modelo de verdad (2026-10-22)
+
+`/api/delete` antes solo borraba la fila de `cb_models` y respondía "ok" aunque
+fallara: balances, bases de quincena y otras tablas la referencian sin
+`ON DELETE CASCADE`, así que el borrado se rechazaba en silencio. Ahora
+`sbDeleteModel` borra primero lo dependiente (tandas de 1.000 para las tablas
+grandes: eventos sin clasificar, balances, propinas, transmisiones, porque el rol
+anon corta consultas largas), después asistencia, horarios, Stripchat, bases de
+quincena, suscripciones push y lecturas de noticias, y al final la modelo.
+Devuelve error (500) si la fila sigue ahí. Las noticias y comentarios que
+escribió se dejan. El botón "Eliminar" de Modelos ahora muestra el error si falla.
+Antes de borrar a amaranta y kitty se guardaron sus números de la quincena
+16–31 de octubre en `cb_audit_log` (acción `delete_model_snapshot`): amaranta
+Chaturbate 0 + Stripchat 286, kitty Chaturbate 137 + Stripchat 960.
+La herramienta de SQL del MCP de Supabase se cuelga con cualquier DELETE (ni una
+sola fila pasa): no la uses para borrar, usa el endpoint de la app.
+La tienda usa otra base de datos que este MCP no ve: ahí se desactivan o borran
+las personas desde el panel de la propia tienda.

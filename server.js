@@ -358,11 +358,44 @@ async function sbUpsertModel(username, token) {
   }).catch(() => {});
 }
 
+// Borra una modelo y todo lo suyo. Antes solo borraba la fila de cb_models y
+// devolvía "ok" aunque fallara: varias tablas (balances, bases de quincena,
+// etc.) la referencian sin ON DELETE CASCADE, así que el borrado se rechazaba
+// en silencio y la modelo seguía ahí (2026-10-22). Ahora borra primero lo
+// dependiente (en tandas para las tablas grandes, porque el rol anon de
+// PostgREST corta las consultas largas) y devuelve true solo si la fila de la
+// modelo ya no existe. Las noticias que escribió se dejan (son del hilo).
+async function sbDeleteByUsernameBatched(table, username) {
+  for (let guard = 0; guard < 200; guard++) {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=id&username=eq.' + encodeURIComponent(username) + '&limit=1000', { headers: SB_HEADERS });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    if (!rows.length) return true;
+    const ids = rows.map((x) => x.id).join(',');
+    const d = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?id=in.(' + ids + ')', { method: 'DELETE', headers: SB_HEADERS });
+    if (!d.ok) return false;
+  }
+  return false;
+}
+
 async function sbDeleteModel(username) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
-    method: 'DELETE',
-    headers: SB_HEADERS,
-  }).catch(() => {});
+  try {
+    for (const table of ['cb_unhandled_events', 'cb_balance_ticks', 'cb_balance_resets', 'cb_tips', 'cb_broadcast_events']) {
+      if (!(await sbDeleteByUsernameBatched(table, username))) return false;
+    }
+    for (const table of ['cb_chaturbate_period_base', 'cb_chaturbate_extra_earnings', 'cb_stripchat_earnings', 'cb_shift_overrides',
+      'cb_attendance_justifications', 'cb_attendance_days', 'cb_attendance_schedule', 'cb_push_subscriptions', 'cb_news_reads']) {
+      const d = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?username=eq.' + encodeURIComponent(username), { method: 'DELETE', headers: SB_HEADERS });
+      if (!d.ok) return false;
+    }
+    const m = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), { method: 'DELETE', headers: SB_HEADERS });
+    if (!m.ok) return false;
+    const left = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username&username=eq.' + encodeURIComponent(username), { headers: SB_HEADERS });
+    return left.ok && (await left.json()).length === 0;
+  } catch (e) {
+    console.error('Error borrando modelo ' + username + ': ' + e.message);
+    return false;
+  }
 }
 
 async function sbFetchModelsWithTokens() {
@@ -3354,7 +3387,8 @@ async function handleRequest(req, res) {
       if (tracker.abortCtl) tracker.abortCtl.abort();
       trackers.delete(username);
     }
-    await sbDeleteModel(username);
+    const deleted = await sbDeleteModel(username);
+    if (!deleted) return sendJson(res, 500, { error: 'No se pudo borrar del todo. Intenta otra vez.' });
     await sbLogAudit(session, 'delete_model', username);
     return sendJson(res, 200, { ok: true });
   }

@@ -1874,10 +1874,14 @@
   async function deleteModel(username) {
     const ok = await uiConfirm('¿Eliminar a "' + username + '" por completo? Esto borra también todo su historial de tokens. No se puede deshacer.');
     if (!ok) return;
-    await fetch('/api/delete', {
+    const r = await fetch('/api/delete', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
     });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      uiToast(err.error || 'No se pudo eliminar', 'error');
+    }
     refresh();
     refreshModelAccounts();
   }
