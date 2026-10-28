@@ -1953,6 +1953,15 @@ async function sbLogApiError(source, message) {
     body: JSON.stringify({ source, message }),
   }).catch(() => {});
 
+  // 5xx = el servidor de Chaturbate/Stripchat esta caido o saturado (502/503/504),
+  // no es culpa de nuestro token ni de la cuenta. Se guarda en cb_api_errors pero
+  // nunca despierta a nadie: el siguiente sondeo que funciona trae el balance
+  // acumulado, asi que no se pierde plata (pedido explicito 2026-10-28).
+  // Lo que si avisa: 401/403/429 en racha (token revocado o bloqueo real) y
+  // cualquier mensaje que no sea "HTTP <codigo> para <modelo>".
+  const statusMatch = /^HTTP (\d{3}) /.exec(message || '');
+  if (statusMatch && Number(statusMatch[1]) >= 500) return;
+
   let shouldAlert = true;
   let alertMessage = message;
   if (isHttpStatusApiError(message)) {
