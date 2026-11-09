@@ -14,6 +14,13 @@ Internal tool for a Chaturbate webcam studio: tracks each model's token
 earnings live, computes biweekly payroll (quincenas), runs an overtime
 shift sign-up calendar, and gates everything behind 3 roles.
 
+## Permiso de deploy (2026-11-09)
+
+El usuario dio permiso permanente: cuando termines un cambio que él pidió y
+`npm test` pase, pushea directo a `master` (Render despliega solo). No le
+preguntes antes de mergear lo que él mismo pidió. Revisa `list_deploys` de
+Render después para confirmar que quedó `live`.
+
 ## Before touching anything
 
 Run `git log --oneline -30` and skim recent commit messages, then read
