@@ -364,6 +364,26 @@ create table if not exists public.cb_attendance_justifications (
 );
 create index if not exists cb_attendance_just_user_date on public.cb_attendance_justifications (username, work_date desc);
 
+-- Correcciones de hora pedidas por la modelo (2026-11-09): ella pide cambiar su
+-- hora de entrada o de salida, el administrador aprueba o rechaza, y si no
+-- responde en 30 min se aprueba sola (checkAutoApproveCorrections en server.js).
+create table if not exists public.cb_attendance_corrections (
+  id            bigserial primary key,
+  username      text not null,
+  work_date     date not null,
+  field         text not null,                       -- entrada | salida
+  requested_at  timestamptz not null,                -- la hora que la modelo dice que fue la correcta
+  reason        text,
+  status        text not null default 'pendiente',   -- pendiente | aprobada | rechazada
+  resolved_by   text,
+  resolved_at   timestamptz,
+  created_at    timestamptz not null default now()
+);
+create index if not exists cb_attendance_corr_status on public.cb_attendance_corrections (status, created_at);
+create index if not exists cb_attendance_corr_user_date on public.cb_attendance_corrections (username, work_date desc);
+alter table public.cb_attendance_corrections enable row level security;
+create policy cb_attendance_corr_anon_all on public.cb_attendance_corrections for all to anon using (true) with check (true);
+
 -- Fila unica (id = 1). El umbral es cuanto retraso acumulado en la quincena
 -- hace que la modelo asuma su propia seguridad social (6 h, confirmado por el
 -- usuario 2026-09-04). La tarifa se cobra por cada HORA COMPLETA de retraso

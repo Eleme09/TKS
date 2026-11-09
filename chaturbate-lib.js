@@ -410,6 +410,19 @@ function studioScheduledMs(workDate, entryTime) {
     - STUDIO_UTC_OFFSET_HOURS * 3600000;
 }
 
+// Corrección de hora pedida por la modelo (2026-11-09). La entrada se escribe
+// como "HH:MM" del día de trabajo, pero un turno que cruza medianoche puede
+// haber arrancado ya en la madrugada siguiente: de las dos fechas posibles
+// (mismo día o día siguiente) se toma la más cercana a su hora programada,
+// el mismo criterio de pickWorkDate. Sin horario, se queda en el mismo día.
+function resolveCorrectionEntryMs(workDate, hhmm, scheduledMs) {
+  const sameDay = studioScheduledMs(workDate, hhmm);
+  if (sameDay == null) return null;
+  if (scheduledMs == null) return sameDay;
+  const nextDay = sameDay + 24 * 3600000;
+  return Math.abs(nextDay - scheduledMs) < Math.abs(sameDay - scheduledMs) ? nextDay : sameDay;
+}
+
 // Igual que studioScheduledMs pero con año/mes/dia/hora/min/seg/ms sueltos en
 // vez de strings -- lo usa getQuincena para construir el instante real de la
 // medianoche/fin de dia de Colombia sin pasar por ningun getter local.
@@ -910,7 +923,7 @@ function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMin
 
 module.exports = {
   EARLY_EXIT_CHARGE_ENABLED,
-  isStudioSunday, findBroadcastEarlyExit,
+  isStudioSunday, findBroadcastEarlyExit, resolveCorrectionEntryMs,
   MESES,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr,

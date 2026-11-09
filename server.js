@@ -18,7 +18,7 @@ const {
   sumChaturbateCsvEarningsForPeriod,
   STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
-  EARLY_EXIT_CHARGE_ENABLED, isStudioSunday, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
+  EARLY_EXIT_CHARGE_ENABLED, isStudioSunday, resolveCorrectionEntryMs, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
   SHIFT_NO_SHOW_LIMIT, isShiftClaimBlocked,
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
@@ -1167,6 +1167,109 @@ async function sbUpdateAttendanceDay(id, patch) {
   return rows.length ? rows[0] : null;
 }
 
+// ---- Correcciones de hora pedidas por la modelo (2026-11-09) ----
+// La modelo pide cambiar su hora de entrada o de salida; el administrador la
+// aprueba o la rechaza. Si no responde en 30 min se aprueba sola (pedido
+// explícito: no tener que corregir horas a cada rato).
+const AUTO_APPROVE_CORRECTION_AFTER_MS = 30 * 60 * 1000;
+
+async function sbListAttendanceCorrections(fromDate, username) {
+  let qs = '?select=*&work_date=gte.' + encodeURIComponent(fromDate);
+  if (username) qs += '&username=eq.' + encodeURIComponent(username);
+  qs += '&order=created_at.desc&limit=100';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections' + qs, { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbListPendingCorrections() {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections?select=*&status=eq.pendiente&order=created_at.asc', { headers: SB_HEADERS });
+  return r.ok ? r.json() : [];
+}
+
+async function sbFetchCorrection(id) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections?select=*&id=eq.' + encodeURIComponent(id), { headers: SB_HEADERS });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbInsertCorrection(row) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections', {
+    method: 'POST', headers: { ...SB_HEADERS, Prefer: 'return=representation' }, body: JSON.stringify(row),
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+// PATCH condicionado a que siga pendiente: si el admin y el poller automático
+// coinciden en la misma corrección, solo uno la toma.
+async function sbClaimCorrection(id, status, resolvedBy) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections?id=eq.' + encodeURIComponent(id) + '&status=eq.pendiente', {
+    method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify({ status, resolved_by: resolvedBy, resolved_at: new Date().toISOString() }),
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows.length ? rows[0] : null;
+}
+
+async function sbReopenCorrection(id) {
+  await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections?id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH', headers: SB_HEADERS, body: JSON.stringify({ status: 'pendiente', resolved_by: null, resolved_at: null }),
+  }).catch(() => {});
+}
+
+// Aplica la hora corregida a la jornada con las mismas reglas que
+// /api/attendance/day/edit (la fila queda como una entrada/salida normal, sin
+// rastro de que fue corregida): recalcula el retraso o la salida temprano
+// contra el horario de la modelo.
+async function applyAttendanceCorrection(corr, resolvedBy) {
+  const workDate = String(corr.work_date).slice(0, 10);
+  const hers = await sbFetchScheduleForUser(corr.username);
+  const requestedMs = Date.parse(corr.requested_at);
+  const iso = new Date(requestedMs).toISOString();
+  const now = Date.now();
+  const day = await sbFetchAttendanceDay(corr.username, workDate);
+  if (corr.field === 'entrada') {
+    const scheduledMs = hers && hers.entry_time ? studioScheduledMs(workDate, hers.entry_time) : null;
+    const patch = {
+      status: 'validada', validated_at: new Date(now).toISOString(), validated_by: resolvedBy, reject_reason: null,
+      official_at: iso, official_source: 'reportada', reported_at: iso,
+      late_minutes: scheduledMs != null ? computeLateMinutes(requestedMs, scheduledMs) : null,
+    };
+    if (scheduledMs != null) patch.scheduled_at = new Date(scheduledMs).toISOString();
+    return day
+      ? sbUpdateAttendanceDay(day.id, patch)
+      : sbInsertAttendanceDay({ username: corr.username, work_date: workDate, ...patch });
+  }
+  if (!day) return null;
+  const scheduledExitMs = hers && hers.exit_time && hers.entry_time
+    ? studioInstantAfter(workDate, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time))
+    : null;
+  return sbUpdateAttendanceDay(day.id, {
+    exit_at: iso, exit_source: null,
+    early_exit_minutes: computeEarlyExitMinutes(requestedMs, scheduledExitMs) || null,
+    early_exit_excused: false, early_exit_reviewed_at: null,
+  });
+}
+
+// Resuelve UNA corrección pendiente (admin o poller). Devuelve
+// { ok, corr } o { ok:false, reason } sin dejar nada a medias: si no se puede
+// aplicar la hora, la corrección vuelve a quedar pendiente.
+async function resolveAttendanceCorrection(id, approve, resolvedBy) {
+  const claimed = await sbClaimCorrection(id, approve ? 'aprobada' : 'rechazada', resolvedBy);
+  if (!claimed) return { ok: false, reason: 'ya_resuelta' };
+  if (approve) {
+    const applied = await applyAttendanceCorrection(claimed, resolvedBy);
+    if (!applied) {
+      await sbReopenCorrection(id);
+      return { ok: false, reason: 'no_aplicada' };
+    }
+  }
+  return { ok: true, corr: claimed };
+}
+
 // La ultima jornada abierta (sin hora de salida) de las ultimas 36h. Se busca
 // asi y no por "el dia de hoy" porque una jornada que arranca 8 p.m. termina
 // de madrugada, ya en otra fecha: pedirle la salida al dia de hoy dejaria la
@@ -1505,6 +1608,10 @@ async function buildAttendancePayload(session) {
     // y hay un justificante (cualquier kind salvo 'salida_temprano') subido
     // para esa misma fecha -- el mismo criterio que checkAutoExcuseLateJustifications
     // usa para decidir a quién se le acepta sola a los 20 min.
+    payload.pendingCorrections = (await sbListPendingCorrections()).map((c) => ({
+      ...c,
+      deadline_at: new Date(Date.parse(c.created_at) + AUTO_APPROVE_CORRECTION_AFTER_MS).toISOString(),
+    }));
     payload.pendingLateExcuses = findPendingExcuses(days, justifications).map((p) => ({
       id: p.day.id,
       username: p.day.username,
@@ -1520,6 +1627,7 @@ async function buildAttendancePayload(session) {
     payload.my_day = days.find((d) => d.work_date === today) || null;
     payload.my_open_day = days.find((d) => !d.exit_at && d.status !== 'rechazada') || null;
     payload.my_total = totals[0] || null;
+    payload.my_corrections = (await sbListAttendanceCorrections(studioDateStr(now - 5 * 24 * 3600000), session.username)).slice(0, 10);
   }
   return payload;
 }
@@ -1774,6 +1882,37 @@ async function checkAutoValidateArrivals() {
 function startAutoValidateArrivalsChecking() {
   checkAutoValidateArrivals();
   setInterval(checkAutoValidateArrivals, 5 * 60 * 1000);
+}
+
+// Si el administrador no responde una corrección de hora en 30 min, se da
+// por buena (pedido explícito 2026-11-09). Mismo patrón que
+// checkAutoValidateArrivals; el claim condicional evita que el poller y el
+// admin la resuelvan dos veces.
+let autoApproveCorrectionsRunning = false;
+async function checkAutoApproveCorrections() {
+  if (autoApproveCorrectionsRunning) return;
+  autoApproveCorrectionsRunning = true;
+  try {
+    const now = Date.now();
+    for (const c of await sbListPendingCorrections()) {
+      if (now - Date.parse(c.created_at) < AUTO_APPROVE_CORRECTION_AFTER_MS) continue;
+      const result = await resolveAttendanceCorrection(c.id, true, 'sistema (30 min sin responder)');
+      if (!result.ok) continue;
+      await sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_correction_auto_approve', c.username, {
+        id: c.id, work_date: c.work_date, field: c.field, requested_at: c.requested_at,
+      });
+      sendPushToUser(c.username, 'Tu corrección de ' + c.field + ' fue aprobada.', { tag: 'placer-correccion-resuelta-' + c.username }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('Error auto-aprobando correcciones: ' + e.message);
+  } finally {
+    autoApproveCorrectionsRunning = false;
+  }
+}
+
+function startAutoApproveCorrectionsChecking() {
+  checkAutoApproveCorrections();
+  setInterval(checkAutoApproveCorrections, 2 * 60 * 1000);
 }
 
 // Pedido real 2026-10-17: "si no se valida un retraso... por más de 20
@@ -4387,6 +4526,91 @@ async function handleRequest(req, res) {
   // 'manual'). Tampoco dispara notificacion — el usuario fue explicito: sin
   // avisos cuando el admin edita horas, y menos todavia en dias pasados. Se
   // puede mandar solo entrada, solo salida, o las dos.
+  // La modelo pide corregir su hora de entrada o de salida de los últimos 3
+  // días. Queda pendiente: el administrador la aprueba o rechaza, y si no
+  // responde en 30 min se aprueba sola (checkAutoApproveCorrections). Una
+  // sola solicitud pendiente por día+campo: pedir otra vez reemplaza la
+  // anterior y reinicia los 30 min.
+  if (parsed.pathname === '/api/attendance/correction' && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (session.role !== 'modelo') return sendJson(res, 403, { error: 'Solo las modelos piden corregir su hora' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const now = Date.now();
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : '';
+    if (!workDate) return sendJson(res, 400, { error: 'Elige el día' });
+    if (workDate > studioDateStr(now) || workDate < studioDateStr(now - 3 * 24 * 3600000)) {
+      return sendJson(res, 400, { error: 'Solo puedes corregir los últimos 3 días' });
+    }
+    const field = body.field === 'salida' ? 'salida' : body.field === 'entrada' ? 'entrada' : '';
+    if (!field) return sendJson(res, 400, { error: 'Elige si es la entrada o la salida' });
+    const time = typeof body.time === 'string' ? body.time.trim() : '';
+    if (!VALID_HHMM.test(time)) return sendJson(res, 400, { error: 'Hora inválida (usa HH:MM)' });
+    const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
+    const hers = await sbFetchScheduleForUser(session.username);
+    const day = await sbFetchAttendanceDay(session.username, workDate);
+    let requestedMs;
+    if (field === 'entrada') {
+      const scheduledMs = hers && hers.entry_time ? studioScheduledMs(workDate, hers.entry_time) : null;
+      requestedMs = resolveCorrectionEntryMs(workDate, time, scheduledMs);
+    } else {
+      if (!day) return sendJson(res, 400, { error: 'No tienes jornada ese día para corregir la salida' });
+      requestedMs = studioInstantAfter(workDate, time, hers && hers.entry_time ? hers.entry_time : '00:00');
+      if (day.official_at && requestedMs != null && requestedMs <= Date.parse(day.official_at)) {
+        return sendJson(res, 400, { error: 'La salida no puede ser antes de tu entrada' });
+      }
+    }
+    if (requestedMs == null) return sendJson(res, 400, { error: 'Hora inválida' });
+    if (requestedMs > now + 5 * 60000) return sendJson(res, 400, { error: 'Esa hora todavía no llega' });
+    const iso = new Date(requestedMs).toISOString();
+    const pending = (await sbListAttendanceCorrections(workDate, session.username))
+      .find((c) => c.status === 'pendiente' && String(c.work_date).slice(0, 10) === workDate && c.field === field);
+    let row;
+    if (pending) {
+      const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_corrections?id=eq.' + encodeURIComponent(pending.id) + '&status=eq.pendiente', {
+        method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+        body: JSON.stringify({ requested_at: iso, reason: reason || null, created_at: new Date(now).toISOString() }),
+      });
+      const rows = r.ok ? await r.json() : [];
+      row = rows.length ? rows[0] : null;
+    } else {
+      row = await sbInsertCorrection({ username: session.username, work_date: workDate, field, requested_at: iso, reason: reason || null });
+    }
+    if (!row) return sendJson(res, 500, { error: 'No se pudo guardar' });
+    await sbLogAudit(session, 'attendance_correction_request', session.username, { work_date: workDate, field, requested_at: iso, reason: reason || null });
+    sendPushToRole(['administrador', 'ceo'],
+      session.username + ' pide corregir su ' + field + ' a las ' + studioTimeStr(requestedMs) + '. Se aprueba sola en 30 min si no respondes.',
+      { tag: 'placer-correccion-' + session.username }).catch(() => {});
+    return sendJson(res, 200, { ok: true, correction: row });
+  }
+
+  // El administrador aprueba o rechaza una corrección pendiente.
+  if (parsed.pathname === '/api/attendance/correction/resolve' && req.method === 'POST') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const id = Number(body.id);
+    if (!id) return sendJson(res, 400, { error: 'id inválido' });
+    const approve = body.approve !== false;
+    const result = await resolveAttendanceCorrection(id, approve, session.username);
+    if (!result.ok) {
+      return sendJson(res, result.reason === 'ya_resuelta' ? 409 : 500, {
+        error: result.reason === 'ya_resuelta' ? 'Esa corrección ya fue resuelta' : 'No se pudo aplicar la hora',
+      });
+    }
+    const c = result.corr;
+    await sbLogAudit(session, approve ? 'attendance_correction_approve' : 'attendance_correction_reject', c.username, {
+      id, work_date: c.work_date, field: c.field, requested_at: c.requested_at,
+    });
+    sendPushToUser(c.username, approve
+      ? 'Tu corrección de ' + c.field + ' fue aprobada.'
+      : 'Tu corrección de ' + c.field + ' fue rechazada.',
+      { tag: 'placer-correccion-resuelta-' + c.username }).catch(() => {});
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (parsed.pathname === '/api/attendance/day/edit' && req.method === 'POST') {
     const session = await requireAdmin(req, res);
     if (!session) return;
@@ -4713,6 +4937,7 @@ server.listen(PORT, () => {
   startChaturbateBalancePolling();
   startAutoExitChecking();
   startAutoValidateArrivalsChecking();
+  startAutoApproveCorrectionsChecking();
   startAutoExcuseLateChecking();
   startShiftConfirmationChecking();
 });

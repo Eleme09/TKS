@@ -1014,6 +1014,23 @@
           <div class="model-grid" id="attMyGrid"></div>
           <div class="row" id="attMyActions"></div>
           <div id="attMyError" class="errbox"></div>
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+            <div class="meta-small" style="margin-bottom:10px;">¿Anotaste mal una hora? Pide la corrección: el administrador la aprueba, y si no responde en 30 minutos se da por buena.</div>
+            <label for="attCorrDate">Día</label>
+            <select id="attCorrDate"></select>
+            <label for="attCorrField">Qué corriges</label>
+            <select id="attCorrField">
+              <option value="entrada">Mi entrada</option>
+              <option value="salida">Mi salida</option>
+            </select>
+            <label for="attCorrTime">Hora correcta</label>
+            <input id="attCorrTime" type="time">
+            <label for="attCorrReason">Motivo (opcional)</label>
+            <textarea id="attCorrReason" rows="2" class="att-textarea" placeholder="ej: se me olvidó marcar al llegar"></textarea>
+            <div class="row" style="margin-top:10px;"><button id="btnAttCorr" class="btn-primary" style="flex:1;">Pedir corrección</button></div>
+            <div id="attCorrError" class="errbox"></div>
+            <div id="attMyCorrList" style="margin-top:12px;"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -1068,6 +1085,13 @@
             <div class="meta-small" style="margin-bottom:12px;">Nada cuenta hasta que tú lo valides. Si la modelo sí estaba a la hora que reportó, confirma esa hora; si reportó pero no había llegado, usa “llegó ahora”.</div>
             <div id="attPendingList"></div>
             <div id="attPendingError" class="errbox"></div>
+          </div>
+
+          <div class="card" id="attCorrCard" style="display:none;">
+            <h3 class="card-title">Correcciones de hora por confirmar</h3>
+            <div class="meta-small" style="margin-bottom:12px;">La modelo pide cambiar su hora. Si no respondes, se aprueba sola a los 30 minutos.</div>
+            <div id="attCorrList"></div>
+            <div id="attCorrStaffError" class="errbox"></div>
           </div>
 
           <!-- Pedido 2026-10-17: antes había que abrir la hoja completa para
@@ -1430,6 +1454,16 @@
     attJustBody: document.getElementById('attJustBody'),
     attJustFile: document.getElementById('attJustFile'),
     btnAttJust: document.getElementById('btnAttJust'),
+    attCorrDate: document.getElementById('attCorrDate'),
+    attCorrField: document.getElementById('attCorrField'),
+    attCorrTime: document.getElementById('attCorrTime'),
+    attCorrReason: document.getElementById('attCorrReason'),
+    btnAttCorr: document.getElementById('btnAttCorr'),
+    attCorrError: document.getElementById('attCorrError'),
+    attMyCorrList: document.getElementById('attMyCorrList'),
+    attCorrCard: document.getElementById('attCorrCard'),
+    attCorrList: document.getElementById('attCorrList'),
+    attCorrStaffError: document.getElementById('attCorrStaffError'),
     attJustError: document.getElementById('attJustError'),
     attMyJustList: document.getElementById('attMyJustList'),
     attMyPeriodHint: document.getElementById('attMyPeriodHint'),
@@ -2298,6 +2332,7 @@
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
 
     el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false);
+    attRenderCorrectionForm();
   }
 
   // Encabezado de columna: texto en pantalla ancha, ícono en móvil. El usuario
@@ -2474,6 +2509,18 @@
           const btn = document.getElementById('attVal-' + action + '-' + p.id);
           if (btn) btn.addEventListener('click', function () { attValidate(p.id, action); });
         });
+      });
+    }
+
+    const pendingCorr = attData.pendingCorrections || [];
+    el.attCorrCard.style.display = pendingCorr.length ? 'block' : 'none';
+    el.attCorrList.innerHTML = attCorrStaffHtml(pendingCorr, isAdmin);
+    if (isAdmin) {
+      pendingCorr.forEach(function (c) {
+        const ok = document.getElementById('attCorr-si-' + c.id);
+        const no = document.getElementById('attCorr-no-' + c.id);
+        if (ok) ok.addEventListener('click', function () { attResolveCorrection(c.id, true); });
+        if (no) no.addEventListener('click', function () { attResolveCorrection(c.id, false); });
       });
     }
 
@@ -2718,6 +2765,81 @@
     await refreshAttendance();
   }
 
+  // ---- Corrección de hora pedida por la modelo ----
+  function attRenderCorrectionForm() {
+    const prev = el.attCorrDate.value;
+    const opts = [];
+    const base = new Date(attData.today + 'T12:00:00Z');
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(base.getTime() - i * 86400000);
+      const iso = d.toISOString().slice(0, 10);
+      opts.push('<option value="' + iso + '">' + (i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : 'Antier') + ' · ' + attFechaCorta(iso) + '</option>');
+    }
+    el.attCorrDate.innerHTML = opts.join('');
+    if (prev) el.attCorrDate.value = prev;
+    el.attMyCorrList.innerHTML = attMyCorrHtml(attData.my_corrections || []);
+  }
+
+  function attMyCorrHtml(list) {
+    if (!list.length) return '';
+    return list.map(function (c) {
+      const estado = c.status === 'pendiente'
+        ? 'Pendiente — se aprueba sola a las ' + attHora(new Date(Date.parse(c.created_at) + 30 * 60000).toISOString())
+        : c.status === 'aprobada' ? 'Aprobada' : 'Rechazada';
+      return '<div class="meta-small" style="margin-bottom:6px;">' + attFechaCorta(String(c.work_date).slice(0, 10)) + ' · '
+        + (c.field === 'entrada' ? 'Entrada' : 'Salida') + ' a las <b>' + attHora(c.requested_at) + '</b> — ' + estado + '</div>';
+    }).join('');
+  }
+
+  async function attSendCorrection() {
+    attClearBox(el.attCorrError);
+    const time = el.attCorrTime.value;
+    if (!time) return attShowBox(el.attCorrError, 'Escribe la hora correcta');
+    el.btnAttCorr.disabled = true;
+    const r = await fetch('/api/attendance/correction', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ work_date: el.attCorrDate.value, field: el.attCorrField.value, time: time, reason: el.attCorrReason.value.trim() }),
+    });
+    el.btnAttCorr.disabled = false;
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attCorrError, data.error || 'No se pudo enviar');
+    el.attCorrTime.value = '';
+    el.attCorrReason.value = '';
+    await refreshAttendance();
+  }
+
+  function attCorrStaffHtml(list, isAdmin) {
+    return list.map(function (c) {
+      const minsLeft = Math.max(0, Math.round((new Date(c.deadline_at).getTime() - Date.now()) / 60000));
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(c.username) + '</span>'
+        + '<span class="meta-small">' + attFechaCorta(String(c.work_date).slice(0, 10)) + '</span>'
+        + '</div>'
+        + '<div class="meta-small">Pide corregir su <b>' + (c.field === 'entrada' ? 'entrada' : 'salida') + '</b> a las <b>' + attHora(c.requested_at) + '</b>'
+        + ' · se aprueba sola en ' + minsLeft + ' min</div>'
+        + (c.reason ? '<div class="meta-small" style="margin-top:6px;">Motivo: ' + escapeHtml(c.reason) + '</div>' : '')
+        + (isAdmin
+          ? '<div class="att-actions">'
+            + '<button id="attCorr-si-' + c.id + '" class="btn-primary">Aprobar</button>'
+            + '<button id="attCorr-no-' + c.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25);">Rechazar</button>'
+            + '</div>'
+          : '')
+        + '</div>';
+    }).join('');
+  }
+
+  async function attResolveCorrection(id, approve) {
+    attClearBox(el.attCorrStaffError);
+    const r = await fetch('/api/attendance/correction/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, approve: approve }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attCorrStaffError, data.error || 'No se pudo resolver');
+    await refreshAttendance();
+  }
+
   async function attSendJustification() {
     attClearBox(el.attJustError);
     const body = el.attJustBody.value.trim();
@@ -2835,6 +2957,7 @@
   }
 
   el.btnAttJust.addEventListener('click', attSendJustification);
+  el.btnAttCorr.addEventListener('click', attSendCorrection);
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);
   el.attOwesUser.addEventListener('change', attFillOwesMsgForSelected);

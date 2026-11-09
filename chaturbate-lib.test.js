@@ -953,3 +953,18 @@ describe('computeBroadcastSummary — entrada/salida dentro de la ventana', () =
     assert.strictEqual(r.lastMs, null);
   });
 });
+
+describe('resolveCorrectionEntryMs', () => {
+  const sched = (d, hhmm) => lib.studioScheduledMs(d, hhmm);
+  test('turno de la mañana: 07:00 se queda en el mismo día', () => {
+    const ms = lib.resolveCorrectionEntryMs('2026-11-09', '07:00', sched('2026-11-09', '07:30'));
+    assert.strictEqual(ms, sched('2026-11-09', '07:00'));
+  });
+  test('turno de la tarde: 00:30 pasa al día siguiente (llegó de madrugada)', () => {
+    const ms = lib.resolveCorrectionEntryMs('2026-11-09', '00:30', sched('2026-11-09', '16:00'));
+    assert.strictEqual(ms, sched('2026-11-10', '00:30'));
+  });
+  test('sin horario se queda en el mismo día', () => {
+    assert.strictEqual(lib.resolveCorrectionEntryMs('2026-11-09', '10:00', null), sched('2026-11-09', '10:00'));
+  });
+});
