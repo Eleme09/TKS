@@ -3,7 +3,6 @@
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-const session = require('express-session');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
@@ -285,19 +284,59 @@ const pinLimiter = rateLimit({
 });
 
 app.use(express.json());
-app.use(
-  session({
-    secret: process.env.TIENDA_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: 'auto',
-      sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-    },
-  })
-);
+// Sesión del dueño en una cookie firmada (HMAC), sin estado en el servidor.
+// Antes usaba express-session con MemoryStore: cada reinicio o redeploy de
+// Render borraba todas las sesiones y el dueño caía a la pantalla de login en
+// medio de lo que estaba haciendo. Con la cookie firmada la sesión sobrevive
+// a los reinicios (misma idea que la sesión de TKS).
+const ADMIN_COOKIE = 'tf_admin';
+const ADMIN_SESSION_MS = 1000 * 60 * 60 * 24 * 7;
+
+function adminSign(b64) {
+  return crypto.createHmac('sha256', process.env.TIENDA_SESSION_SECRET).update(b64).digest('base64url');
+}
+
+function readAdminCookie(req) {
+  const raw = String(req.headers.cookie || '')
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(ADMIN_COOKIE + '='));
+  if (!raw) return null;
+  const token = raw.slice(ADMIN_COOKIE.length + 1);
+  const [b64, sig] = token.split('.');
+  if (!b64 || !sig) return null;
+  const expected = adminSign(b64);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(b64, 'base64url').toString());
+    if (!data.u || !data.exp || data.exp < Date.now()) return null;
+    return data.u;
+  } catch (e) {
+    return null;
+  }
+}
+
+function setAdminCookie(req, res, username) {
+  const b64 = Buffer.from(JSON.stringify({ u: username, exp: Date.now() + ADMIN_SESSION_MS })).toString('base64url');
+  res.append(
+    'Set-Cookie',
+    `${ADMIN_COOKIE}=${b64}.${adminSign(b64)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_MS / 1000)}${req.secure ? '; Secure' : ''}`
+  );
+  req.session = { adminUsername: username };
+}
+
+function clearAdminCookie(req, res) {
+  res.append('Set-Cookie', `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${req.secure ? '; Secure' : ''}`);
+  req.session = {};
+}
+
+app.use((req, res, next) => {
+  const u = readAdminCookie(req);
+  req.session = u ? { adminUsername: u } : {};
+  next();
+});
 app.use(
   express.static(path.join(__dirname, 'public'), {
     setHeaders: (res) => res.set('Cache-Control', 'no-cache'),
@@ -503,7 +542,7 @@ app.post(
       return res.status(400).json({ error: 'Usuario inválido o contraseña muy corta (mínimo 8 caracteres).' });
     }
     await sbCreateAdmin(username, lib.hashSecret(password), req.body.display_name || null);
-    req.session.adminUsername = username;
+    setAdminCookie(req, res, username);
     res.json({ ok: true, username });
   })
 );
@@ -518,13 +557,14 @@ app.post(
     if (!admin || !lib.verifySecret(password, admin.password_hash)) {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
-    req.session.adminUsername = username;
+    setAdminCookie(req, res, username);
     res.json({ ok: true, username });
   })
 );
 
 app.post('/api/admin/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+  clearAdminCookie(req, res);
+  res.json({ ok: true });
 });
 
 app.get('/api/admin/me', (req, res) => {

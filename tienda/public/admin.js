@@ -156,29 +156,14 @@
 
   let cierresCache = [];
 
-  // Deuda pendiente por persona (suma de quincenas cerradas sin pagar).
-  function deudaPorPersona() {
-    const m = new Map();
-    for (const c of cierresCache) {
-      for (const r of c.detalle) {
-        if (!r.pagado && Number(r.total) > 0) m.set(r.persona_id, (m.get(r.persona_id) || 0) + Number(r.total));
-      }
-    }
-    return m;
-  }
-
-  // Selector: primero quienes deben (con su monto), luego los que están al día.
+  // Selector de personas, por orden alfabético.
   function refreshDesprSelect() {
-    const deuda = deudaPorPersona();
     const prev = el.desprPersona.value;
-    const opt = (p) => `<option value="${p.id}">${escapeHtml(p.nombre)}${deuda.has(p.id) ? ` · debe ${formatMoney(deuda.get(p.id))}` : ''}</option>`;
-    const debe = personasCache.filter((p) => deuda.has(p.id)).sort((a, b) => deuda.get(b.id) - deuda.get(a.id));
-    const aldia = personasCache.filter((p) => !deuda.has(p.id));
-    el.desprPersona.innerHTML =
-      (debe.length ? `<optgroup label="Con pago pendiente (${debe.length})">${debe.map(opt).join('')}</optgroup>` : '') +
-      (aldia.length ? `<optgroup label="Al día">${aldia.map(opt).join('')}</optgroup>` : '');
+    el.desprPersona.innerHTML = personasCache
+      .map((p) => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`)
+      .join('');
     const existe = personasCache.some((p) => String(p.id) === prev);
-    el.desprPersona.value = existe ? prev : debe.length ? String(debe[0].id) : aldia.length ? String(aldia[0].id) : '';
+    el.desprPersona.value = existe ? prev : personasCache.length ? String(personasCache[0].id) : '';
     loadDesprendibles();
     renderPersonas();
     loadConsumoPersona();
@@ -201,16 +186,15 @@
     el.cierresLista.innerHTML =
       cierresCache
         .map((c) => {
-          const filas = c.detalle.filter((r) => Number(r.total) > 0).sort((a, b) => Number(a.pagado) - Number(b.pagado) || b.total - a.total);
-          const porCobrar = filas.filter((r) => !r.pagado).reduce((s, r) => s + Number(r.total), 0);
+          const filas = c.detalle.filter((r) => Number(r.total) > 0).sort((a, b) => b.total - a.total);
           const nombres = filas
             .map(
               (r) =>
-                `<button type="button" class="nombre-fila${r.pagado ? ' pagada' : ''}" data-ir="${r.persona_id}"><span>${escapeHtml(r.persona_nombre)}</span><span>${r.pagado ? 'Pagado' : formatMoney(r.total)}</span></button>`
+                `<button type="button" class="nombre-fila" data-ir="${r.persona_id}"><span>${escapeHtml(r.persona_nombre)}</span><span>${formatMoney(r.total)}</span></button>`
             )
             .join('');
           return `<details class="cierre-resumen">
-            <summary><span><strong>${labelQuincena(c.periodo_inicio, c.periodo_fin)}</strong><br /><span class="${porCobrar ? 'debe' : 'muted'}">${porCobrar ? `Por cobrar ${formatMoney(porCobrar)}` : `Cobrada · recaudado ${formatMoney(c.total)}`}</span></span><span class="muted">${porCobrar ? `de ${formatMoney(c.total)}` : ''}</span></summary>
+            <summary><span><strong>${labelQuincena(c.periodo_inicio, c.periodo_fin)}</strong><br /><span class="muted">Total ${formatMoney(c.total)}</span></span></summary>
             <div class="nombres">${nombres || '<p class="muted">Sin consumos.</p>'}</div>
             <button type="button" class="btn btn-sm" data-csv="${c.id}">Exportar CSV</button></details>`;
         })
@@ -229,29 +213,15 @@
       btn.addEventListener('click', () => {
         const c = cierresCache.find((x) => x.id === Number(btn.dataset.csv));
         downloadCsv(`cierre_${c.periodo_inicio}_${c.periodo_fin}.csv`, [
-          ['Persona', 'Items', 'Total', 'Pagado'],
-          ...c.detalle.map((r) => [r.persona_nombre, r.items, r.total, r.pagado ? 'Sí' : 'No']),
+          ['Persona', 'Items', 'Total'],
+          ...c.detalle.map((r) => [r.persona_nombre, r.items, r.total]),
         ]);
       });
     });
     if (personasCache.length) refreshDesprSelect();
   }
 
-  async function cambiarPago(cierreId, personaId, pagado) {
-    if (!pagado && !window.confirm('¿Marcar como pendiente? Se descarta el comprobante y la persona volverá a ver el aviso de pago.')) return;
-    try {
-      await apiFetch(`/api/admin/cierres/${cierreId}/pago`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ persona_id: personaId, pagado }),
-      });
-      await loadCierres();
-    } catch (err) {
-      window.VW_UI.toast(err.message, 'error');
-    }
-  }
-
-  // Desprendible de la persona elegida: consumo quincena a quincena + pago.
+  // Desprendible de la persona elegida: consumo quincena a quincena.
   const ESTADO_DESPR = { en_curso: 'En curso', sin_cerrar: 'Sin cerrar', cerrada: 'Cerrada' };
 
   async function loadDesprendibles() {
@@ -272,22 +242,12 @@
                   `<div class="linea${l.anulado ? ' anulada' : ''}"><span class="linea-fecha">${new Date(l.fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</span><span class="linea-prod">${escapeHtml(l.producto)} ×${l.cantidad}</span><span class="linea-monto">${formatMoney(l.subtotal)}</span></div>`
               )
               .join('');
-            const cerrada = q.cierre_id && Number(q.total_cierre ?? q.total) > 0;
-            const pago = cerrada
-              ? `<div class="pago-fila">${q.pagado ? '<span class="muted">Pagado</span>' : '<strong class="debe">Pendiente de pago</strong>'}${q.comprobante_url ? `<a href="${escapeHtml(q.comprobante_url)}" target="_blank" rel="noopener">Ver comprobante</a>` : ''}<button type="button" class="btn btn-sm ${q.pagado ? '' : 'btn-accent'}" data-pago="${q.cierre_id}:${id}:${q.pagado ? 0 : 1}">${q.pagado ? 'Marcar pendiente' : 'Marcar pagado'}</button></div>`
-              : '';
             const abierta = false;
             return `<details class="desp-q"${abierta ? ' open' : ''}><summary><span><strong>${labelQuincena(q.inicio, q.fin)}</strong> <span class="muted">${ESTADO_DESPR[q.estado]}</span></span><strong>${formatMoney(q.total)}</strong></summary>
-              ${pago}<div class="lineas">${lineas}</div>
+              <div class="lineas">${lineas}</div>
               <button type="button" class="btn btn-sm" data-despr-csv="${i}">Exportar CSV</button></details>`;
           })
           .join('') || '<p class="muted">Sin consumos registrados.</p>';
-      el.desprLista.querySelectorAll('[data-pago]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const [cid, pid, val] = btn.dataset.pago.split(':').map(Number);
-          cambiarPago(cid, pid, val === 1);
-        });
-      });
       el.desprLista.querySelectorAll('[data-despr-csv]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const q = data[Number(btn.dataset.desprCsv)];
@@ -422,10 +382,7 @@
       resumen.innerHTML = '';
       return;
     }
-    const deuda = deudaPorPersona();
-    resumen.innerHTML = deuda.has(p.id)
-      ? `<span class="muted">Total que debe</span><strong class="debe grande">${formatMoney(deuda.get(p.id))}</strong>`
-      : '<span class="muted">Al día, no debe nada</span>';
+    resumen.innerHTML = '';
     box.innerHTML = `<div class="muted" style="width:100%">${escapeHtml(p.nombre)} · ${p.activo ? 'Activa' : 'Inactiva'}</div>
         <button type="button" class="btn btn-sm" id="pEditar">Editar</button>
         <button type="button" class="btn btn-sm btn-quiet-danger" id="pVaciar">Vaciar lista</button>
@@ -439,7 +396,8 @@
       try {
         await apiFetch(`/api/admin/personas/${p.id}`, { method: 'DELETE' });
         window.VW_UI.toast(`${p.nombre} eliminada.`, 'ok');
-        location.reload();
+        await loadPersonas();
+        loadCierres().catch(() => {});
       } catch (err) {
         window.VW_UI.toast(err.message, 'error');
       }
