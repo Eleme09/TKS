@@ -510,7 +510,8 @@
 
   function bcastHtml(d) {
     var xs = (d.extra_shifts || []).map(function (x) {
-      return '<span class="xh xh-' + x.kind + '" title="' + (x.kind === 'recuperacion' ? 'Recuperación' : 'Extra') + '">+'
+      var rango = x.entry_ms ? hora(new Date(x.entry_ms).toISOString()) + ' – ' + hora(new Date(x.exit_ms).toISOString()) + ' · ' : '';
+      return '<span class="xh xh-' + x.kind + '" title="' + (x.kind === 'recuperacion' ? 'Recuperación' : 'Extra') + '">' + rango + '+'
         + (x.minutes == null ? '?' : horasMin(x.minutes)) + ' ' + (x.kind === 'recuperacion' ? 'recup.' : 'extra') + '</span>';
     }).join('');
     if (d.broadcast_minutes == null) return xs || '<span class="muted">—</span>';

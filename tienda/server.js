@@ -82,8 +82,10 @@ async function sbUpdatePersona(id, fields) {
 // Personas iniciales: PIN secuencial de 3 dígitos (001, 002, ...). Se crean
 // solo las que faltan por nombre — nunca se pisa el PIN de una persona que
 // ya existe.
+// Estefanía, Valeria y Michelle se sacaron de esta lista (2026-11-09): si
+// siguieran aquí, se volverían a crear en cada arranque tras eliminarlas.
 const PERSONAS_INICIALES = [
-  'Samantha', 'Estefanía', 'Valeria', 'Michelle', 'Jazbleidy', 'Maryuri', 'Tatiana', 'Angie', 'Camilo',
+  'Samantha', 'Jazbleidy', 'Maryuri', 'Tatiana', 'Angie', 'Camilo',
 ];
 
 async function ensurePersonasIniciales() {
@@ -103,6 +105,16 @@ async function sbVaciarConsumosPersona(personaId) {
   const { data, error } = await supabase.from('tf_consumos').delete().eq('persona_id', personaId).select('id');
   if (error) throw error;
   return data.length;
+}
+
+// Eliminar una persona de verdad (no desactivar): borra sus consumos y luego
+// la fila. Los cierres de quincena ya guardados (tf_cierres.detalle) son una
+// foto congelada y no se tocan.
+async function sbDeletePersona(personaId) {
+  const { error: e1 } = await supabase.from('tf_consumos').delete().eq('persona_id', personaId);
+  if (e1) throw e1;
+  const { error: e2 } = await supabase.from('tf_personas').delete().eq('id', personaId);
+  if (e2) throw e2;
 }
 
 async function sbListProductos({ activeOnly = false } = {}) {
@@ -548,6 +560,17 @@ app.post(
     const id = Number(req.params.id);
     if (!id || !(await sbGetPersona(id))) return res.status(404).json({ error: 'Persona no encontrada' });
     res.json({ ok: true, eliminados: await sbVaciarConsumosPersona(id) });
+  })
+);
+
+app.delete(
+  '/api/admin/personas/:id',
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id || !(await sbGetPersona(id))) return res.status(404).json({ error: 'Persona no encontrada' });
+    await sbDeletePersona(id);
+    res.json({ ok: true });
   })
 );
 

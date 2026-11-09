@@ -798,7 +798,7 @@ function shiftDurationMinutes(entryTime, exitTime) {
 // ventana (o sigue en vivo ahora), asi que se cierra en windowEndMs.
 function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
   if (windowStartMs == null || windowEndMs == null || windowEndMs <= windowStartMs) {
-    return { onlineMinutes: 0, maxGapMinutes: 0 };
+    return { onlineMinutes: 0, maxGapMinutes: 0, firstMs: null, lastMs: null };
   }
   const sorted = (events || [])
     .map((e) => ({ type: e.event_type, ms: typeof e.created_at === 'number' ? e.created_at : Date.parse(e.created_at) }))
@@ -852,7 +852,14 @@ function computeBroadcastSummary(events, windowStartMs, windowEndMs) {
     if (gap > maxGapMs) maxGapMs = gap;
   }
 
-  return { onlineMinutes: Math.round(onlineMs / 60000), maxGapMinutes: Math.round(maxGapMs / 60000) };
+  // firstMs/lastMs: cuándo prendió y cuándo cortó DENTRO de la ventana (para
+  // mostrar "entró 08:02 – salió 13:01" en una extra/recuperación).
+  return {
+    onlineMinutes: Math.round(onlineMs / 60000),
+    maxGapMinutes: Math.round(maxGapMs / 60000),
+    firstMs: clipped.length ? clipped[0][0] : null,
+    lastMs: clipped.length ? clipped[clipped.length - 1][1] : null,
+  };
 }
 
 // Salida antes de tiempo detectada por la transmisión (pedido 2026-10-20),

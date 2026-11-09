@@ -933,3 +933,23 @@ describe('Domingos y salida detectada por transmisión (2026-10-20)', () => {
     assert.strictEqual(findBroadcastEarlyExit([], 0, 8 * H, 12 * H, 3 * H).state, 'none');
   });
 });
+
+describe('computeBroadcastSummary — entrada/salida dentro de la ventana', () => {
+  test('devuelve cuándo prendió y cuándo cortó, recortado a la ventana', () => {
+    const H = 3600000;
+    const events = [
+      { event_type: 'start', created_at: 2 * H },
+      { event_type: 'stop', created_at: 4 * H },
+      { event_type: 'start', created_at: 5 * H },
+      { event_type: 'stop', created_at: 20 * H },
+    ];
+    const r = lib.computeBroadcastSummary(events, H, 8 * H);
+    assert.strictEqual(r.firstMs, 2 * H);
+    assert.strictEqual(r.lastMs, 8 * H);
+  });
+  test('sin transmisión en la ventana no inventa horas', () => {
+    const r = lib.computeBroadcastSummary([], 0, 3600000);
+    assert.strictEqual(r.firstMs, null);
+    assert.strictEqual(r.lastMs, null);
+  });
+});

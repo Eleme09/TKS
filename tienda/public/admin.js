@@ -428,7 +428,22 @@
       : '<span class="muted">Al día, no debe nada</span>';
     box.innerHTML = `<div class="muted" style="width:100%">${escapeHtml(p.nombre)} · ${p.activo ? 'Activa' : 'Inactiva'}</div>
         <button type="button" class="btn btn-sm" id="pEditar">Editar</button>
-        <button type="button" class="btn btn-sm btn-quiet-danger" id="pVaciar">Vaciar lista</button>`;
+        <button type="button" class="btn btn-sm btn-quiet-danger" id="pVaciar">Vaciar lista</button>
+        <button type="button" class="btn btn-sm btn-quiet-danger" id="pEliminar">Eliminar persona</button>`;
+    document.getElementById('pEliminar').addEventListener('click', async () => {
+      const ok = await window.VW_UI.confirmDialog(
+        `¿Eliminar a ${p.nombre} para siempre? Se borran la persona y todos sus consumos. No se puede deshacer.`,
+        { confirmLabel: 'Eliminar' }
+      );
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/admin/personas/${p.id}`, { method: 'DELETE' });
+        window.VW_UI.toast(`${p.nombre} eliminada.`, 'ok');
+        location.reload();
+      } catch (err) {
+        window.VW_UI.toast(err.message, 'error');
+      }
+    });
     document.getElementById('pEditar').addEventListener('click', () => abrirEditarPersona(p));
     document.getElementById('pVaciar').addEventListener('click', async () => {
       const ok = await window.VW_UI.confirmDialog(

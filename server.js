@@ -1332,8 +1332,9 @@ async function annotateSpecialShifts(days, period, eventsByUser, now) {
       if (!sh.start_time || !sh.end_time) return { kind, minutes: null };
       const startMs = studioScheduledMs(sh.shift_date, normalizeClock(sh.start_time));
       const endMs = Math.min(studioInstantAfter(sh.shift_date, normalizeClock(sh.end_time), normalizeClock(sh.start_time)), now);
-      if (endMs <= startMs) return { kind, minutes: 0 };
-      return { kind, minutes: computeBroadcastSummary((eventsByUser && eventsByUser[d.username]) || [], startMs, endMs).onlineMinutes };
+      if (endMs <= startMs) return { kind, minutes: 0, entry_ms: null, exit_ms: null };
+      const sum = computeBroadcastSummary((eventsByUser && eventsByUser[d.username]) || [], startMs, endMs);
+      return { kind, minutes: sum.onlineMinutes, entry_ms: sum.firstMs, exit_ms: sum.lastMs };
     });
   }
 }

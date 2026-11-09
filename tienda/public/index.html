@@ -45,10 +45,6 @@
       <section id="stepMenu" hidden>
         <div class="card-box">
           <h2>Hola, <span id="menuPersonaName" class="neon-name"></span></h2>
-          <div id="deudaBanner" class="deuda-banner" hidden>
-            <span id="deudaTexto"></span>
-            <button type="button" class="btn btn-accent btn-sm" id="btnSubirComprobante">Subir comprobante</button>
-          </div>
           <div class="tabnav">
             <button type="button" class="tab-btn active" data-tab="tabAgregar">Anotar consumo</button>
             <button type="button" class="tab-btn" data-tab="tabHistorial">Mi historial</button>
@@ -79,37 +75,6 @@
         </div>
       </section>
     </main>
-
-    <div id="comprobanteOverlay" class="vw-modal-overlay" hidden>
-      <div class="vw-modal-box comp-box">
-        <div id="comprobanteForm">
-        <button type="button" class="comp-x" id="btnComprobanteX" aria-label="Cerrar">✕</button>
-        <h2 style="margin-top:0">Sube tu comprobante de pago</h2>
-        <p id="comprobanteDetalle"></p>
-        <div class="nequi-box">
-          <img src="/nequi.svg" alt="Nequi" class="nequi-logo" />
-          <div>
-            <div class="nequi-num" id="nequiNum">310 562 5283</div>
-            <div class="muted">Jeiner Mena</div>
-          </div>
-          <button type="button" class="btn btn-sm" id="btnCopiarNequi">Copiar</button>
-        </div>
-        <p class="muted">Envía el pago a esa cuenta Nequi y sube la foto del comprobante. Al subirla, tu quincena queda como pagada.</p>
-        <label class="btn btn-block btn-foto" for="comprobanteFile">Tomar o elegir foto</label>
-        <input id="comprobanteFile" type="file" accept="image/*" hidden />
-        <img id="comprobantePreview" class="comprobante-preview" alt="Vista previa del comprobante" hidden />
-        <div class="vw-modal-actions comp-actions">
-          <button type="button" class="btn btn-accent" id="btnComprobanteEnviar" disabled>Enviar comprobante</button>
-          <button type="button" class="btn" id="btnComprobanteLuego">Después</button>
-        </div>
-        </div>
-        <div class="comp-ok" id="comprobanteOk" hidden>
-          <svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23" /><path d="M15 27l8 8 14-16" /></svg>
-          <strong>¡Comprobante recibido!</strong>
-          <span class="muted">Tu quincena quedó como pagada.</span>
-        </div>
-      </div>
-    </div>
 
     <script src="/ui.js"></script>
     <script src="/app.js"></script>
