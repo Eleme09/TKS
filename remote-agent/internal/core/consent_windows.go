@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package core
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"placer/remote-agent/internal/proto"
 )
 
 var (
@@ -41,14 +42,14 @@ func closeConsentDialog() {
 	}
 }
 
-// askConsent muestra el diálogo nativo Sí/No. Rechaza solo a los 30 s, o si
+// AskConsent muestra el diálogo nativo Sí/No. Rechaza solo a los 30 s, o si
 // ctx termina (sesión cancelada). Devuelve true únicamente si se pulsó "Sí".
-func askConsent(ctx context.Context, viewer string) bool {
+func AskConsent(ctx context.Context, viewer string) bool {
 	text := fmt.Sprintf("«%s» solicita VER y CONTROLAR este equipo (pantalla, mouse y teclado).\n\n"+
 		"Pulsa Sí solo si tú lo esperabas. Si no, pulsa No.\n"+
 		"Se rechaza automáticamente en %d segundos.\n\n"+
 		"Podrás cortar la sesión cuando quieras con Ctrl+Shift+F12 o cerrando la ventana negra del agente.",
-		viewer, consentTimeout)
+		viewer, proto.ConsentTimeout)
 	tp, _ := windows.UTF16PtrFromString(text)
 	cp, _ := windows.UTF16PtrFromString(consentTitle)
 	res := make(chan uintptr, 1)
@@ -58,7 +59,7 @@ func askConsent(ctx context.Context, viewer string) bool {
 			mbYesNo|mbIconWarning|mbDefButton2|mbSetFore|mbTopmost)
 		res <- r
 	}()
-	timer := time.NewTimer(consentTimeout * time.Second)
+	timer := time.NewTimer(proto.ConsentTimeout * time.Second)
 	defer timer.Stop()
 	select {
 	case r := <-res:

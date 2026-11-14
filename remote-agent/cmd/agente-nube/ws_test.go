@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"placer/remote-agent/internal/proto"
 )
 
 // Relay falso: comprueba el handshake (auth → authok), session_start y que,
@@ -18,7 +20,7 @@ func TestAgentProtocolAgainstFakeRelay(t *testing.T) {
 	got := make(chan map[string]any, 8)
 	up := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != agentPath {
+		if r.URL.Path != proto.AgentPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -45,7 +47,7 @@ func TestAgentProtocolAgainstFakeRelay(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := Config{Server: strings.Replace(srv.URL, "http://", "ws://", 1), Device: "dev", Token: "tok", AllowInsecure: true}
+	cfg := proto.Config{Server: strings.Replace(srv.URL, "http://", "ws://", 1), Device: "dev", Token: "tok", AllowInsecure: true}
 	a, err := NewAgent(cfg)
 	if err != nil {
 		t.Fatal(err)

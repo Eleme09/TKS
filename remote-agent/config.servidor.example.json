@@ -1,0 +1,7 @@
+{
+  "port": 5911,
+  "name": "PC Recepción",
+  "viewOnly": false,
+  "announce": true,
+  "allowedViewerIPs": []
+}

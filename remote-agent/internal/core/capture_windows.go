@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package core
 
 import (
 	"errors"
@@ -15,15 +15,15 @@ func init() {
 	windows.NewLazySystemDLL("user32.dll").NewProc("SetProcessDPIAware").Call()
 }
 
-// captureScreen captura el monitor principal (solo lectura de pantalla; nada se graba a disco).
-func captureScreen() (*image.RGBA, error) {
+// CaptureScreen captura el monitor principal (solo lectura de pantalla; nada se graba a disco).
+func CaptureScreen() (*image.RGBA, error) {
 	if screenshot.NumActiveDisplays() < 1 {
 		return nil, errors.New("sin pantallas activas")
 	}
 	return screenshot.CaptureDisplay(0)
 }
 
-func screenSize() (int, int, error) {
+func ScreenSize() (int, int, error) {
 	if screenshot.NumActiveDisplays() < 1 {
 		return 0, 0, errors.New("sin pantallas activas")
 	}

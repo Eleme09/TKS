@@ -1,2 +1,6 @@
 *.exe
 config.json
+pairing.json
+server-cert.pem
+server-key.pem
+visor-pairings.json

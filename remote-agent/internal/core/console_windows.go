@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package core
 
 import (
 	"runtime"
@@ -17,7 +17,7 @@ var (
 	procGetMessageW = user32.NewProc("GetMessageW")
 )
 
-func initConsole() {
+func InitConsole() {
 	procSetOutputCP.Call(65001)
 	h, err := windows.GetStdHandle(windows.STD_OUTPUT_HANDLE)
 	if err != nil {
@@ -31,7 +31,7 @@ func initConsole() {
 	}
 }
 
-func setConsoleTitle(s string) {
+func SetConsoleTitle(s string) {
 	p, err := windows.UTF16PtrFromString(s)
 	if err == nil {
 		procSetTitleW.Call(uintptr(unsafe.Pointer(p)))
@@ -48,14 +48,14 @@ type winMsg struct {
 	ptY     int32
 }
 
-// installLocalCut registra Ctrl+Shift+F12 como tecla de corte local.
-func installLocalCut(onCut func()) {
+// InstallLocalCut registra Ctrl+Shift+F12 como tecla de corte local.
+func InstallLocalCut(onCut func()) {
 	go func() {
 		runtime.LockOSThread()
 		const modCtrl, modShift, modNoRepeat, vkF12 = 0x2, 0x4, 0x4000, 0x7B
 		r, _, _ := procRegHotKey.Call(0, 1, modCtrl|modShift|modNoRepeat, vkF12)
 		if r == 0 {
-			logf("AVISO: no se pudo registrar Ctrl+Shift+F12 (otro programa la usa). Cierra la ventana para cortar.")
+			Logf("AVISO: no se pudo registrar Ctrl+Shift+F12 (otro programa la usa). Cierra la ventana para cortar.")
 			return
 		}
 		var m winMsg
@@ -71,8 +71,8 @@ func installLocalCut(onCut func()) {
 	}()
 }
 
-// installCloseHandler corta la sesión al cerrar la ventana, Ctrl+C, cierre de sesión o apagado.
-func installCloseHandler(onClose func()) {
+// InstallCloseHandler corta la sesión al cerrar la ventana, Ctrl+C, cierre de sesión o apagado.
+func InstallCloseHandler(onClose func()) {
 	cb := windows.NewCallback(func(ctrlType uint32) uintptr {
 		onClose()
 		return 0 // dejar que Windows continúe con el cierre normal

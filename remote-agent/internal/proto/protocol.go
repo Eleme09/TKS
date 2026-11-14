@@ -1,10 +1,11 @@
-package main
+package proto
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -13,10 +14,10 @@ import (
 // utilidades de texto. Protocolo definido por remote/relay.js del repo TKS.
 
 const (
-	agentPath       = "/ws/remote/agent"
-	consentTimeout  = 30 // segundos
-	pingEverySec    = 30
-	maxViewerNameLn = 40
+	AgentPath       = "/ws/remote/agent"
+	ConsentTimeout  = 30 // segundos
+	PingEverySec    = 30
+	MaxViewerNameLn = 40
 )
 
 // Config se lee de config.json junto al .exe.
@@ -70,13 +71,13 @@ func BuildAgentURL(server string, allowInsecure bool) (string, error) {
 	default:
 		return "", fmt.Errorf("esquema no soportado: %s", u.Scheme)
 	}
-	return u.Scheme + "://" + u.Host + agentPath, nil
+	return u.Scheme + "://" + u.Host + AgentPath, nil
 }
 
 // ---- Mensajes ----
 
-// inMsg es cualquier mensaje de control entrante (relay → agente).
-type inMsg struct {
+// InMsg es cualquier mensaje de control entrante (relay → agente).
+type InMsg struct {
 	T      string  `json:"t"`
 	Viewer string  `json:"viewer,omitempty"`
 	Name   string  `json:"name,omitempty"`
@@ -89,8 +90,8 @@ type inMsg struct {
 	Q      float64 `json:"q,omitempty"`
 }
 
-func parseIn(data []byte) (inMsg, error) {
-	var m inMsg
+func ParseIn(data []byte) (InMsg, error) {
+	var m InMsg
 	if err := json.Unmarshal(data, &m); err != nil {
 		return m, err
 	}
@@ -100,22 +101,22 @@ func parseIn(data []byte) (inMsg, error) {
 	return m, nil
 }
 
-func authMsg(device, token string) []byte {
+func AuthMsg(device, token string) []byte {
 	b, _ := json.Marshal(map[string]string{"t": "auth", "device": device, "token": token})
 	return b
 }
 
-func infoMsg(w, h int, host, os string) []byte {
+func InfoMsg(w, h int, host, os string) []byte {
 	b, _ := json.Marshal(map[string]any{"t": "info", "w": w, "h": h, "host": host, "os": os})
 	return b
 }
 
-func consentMsg(ok bool) []byte {
-	b, _ := json.Marshal(map[string]any{"t": "consent", "ok": ok, "viewOnly": false})
+func ConsentMsg(ok, viewOnly bool) []byte {
+	b, _ := json.Marshal(map[string]any{"t": "consent", "ok": ok, "viewOnly": viewOnly})
 	return b
 }
 
-func pingMsg() []byte { return []byte(`{"t":"ping"}`) }
+func PingMsg() []byte { return []byte(`{"t":"ping"}`) }
 
 // SanitizeViewer limpia el nombre que se muestra en el diálogo (viene de la red).
 func SanitizeViewer(s string) string {
@@ -127,7 +128,7 @@ func SanitizeViewer(s string) string {
 		}
 		sb.WriteRune(r)
 		n++
-		if n >= maxViewerNameLn {
+		if n >= MaxViewerNameLn {
 			break
 		}
 	}
@@ -138,12 +139,17 @@ func SanitizeViewer(s string) string {
 	return out
 }
 
+var qualityLevels = map[int]int{1: 40, 2: 60, 3: 85}
+
 // QualityFromMsg traduce el mensaje {t:'quality'} a calidad JPEG (20..90).
 func QualityFromMsg(q float64) (int, bool) {
 	if q <= 0 {
 		return 0, false
 	}
-	if q <= 1 { // fracción 0..1
+	if q == 1 || q == 2 || q == 3 { // niveles del visor web: 1 baja, 2 media, 3 alta
+		return qualityLevels[int(q)], true
+	}
+	if q < 1 { // fracción 0..1
 		q *= 100
 	}
 	v := int(q)
@@ -154,4 +160,68 @@ func QualityFromMsg(q float64) (int, bool) {
 		v = 90
 	}
 	return v, true
+}
+
+// ---- Validación estricta de mensajes del visor (modo red local) ----
+
+// MaxControlBytes es el tamaño máximo de un mensaje de control del visor.
+const MaxControlBytes = 2048
+
+var keyCodeRE = regexp.MustCompile(`^[A-Za-z0-9]{1,20}$`)
+
+// ParseViewerMsg valida un mensaje del visor campo por campo (mismas reglas
+// que remote/relay.js) y devuelve una copia limpia. Cualquier otra cosa → error.
+func ParseViewerMsg(data []byte) (InMsg, error) {
+	var out InMsg
+	if len(data) == 0 || len(data) > MaxControlBytes {
+		return out, errors.New("tamaño inválido")
+	}
+	var raw struct {
+		T    string   `json:"t"`
+		A    string   `json:"a"`
+		X    *float64 `json:"x"`
+		Y    *float64 `json:"y"`
+		B    *float64 `json:"b"`
+		D    *float64 `json:"d"`
+		Code string   `json:"code"`
+		Q    *float64 `json:"q"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return out, err
+	}
+	unit := func(p *float64) bool { return p != nil && *p >= 0 && *p <= 1 }
+	switch raw.T {
+	case "ping":
+		return InMsg{T: "ping"}, nil
+	case "mouse":
+		switch raw.A {
+		case "wheel":
+			if raw.D == nil || (*raw.D != 1 && *raw.D != -1) {
+				return out, errors.New("rueda inválida")
+			}
+			return InMsg{T: "mouse", A: "wheel", D: *raw.D}, nil
+		case "move":
+			if !unit(raw.X) || !unit(raw.Y) {
+				return out, errors.New("coordenadas inválidas")
+			}
+			return InMsg{T: "mouse", A: "move", X: *raw.X, Y: *raw.Y}, nil
+		case "down", "up":
+			if !unit(raw.X) || !unit(raw.Y) || raw.B == nil || (*raw.B != 0 && *raw.B != 1 && *raw.B != 2) {
+				return out, errors.New("botón inválido")
+			}
+			return InMsg{T: "mouse", A: raw.A, B: int(*raw.B), X: *raw.X, Y: *raw.Y}, nil
+		}
+		return out, errors.New("acción de mouse inválida")
+	case "key":
+		if (raw.A != "down" && raw.A != "up") || !keyCodeRE.MatchString(raw.Code) {
+			return out, errors.New("tecla inválida")
+		}
+		return InMsg{T: "key", A: raw.A, Code: raw.Code}, nil
+	case "quality":
+		if raw.Q == nil || (*raw.Q != 1 && *raw.Q != 2 && *raw.Q != 3) {
+			return out, errors.New("calidad inválida")
+		}
+		return InMsg{T: "quality", Q: *raw.Q}, nil
+	}
+	return out, errors.New("tipo desconocido")
 }

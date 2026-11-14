@@ -9,6 +9,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+
+	"placer/remote-agent/internal/core"
+	"placer/remote-agent/internal/proto"
 )
 
 func waitEnter() {
@@ -20,8 +23,9 @@ func main() {
 	cfgFlag := flag.String("config", "", "ruta de config.json (por defecto, junto al .exe)")
 	flag.Parse()
 
-	initConsole()
-	setConsoleTitle("Placer — agente de control remoto")
+	core.InitConsole()
+	core.BaseTitle = "Placer — agente de control remoto"
+	core.SetConsoleTitle(core.BaseTitle)
 	fmt.Println("==================================================================")
 	fmt.Println(" Placer — agente de control remoto")
 	fmt.Println(" Solo actúa si TÚ aceptas cada solicitud. Ctrl+Shift+F12 corta.")
@@ -42,7 +46,7 @@ func main() {
 		waitEnter()
 		os.Exit(1)
 	}
-	cfg, err := ParseConfig(data)
+	cfg, err := proto.ParseConfig(data)
 	if err != nil {
 		fmt.Printf("Error en %s: %v\n", path, err)
 		waitEnter()
@@ -55,11 +59,11 @@ func main() {
 		os.Exit(1)
 	}
 	if cfg.AllowInsecure {
-		logf("AVISO: allowInsecure activo (solo para pruebas locales).")
+		core.Logf("AVISO: allowInsecure activo (solo para pruebas locales).")
 	}
 
-	installLocalCut(agent.LocalCut)
-	installCloseHandler(agent.Shutdown)
+	core.InstallLocalCut(agent.LocalCut)
+	core.InstallCloseHandler(agent.Shutdown)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,8 +1,8 @@
 //go:build !windows
 
-package main
+package core
 
 import "context"
 
 // En plataformas que no son Windows nunca se acepta nada.
-func askConsent(ctx context.Context, viewer string) bool { return false }
+func AskConsent(ctx context.Context, viewer string) bool { return false }

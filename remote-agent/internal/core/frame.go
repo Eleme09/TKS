@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bytes"
@@ -13,8 +13,8 @@ import (
 // frames idénticos.
 
 const (
-	maxFrameWidth  = 1600
-	defaultQuality = 60
+	MaxFrameWidth  = 1600
+	DefaultQuality = 60
 )
 
 // ScaledSize calcula el tamaño final con ancho máximo maxW (mantiene aspecto).
@@ -48,7 +48,7 @@ func (f *FrameEncoder) ForceNext() { f.hasLast = false }
 // Encode devuelve el JPEG, el tamaño final y si hay que enviarlo.
 func (f *FrameEncoder) Encode(src *image.RGBA, quality int) (data []byte, w, h int, send bool, err error) {
 	sb := src.Bounds()
-	w, h = ScaledSize(sb.Dx(), sb.Dy(), maxFrameWidth)
+	w, h = ScaledSize(sb.Dx(), sb.Dy(), MaxFrameWidth)
 	if w == 0 {
 		return nil, 0, 0, false, nil
 	}
@@ -64,7 +64,7 @@ func (f *FrameEncoder) Encode(src *image.RGBA, quality int) (data []byte, w, h i
 		return nil, w, h, false, nil
 	}
 	if quality < 20 || quality > 95 {
-		quality = defaultQuality
+		quality = DefaultQuality
 	}
 	f.buf.Reset()
 	if err = jpeg.Encode(&f.buf, img, &jpeg.Options{Quality: quality}); err != nil {

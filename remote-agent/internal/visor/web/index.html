@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Visor de control remoto — Placer Studios</title>
+<link rel="icon" href="/logo-icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d; --surface-3: #1f1f23;
+    --border: #242427; --border-strong: #2c2c30;
+    --text: #f5f5f7; --muted: #a19fa6; --muted-dim: #8f8998;
+    --pink: #ff8fbe; --pink-line: rgba(255,143,190,0.4); --pink-soft: rgba(255,143,190,0.10);
+    --good: #6fe7b8; --bad: #ff6b6b;
+    --font-display: 'Unbounded', 'Arial Narrow', sans-serif;
+    --font-body: 'Hanken Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Quicksand', 'Hanken Grotesk', sans-serif;
+    --r-sm: 13px; --r-md: 20px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    padding: calc(24px + env(safe-area-inset-top)) clamp(14px, 4vw, 40px) 50px; }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  .topbar-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 18px; }
+  .topbar-brand .brandchip { width: 26px; height: 26px; border-radius: 8px; overflow: hidden; flex: 0 0 auto;
+    filter: drop-shadow(0 0 8px rgba(255,143,190,0.45)); }
+  .topbar-brand .brandchip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .topbar-brand .brandname { font-family: var(--font-display); font-size: 13px; letter-spacing: 0.08em; color: var(--text);
+    text-shadow: 0 0 12px rgba(255,143,190,0.3); }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  h1 { font-family: var(--font-display); font-size: clamp(18px, 3vw, 24px); margin: 0 0 6px; }
+  h2 { font-family: var(--font-display); font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 12px; }
+  .sub { font-size: 12.5px; color: var(--muted); }
+  .btn { font-family: var(--font-body); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--pink); text-decoration: none; border: 1px solid var(--pink-line); cursor: pointer;
+    background: linear-gradient(180deg, rgba(255,143,190,.18), rgba(255,143,190,.07));
+    padding: 10px 15px; border-radius: 10px; display: inline-flex; align-items: center; min-height: 40px; }
+  .btn:hover { background: linear-gradient(180deg, rgba(255,143,190,.26), rgba(255,143,190,.12)); }
+  .btn.bad { color: var(--bad); border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.08); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .card { background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 20px; margin-bottom: 14px; }
+  .dev { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 12px 0; border-top: 1px solid var(--border); }
+  .dev:first-of-type { border-top: 0; }
+  .dev-name { font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+  .meta { font-size: 11.5px; color: var(--muted-dim); margin-top: 3px; }
+  .pill { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted); }
+  .pill.on { color: var(--good); border-color: rgba(111,231,184,.4); background: rgba(111,231,184,.08); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input[type=text], select { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-3);
+    color: var(--text); font-family: var(--font-body); font-size: 14px; min-width: 220px; }
+  input:focus, select:focus { outline: none; border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+  .drop { display: block; cursor: pointer; border: 1px dashed var(--pink-line); border-radius: 10px; padding: 14px; text-align: center; margin-top: 12px;
+    font-size: 12.5px; color: var(--muted); }
+  .drop.over { background: var(--pink-soft); color: var(--text); }
+  input[type=file] { display: none; }
+  #screenWrap { display: none; }
+  #bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #status { font-size: 12.5px; color: var(--muted); flex: 1; min-width: 180px; }
+  #stage { background: #000; border: 1px solid var(--border-strong); border-radius: var(--r-sm); overflow: hidden; line-height: 0; }
+  #screen { width: 100%; height: auto; display: block; cursor: crosshair; outline: none; touch-action: none; }
+  .warn { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  @media (max-width: 640px) {
+    .card { padding: 16px; }
+    input[type=text], select { min-width: 0; width: 100%; font-size: 16px; }
+    .row > .btn { flex: 1; justify-content: center; }
+    .dev > .row { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar-brand">
+    <span class="brandchip" aria-hidden="true"><img src="/logo-icon.svg" alt=""></span>
+    <span class="brandname">PLACER</span>
+  </div>
+  <div class="top">
+    <div>
+      <h1>Control remoto</h1>
+      <div class="sub">PCs de tu red local con el servidor instalado. Cada sesión exige que quien está en el computador la acepte.</div>
+    </div>
+  </div>
+
+  <div id="listCard" class="card">
+    <h2>Equipos en tu red</h2>
+    <div id="devList"><div class="sub">Buscando…</div></div>
+  </div>
+
+  <div id="manualCard" class="card">
+    <h2>Agregar equipo manualmente</h2>
+    <div class="row">
+      <input type="text" id="manualAddr" placeholder="IP:puerto (ej. 192.168.1.20:5911)" maxlength="60" inputmode="decimal" autocomplete="off">
+      <select id="manualPairing"></select>
+      <button class="btn" id="btnManual">Conectar</button>
+    </div>
+    <p class="warn">Útil si el PC no aparece solo arriba. Elige el equipo emparejado al que corresponde esa IP.</p>
+  </div>
+
+  <div id="pairCard" class="card">
+    <h2>Equipos emparejados</h2>
+    <div id="pairList"><div class="sub">Cargando…</div></div>
+    <label class="drop" id="drop">
+      Arrastra aquí el archivo <b>pairing.json</b> del servidor, o toca para elegirlo
+      <input type="file" id="pairFile" accept=".json,application/json">
+    </label>
+    <p class="warn">El emparejamiento se hace una sola vez por equipo. Sin ese archivo no se puede conectar a nadie.</p>
+  </div>
+
+  <div id="screenWrap" class="card">
+    <div id="bar">
+      <button class="btn bad" id="btnClose">Cerrar sesión</button>
+      <select id="quality" aria-label="Calidad de imagen">
+        <option value="1">Calidad baja</option>
+        <option value="2" selected>Calidad media</option>
+        <option value="3">Calidad alta</option>
+      </select>
+      <div id="status"></div>
+    </div>
+    <div id="stage"><canvas id="screen" tabindex="0"></canvas></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var K = new URLSearchParams(location.search).get('k') || '';
+  var devList = document.getElementById('devList'), pairList = document.getElementById('pairList');
+  var ws = null, imgW = 0, imgH = 0, consent = false, viewOnly = false;
+  var canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');
+  var statusEl = document.getElementById('status');
+  var state = { peers: [], pairings: [] };
+  var manual = []; try { manual = JSON.parse(localStorage.getItem('placer-manual') || '[]'); } catch (e) {}
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function api(path, opts) {
+    opts = opts || {}; opts.headers = Object.assign({ 'X-Visor-Token': K }, opts.headers || {});
+    return fetch(path, opts).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Error'); return j; }); });
+  }
+  function pairingName(id) { for (var i = 0; i < state.pairings.length; i++) if (state.pairings[i].id === id) return state.pairings[i].name; return ''; }
+  function saveManual() { try { localStorage.setItem('placer-manual', JSON.stringify(manual)); } catch (e) {} }
+
+  function render() {
+    var h = '';
+    state.peers.forEach(function (p) {
+      var addr = p.ip + ':' + p.port;
+      h += '<div class="dev"><div><div class="dev-name">' + esc(p.name) + ' <span class="pill on">en línea</span>' +
+        (p.pairedId ? '' : ' <span class="pill">sin emparejar</span>') + '</div><div class="meta">' + esc(addr) + '</div></div>' +
+        '<div class="row">' + (p.pairedId
+          ? '<button class="btn" data-conn="' + esc(addr) + '" data-pair="' + esc(p.pairedId) + '">Conectar</button>'
+          : '<span class="meta">Importa su pairing.json abajo para poder conectar.</span>') + '</div></div>';
+    });
+    manual.forEach(function (m, i) {
+      var nm = pairingName(m.pairing);
+      h += '<div class="dev"><div><div class="dev-name">' + esc(nm || 'Equipo') + ' <span class="pill">manual</span></div><div class="meta">' + esc(m.addr) + '</div></div>' +
+        '<div class="row"><button class="btn" data-conn="' + esc(m.addr) + '" data-pair="' + esc(m.pairing) + '"' + (nm ? '' : ' disabled') + '>Conectar</button>' +
+        '<button class="btn bad" data-delman="' + i + '">Quitar</button></div></div>';
+    });
+    devList.innerHTML = h || '<div class="sub">No se detecta ningún PC todavía. Revisa que el servidor esté abierto en el otro equipo y que estén en la misma red.</div>';
+
+    pairList.innerHTML = state.pairings.length ? state.pairings.map(function (p) {
+      return '<div class="dev"><div><div class="dev-name">' + esc(p.name) + '</div><div class="meta">puerto ' + p.port + '</div></div>' +
+        '<div class="row"><button class="btn bad" data-delpair="' + esc(p.id) + '">Quitar</button></div></div>';
+    }).join('') : '<div class="sub">Todavía no hay equipos emparejados.</div>';
+
+    var sel = document.getElementById('manualPairing'), cur = sel.value;
+    sel.innerHTML = state.pairings.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('');
+    if (cur) sel.value = cur;
+    document.getElementById('btnManual').disabled = !state.pairings.length;
+  }
+
+  function load() {
+    api('/api/state').then(function (j) { state = j; render(); })
+      .catch(function (e) { devList.innerHTML = '<div class="sub">' + esc(e.message) + '</div>'; });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target, g = function (a) { return t.getAttribute && t.getAttribute(a); };
+    if (g('data-conn')) connect(g('data-conn'), g('data-pair'));
+    if (g('data-delman') !== null && g('data-delman') !== undefined) { manual.splice(+g('data-delman'), 1); saveManual(); render(); }
+    if (g('data-delpair') && confirm('¿Quitar este emparejamiento? Para volver a conectar tendrás que importar su pairing.json otra vez.')) {
+      api('/api/pairings?id=' + encodeURIComponent(g('data-delpair')), { method: 'DELETE' }).then(load).catch(function (e) { alert(e.message); });
+    }
+  });
+
+  document.getElementById('btnManual').addEventListener('click', function () {
+    var addr = document.getElementById('manualAddr').value.trim(), pid = document.getElementById('manualPairing').value;
+    if (!addr || !pid) return;
+    if (addr.indexOf(':') < 0) { var pr = state.pairings.filter(function (p) { return p.id === pid; })[0]; if (pr) addr += ':' + pr.port; }
+    if (!manual.some(function (m) { return m.addr === addr && m.pairing === pid; })) manual.push({ addr: addr, pairing: pid });
+    saveManual(); document.getElementById('manualAddr').value = ''; render(); connect(addr, pid);
+  });
+
+  function importFile(f) {
+    if (!f) return;
+    f.text().then(function (txt) {
+      return api('/api/pairings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: txt });
+    }).then(function (j) { setStatus('Emparejado con ' + j.name); load(); }).catch(function (e) { alert('No se pudo importar: ' + e.message); });
+  }
+  var drop = document.getElementById('drop'), pf = document.getElementById('pairFile');
+  pf.addEventListener('change', function () { importFile(pf.files[0]); pf.value = ''; });
+  ['dragenter', 'dragover'].forEach(function (n) { drop.addEventListener(n, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (n) { drop.addEventListener(n, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { importFile(e.dataTransfer.files[0]); });
+
+  function setStatus(t) { statusEl.textContent = t; }
+
+  function connect(addr, pairing) {
+    if (ws) closeSession();
+    consent = false; viewOnly = false; imgW = imgH = 0;
+    document.getElementById('screenWrap').style.display = 'block';
+    document.getElementById('screenWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setStatus('Conectando…');
+    var sock = new WebSocket('ws://' + location.host + '/ws?k=' + encodeURIComponent(K));
+    ws = sock; sock.binaryType = 'blob';
+    sock.onopen = function () { sock.send(JSON.stringify({ t: 'connect', addr: addr, pairing: pairing })); };
+    sock.onmessage = function (ev) {
+      if (typeof ev.data === 'string') {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.t === 'connected') setStatus('Conectado de forma segura. Esperando que acepten en el equipo…');
+        else if (m.t === 'waiting_consent') setStatus('Esperando que acepten en el equipo…');
+        else if (m.t === 'consent') { consent = !!m.ok; viewOnly = !!m.viewOnly; setStatus(m.ok ? (viewOnly ? 'Conectado — solo ver' : 'Conectado — control activo') : 'Rechazado en el equipo'); canvas.focus(); }
+        else if (m.t === 'info') { imgW = m.w; imgH = m.h; }
+        else if (m.t === 'error') setStatus(m.error || 'Error');
+      } else {
+        createImageBitmap(ev.data).then(function (bmp) {
+          if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
+          ctx.drawImage(bmp, 0, 0); imgW = bmp.width; imgH = bmp.height; bmp.close();
+        }).catch(function () {});
+      }
+    };
+    sock.onclose = function () { if (ws === sock) { var s = statusEl.textContent; if (!/Rechazado|error|No |no /.test(s)) setStatus('Sesión cerrada'); ws = null; consent = false; } };
+    sock.onerror = function () { setStatus('No se pudo conectar'); };
+  }
+
+  function closeSession() { if (ws) { try { ws.close(); } catch (e) {} } ws = null; consent = false; }
+  document.getElementById('btnClose').addEventListener('click', function () {
+    closeSession(); document.getElementById('screenWrap').style.display = 'none';
+  });
+  document.getElementById('quality').addEventListener('change', function () { send({ t: 'quality', q: +this.value }, true); });
+
+  function send(o, force) { if (ws && ws.readyState === 1 && (force || (consent && !viewOnly))) ws.send(JSON.stringify(o)); }
+  function norm(ev) {
+    var r = canvas.getBoundingClientRect();
+    return { x: Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) };
+  }
+  var lastMove = 0;
+  canvas.addEventListener('mousemove', function (ev) {
+    var n = Date.now(); if (n - lastMove < 40) return; lastMove = n;
+    var p = norm(ev); send({ t: 'mouse', a: 'move', x: p.x, y: p.y });
+  });
+  canvas.addEventListener('mousedown', function (ev) { ev.preventDefault(); canvas.focus(); var p = norm(ev); send({ t: 'mouse', a: 'down', b: ev.button, x: p.x, y: p.y }); });
+  canvas.addEventListener('mouseup', function (ev) { ev.preventDefault(); var p = norm(ev); send({ t: 'mouse', a: 'up', b: ev.button, x: p.x, y: p.y }); });
+  canvas.addEventListener('wheel', function (ev) { ev.preventDefault(); send({ t: 'mouse', a: 'wheel', d: ev.deltaY > 0 ? -1 : 1 }); }, { passive: false });
+  canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  canvas.addEventListener('keydown', function (ev) { ev.preventDefault(); send({ t: 'key', a: 'down', code: ev.code }); });
+  canvas.addEventListener('keyup', function (ev) { ev.preventDefault(); send({ t: 'key', a: 'up', code: ev.code }); });
+  setInterval(function () { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 20000);
+
+  load();
+  setInterval(function () { if (!ws) load(); }, 2000);
+})();
+</script>
+</body>
+</html>

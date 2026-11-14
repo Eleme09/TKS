@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"fmt"
@@ -8,14 +8,17 @@ import (
 
 // Salida de consola con banner permanente mientras hay sesión activa.
 
+// BaseTitle es el título de la consola cuando no hay sesión activa.
+var BaseTitle = "Placer — control remoto"
+
 var (
 	outMu    sync.Mutex
-	vtOK     bool // lo fija initConsole (true si la consola entiende ANSI)
+	vtOK     bool // lo fija InitConsole (true si la consola entiende ANSI)
 	bannerOn bool
 	bannerCh chan struct{}
 )
 
-func logf(format string, args ...any) {
+func Logf(format string, args ...any) {
 	outMu.Lock()
 	defer outMu.Unlock()
 	fmt.Printf("%s  %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
@@ -27,9 +30,9 @@ func bannerText(viewer string, since time.Time) string {
 		viewer, int(d.Minutes()), int(d.Seconds())%60)
 }
 
-// showBanner deja una franja roja fija arriba (región de scroll reservada)
-// hasta hideBanner. Nunca se oculta sola mientras la sesión esté activa.
-func showBanner(viewer string) {
+// ShowBanner deja una franja roja fija arriba (región de scroll reservada)
+// hasta HideBanner. Nunca se oculta sola mientras la sesión esté activa.
+func ShowBanner(viewer string) {
 	outMu.Lock()
 	if bannerOn {
 		outMu.Unlock()
@@ -39,7 +42,7 @@ func showBanner(viewer string) {
 	ch := make(chan struct{})
 	bannerCh = ch
 	since := time.Now()
-	setConsoleTitle("SESIÓN REMOTA ACTIVA — Placer")
+	SetConsoleTitle("SESIÓN REMOTA ACTIVA — Placer")
 	if vtOK {
 		fmt.Print("\x1b[2J\x1b[H")
 		paintBannerLocked(viewer, since)
@@ -78,7 +81,7 @@ func paintBannerLocked(viewer string, since time.Time) {
 	fmt.Print("\x1b[1;1H\x1b[2K\x1b[97;41;1m" + bannerText(viewer, since) + "\x1b[0m")
 }
 
-func hideBanner() {
+func HideBanner() {
 	outMu.Lock()
 	defer outMu.Unlock()
 	if !bannerOn {
@@ -92,6 +95,6 @@ func hideBanner() {
 	if vtOK {
 		fmt.Print("\x1b[r\x1b[2J\x1b[H")
 	}
-	setConsoleTitle("Placer — agente de control remoto")
+	SetConsoleTitle(BaseTitle)
 	fmt.Printf("%s  Sesión remota terminada.\n", time.Now().Format("15:04:05"))
 }
