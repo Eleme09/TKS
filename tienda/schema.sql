@@ -59,21 +59,11 @@ create table if not exists tf_consumos (
 create index if not exists tf_consumos_persona_idx on tf_consumos(persona_id);
 create index if not exists tf_consumos_created_idx on tf_consumos(created_at);
 
--- Historial de facturas cargadas por foto (auditoría de qué stock se
--- agregó y de dónde salió, con el texto crudo del OCR para revisar después).
-create table if not exists tf_facturas (
-  id bigint generated always as identity primary key,
-  texto_ocr text,
-  items_aplicados jsonb,
-  created_at timestamptz not null default now()
-);
-
 alter table tf_admins enable row level security;
 alter table tf_negocio_config enable row level security;
 alter table tf_personas enable row level security;
 alter table tf_productos enable row level security;
 alter table tf_consumos enable row level security;
-alter table tf_facturas enable row level security;
 -- Sin policies: el backend siempre usa la service_role key (bypassea RLS).
 -- Mismo patrón que VENTA-WEB.
 

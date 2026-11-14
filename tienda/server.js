@@ -161,22 +161,46 @@ async function sbDeleteProducto(id) {
   if (error) throw error;
 }
 
+// Ajuste de stock con compare-and-set: el UPDATE solo aplica si el stock sigue
+// siendo el que se leyó (.eq('stock', actual)); si otro registro lo movió en el
+// medio, reintenta con el valor nuevo. Evita pisar descuentos concurrentes sin
+// necesitar una función SQL. Con `minimo` (ej. 0) no deja bajar de ese valor y
+// devuelve false. Devuelve true si se aplicó.
+async function sbAjustarStock(productoId, delta, minimo = null) {
+  for (let intento = 0; intento < 6; intento++) {
+    const { data: prod, error } = await supabase.from('tf_productos').select('stock').eq('id', productoId).maybeSingle();
+    if (error) throw error;
+    if (!prod) return false;
+    const actual = Number(prod.stock);
+    const nuevo = actual + delta;
+    if (minimo !== null && nuevo < minimo) return false;
+    const { data: upd, error: e2 } = await supabase
+      .from('tf_productos')
+      .update({ stock: nuevo })
+      .eq('id', productoId)
+      .eq('stock', prod.stock)
+      .select('id');
+    if (e2) throw e2;
+    if (upd && upd.length > 0) return true;
+  }
+  throw new Error('No se pudo actualizar el stock (demasiada concurrencia)');
+}
+
+// Primero se reserva el stock (condicional, no baja de 0) y después se anota
+// el consumo; si el insert falla se devuelve el stock reservado.
 async function sbCreateConsumo({ personaId, productoId, cantidad, precioUnitario }) {
+  const reservado = await sbAjustarStock(productoId, -Number(cantidad), 0);
+  if (!reservado) {
+    throw Object.assign(new Error('No hay suficiente stock de este producto'), { status: 400 });
+  }
   const { data, error } = await supabase
     .from('tf_consumos')
     .insert({ persona_id: personaId, producto_id: productoId, cantidad, precio_unitario: precioUnitario })
     .select()
     .single();
-  if (error) throw error;
-
-  // Descuento de stock directo (no hay concurrencia crítica: un solo
-  // dispositivo autoservicio a la vez en la tienda física).
-  const { data: producto } = await supabase.from('tf_productos').select('stock').eq('id', productoId).single();
-  if (producto) {
-    await supabase
-      .from('tf_productos')
-      .update({ stock: Number(producto.stock) - Number(cantidad) })
-      .eq('id', productoId);
+  if (error) {
+    await sbAjustarStock(productoId, Number(cantidad)).catch((e) => console.error('No se pudo devolver el stock:', e));
+    throw error;
   }
   return data;
 }
@@ -202,24 +226,23 @@ async function sbAnularConsumo(id, tipo) {
   const motivo = MOTIVOS_ANULACION[tipo];
   if (!motivo) throw Object.assign(new Error('Motivo de anulación inválido'), { status: 400 });
 
+  // Idempotente: el UPDATE solo aplica si sigue sin anular (.eq('anulado', false)).
+  // Un doble clic o dos dispositivos a la vez: solo el primero cambia la fila y
+  // repone stock; el segundo no encuentra nada y recibe "Ya estaba anulado".
   const { data, error } = await supabase
     .from('tf_consumos')
     .update({ anulado: true, motivo_anulacion: motivo, anulado_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('anulado', false)
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw Object.assign(new Error('Ya estaba anulado'), { status: 400 });
 
   if (tipo === 'no_hay') {
     await supabase.from('tf_productos').update({ stock: 0 }).eq('id', data.producto_id);
   } else {
-    const { data: producto } = await supabase.from('tf_productos').select('stock').eq('id', data.producto_id).single();
-    if (producto) {
-      await supabase
-        .from('tf_productos')
-        .update({ stock: Number(producto.stock) + Number(data.cantidad) })
-        .eq('id', data.producto_id);
-    }
+    await sbAjustarStock(data.producto_id, Number(data.cantidad));
   }
   return data;
 }
@@ -377,6 +400,45 @@ async function sbUploadImage(buffer, mimetype, originalName, prefix = '') {
   return data.publicUrl;
 }
 
+// Bloqueo por persona (además del límite por IP): tras PIN_MAX_FALLOS fallos
+// seguidos esa persona queda bloqueada PIN_BLOQUEO_MS, venga de la IP que venga.
+// En memoria (se reinicia con el servidor); un PIN correcto limpia el contador.
+const PIN_MAX_FALLOS = 5;
+const PIN_BLOQUEO_MS = 15 * 60 * 1000;
+const pinFallos = new Map(); // personaId -> { fallos, hasta }
+
+function pinBloqueado(personaId) {
+  const f = pinFallos.get(personaId);
+  if (!f) return 0;
+  if (f.hasta && f.hasta > Date.now()) return f.hasta - Date.now();
+  if (f.hasta) pinFallos.delete(personaId);
+  return 0;
+}
+
+function pinRegistrarFallo(personaId) {
+  const f = pinFallos.get(personaId) || { fallos: 0, hasta: 0 };
+  f.fallos += 1;
+  if (f.fallos >= PIN_MAX_FALLOS) {
+    f.hasta = Date.now() + PIN_BLOQUEO_MS;
+    f.fallos = 0;
+  }
+  pinFallos.set(personaId, f);
+}
+
+function respuestaBloqueo(res, ms) {
+  return res
+    .status(429)
+    .json({ error: `Demasiados PIN incorrectos. Esta persona queda bloqueada ${Math.ceil(ms / 60000)} min.` });
+}
+
+// Antes de procesar el archivo (multer) en rutas con foto: si la persona ya
+// está bloqueada se corta sin leer el cuerpo.
+function rejectIfPersonaBloqueada(req, res, next) {
+  const ms = pinBloqueado(Number(req.params.personaId));
+  if (ms > 0) return respuestaBloqueo(res, ms);
+  next();
+}
+
 // Verifica el PIN de una persona contra la base. 401 si no coincide.
 async function requirePersonaPin(req, res, next) {
   try {
@@ -385,10 +447,14 @@ async function requirePersonaPin(req, res, next) {
     if (!personaId || !lib.isValidPin(pin)) {
       return res.status(400).json({ error: 'Falta persona o PIN inválido' });
     }
+    const bloqueo = pinBloqueado(personaId);
+    if (bloqueo > 0) return respuestaBloqueo(res, bloqueo);
     const persona = await sbGetPersona(personaId);
     if (!persona || !persona.activo || !lib.verifySecret(pin, persona.pin_hash)) {
+      if (persona) pinRegistrarFallo(personaId);
       return res.status(401).json({ error: 'PIN incorrecto' });
     }
+    pinFallos.delete(personaId);
     req.persona = persona;
     next();
   } catch (err) {
@@ -468,6 +534,7 @@ app.post(
 app.post(
   '/api/personas/:personaId/comprobante',
   pinLimiter,
+  rejectIfPersonaBloqueada,
   upload.single('file'),
   requirePersonaPin,
   asyncRoute(async (req, res) => {
@@ -511,10 +578,14 @@ app.post(
       return res.status(400).json({ error: 'Ya pasaron más de 15 minutos — no se puede anular.' });
     }
 
+    const bloqueo = pinBloqueado(consumo.persona_id);
+    if (bloqueo > 0) return respuestaBloqueo(res, bloqueo);
     const persona = await sbGetPersona(consumo.persona_id);
-    if (!persona || !lib.verifySecret(pin, persona.pin_hash)) {
+    if (!persona || !persona.activo || !lib.verifySecret(pin, persona.pin_hash)) {
+      if (persona) pinRegistrarFallo(consumo.persona_id);
       return res.status(401).json({ error: 'PIN incorrecto' });
     }
+    pinFallos.delete(consumo.persona_id);
 
     res.json(await sbAnularConsumo(consumoId, tipo));
   })
@@ -724,12 +795,22 @@ async function sbCerrarQuincena(inicio, fin) {
     .from('tf_cierres').select('id').eq('periodo_inicio', inicio).eq('periodo_fin', fin).maybeSingle();
   if (e0) throw e0;
   if (previo) return { error: 'Esa quincena ya está cerrada', status: 409 };
-  const { data, error } = await supabase
-    .from('tf_consumos')
-    .select('persona_id, cantidad, precio_unitario, anulado, tf_personas(nombre)')
-    .gte('created_at', `${inicio}T00:00:00-05:00`)
-    .lte('created_at', `${fin}T23:59:59.999-05:00`);
-  if (error) throw error;
+  // PostgREST corta cada respuesta en 1000 filas sin avisar: se pagina con
+  // range() (orden por id para que las páginas no se solapen) hasta traer todo.
+  const data = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error } = await supabase
+      .from('tf_consumos')
+      .select('id, persona_id, cantidad, precio_unitario, anulado, tf_personas(nombre)')
+      .gte('created_at', `${inicio}T00:00:00-05:00`)
+      .lte('created_at', `${fin}T23:59:59.999-05:00`)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    data.push(...page);
+    if (page.length < PAGE) break;
+  }
   const detalle = lib
     .buildReporteQuincena(
       data.map((c) => ({
@@ -964,7 +1045,7 @@ app.post(
 app.use((err, req, res, next) => {
   void next;
   console.error(err);
-  if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Archivo demasiado grande (máx 8MB)' });
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Archivo demasiado grande (máx 15MB)' });
   const status = err.status || 500;
   res.status(status).json({ error: status === 500 ? 'Error interno' : err.message });
 });
