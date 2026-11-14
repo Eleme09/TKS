@@ -1251,6 +1251,11 @@
         <div class="row"><button id="btnSystemHealthCheck" class="btn-primary" style="flex:1;">Revisar ahora</button></div>
         <div id="systemHealthResult" class="meta-small" style="margin-top:10px;"></div>
       </div>
+      <div class="card" id="remoteCard" style="display:none;">
+        <h2>Control remoto</h2>
+        <div class="meta-small" style="margin-bottom:12px;">Ver y controlar los computadores del estudio con el agente instalado.</div>
+        <div class="row"><a href="/remoto.html" class="btn-primary" style="flex:1; text-align:center; text-decoration:none;">Abrir control remoto</a></div>
+      </div>
       <div class="card" id="auditLogCard">
         <details id="auditDetails">
           <summary style="cursor:pointer; font-family:var(--font-display); font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted-dim);">Registro de actividad</summary>
@@ -1390,6 +1395,7 @@
     shiftConfirmCard: document.getElementById('shiftConfirmCard'),
     shiftConfirmList: document.getElementById('shiftConfirmList'),
     auditLogCard: document.getElementById('auditLogCard'),
+    remoteCard: document.getElementById('remoteCard'),
     auditDetails: document.getElementById('auditDetails'),
     auditList: document.getElementById('auditList'),
     systemHealthCard: document.getElementById('systemHealthCard'),
@@ -3885,6 +3891,7 @@
     el.displayNameCard.style.display = isAdmin ? 'block' : 'none';
     el.adminAccountsCard.style.display = isAdmin ? 'block' : 'none';
     el.auditLogCard.style.display = isAdmin ? 'block' : 'none';
+    el.remoteCard.style.display = isAdmin ? 'block' : 'none';
     el.systemHealthCard.style.display = isAdmin ? 'block' : 'none';
     el.modelAccountsCard.style.display = canAccessCuentas ? 'block' : 'none';
     el.shiftConfirmCard.style.display = canAccessCuentas ? 'block' : 'none';
