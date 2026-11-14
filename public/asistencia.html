@@ -536,10 +536,10 @@
   }
 
   function tablaHtml(days, withName, justs) {
-    var cols = withName ? 9 : 8;
+    var puedeCorregir = data.role === 'administrador';
+    var cols = (withName ? 9 : 8) + (puedeCorregir ? 1 : 0);
     if (!days.length) return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
     var index = justIndex(justs);
-    var puedeCorregir = data.role === 'administrador';
     var head = '<tr>' + th('Día', 'dia') + (withName ? th('Modelo', 'modelo') : '')
       + th('Entrada', 'entrada') + th('Salida', 'salida') + th('Retraso', 'retraso')
       + th('Transmitido', 'transmitido')
@@ -878,6 +878,16 @@
 
   // CSV de la hoja: las mismas jornadas que se están viendo (respeta el
   // filtro), más una sección con la deuda calculada.
+  // Evita inyección de fórmulas: celdas de texto que empiezan con = + - @ tab o CR
+  // se prefijan con una comilla simple. Números (incluidos negativos) se dejan igual.
+  function csvSafeCell(cell) {
+    if (cell == null) return '';
+    if (typeof cell === 'number') return String(cell);
+    var s = String(cell);
+    if (/^-?\d+(\.\d+)?$/.test(s)) return s;
+    return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  }
+
   function descargarCsv() {
     if (!data) return;
     var staff = data.role === 'administrador' || data.role === 'ceo';
@@ -913,7 +923,7 @@
 
     var csv = filas.map(function (row) {
       return row.map(function (cell) {
-        var v = String(cell == null ? '' : cell);
+        var v = csvSafeCell(cell);
         return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
       }).join(';');
     }).join('\r\n');

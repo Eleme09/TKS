@@ -1793,7 +1793,7 @@
       const modelsHtml = sortedModels.map(function (m, idx) {
         const controls = isAdmin ? (
           '<div class="conn">' +
-            '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + m.connection.lastError : '') + '</span>' +
+            '<span>' + connDot(m.connection.status) + (m.connection.lastError ? ' — ' + escapeHtml(m.connection.lastError) : '') + '</span>' +
             '<div class="conn-actions">' +
               '<button class="btnStart" data-user="' + m.account + '"' + (m.connection.running ? ' disabled title="Ya está corriendo"' : '') + '>Iniciar</button>' +
               '<button class="btnStop" data-user="' + m.account + '"' + (m.connection.running ? '' : ' disabled title="No hay nada corriendo para esta modelo"') + '>Detener</button>' +
@@ -2048,6 +2048,16 @@
 
   let lastPayslipExport = null;
 
+  // Evita inyección de fórmulas en Excel/Sheets: celdas de texto que empiezan
+  // con = + - @ tab o CR se prefijan con una comilla simple. Números se dejan igual.
+  function csvSafeCell(cell) {
+    if (cell == null) return '';
+    if (typeof cell === 'number') return String(cell);
+    const s = String(cell);
+    if (/^-?\d+(\.\d+)?$/.test(s)) return s;
+    return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  }
+
   function downloadPayslipsCsv() {
     if (!lastPayslipExport || !lastPayslipExport.periods.length) return;
     const rows = [['Quincena', 'Estado', 'Tokens', 'USD', 'COP (aprox.)', 'Fecha de pago']];
@@ -2063,7 +2073,7 @@
     });
     const csv = rows.map(function (row) {
       return row.map(function (cell) {
-        const s = String(cell);
+        const s = csvSafeCell(cell);
         return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(';');
     }).join('\r\n');
