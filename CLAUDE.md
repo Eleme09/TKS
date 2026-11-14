@@ -619,6 +619,23 @@ formato del correo, `update_trigger` con el prompt completo (reemplaza el
 anterior entero) — un solo chequeo diario, no uno nuevo por señal. Historial
 completo de lo encontrado día a día en HISTORIAL.md.
 
+## Vigía de pérdida de tokens de Chaturbate (2026-11-14)
+
+El usuario pidió saber si se pierden tokens de Chaturbate (había pasado días sin
+Claude). Auditoría de 16 oct–14 nov contra Supabase real: **el libro cuadra
+exacto** — en cada corte diario `cb_balance_resets.from_balance` = suma de
+`cb_balance_ticks` del ciclo (cero diferencias). Lo único que puede perderse es
+lo ganado entre la última lectura y el corte de las 04:30 UTC, y como máximo
+fue ~62 tokens en 16-31 oct (jax 62, pinky 21) y ~39 en 1-14 nov (conni 22,
+pinky 10, jax 7): menos del 0,5% del total, ≈ US$3. Es un tope estimado con
+`cb_tips` (la API de eventos), no una pérdida confirmada, y **no se acreditó
+nada**: sumar tokens "estimados" mueve plata y requiere OK del usuario.
+La rutina diaria (trig_01BXcfPNvAetGc9gcNcJUa7m) tiene ahora el punto 7 con tres
+chequeos (integridad del libro, tope de pérdida en la ventana del corte, lecturas
+fallidas cerca del corte) y, si alguno da alarma, debe investigar y arreglar el
+código sola (push a master), no solo avisar. Las queries exactas viven en el
+prompt de la rutina (`get_trigger`).
+
 ## Asistencia — entrada/salida, justificaciones y excusas (added 2026-09-04)
 
 Sexta pestaña, visible para los tres roles. Sustituye la idea de una tabla
