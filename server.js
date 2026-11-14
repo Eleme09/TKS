@@ -3160,6 +3160,9 @@ async function handleRequest(req, res) {
   setSecurityHeaders(req, res);
   const parsed = url.parse(req.url, true);
 
+  // Control remoto (remote/relay.js): endpoints admin de equipos.
+  if (parsed.pathname.startsWith('/api/remote/') && await remoteRelay.handleApi(req, res, parsed.pathname, requireAdmin)) return;
+
   // ---- Auth ----
 
   if (parsed.pathname === '/api/login' && req.method === 'POST') {
@@ -4885,6 +4888,8 @@ if (TIENDA_HOST) {
   }
 }
 
+const remoteRelay = require('./remote/relay').create({ SUPABASE_URL, SB_HEADERS, getSession, sbLogAudit, sendJson, readBody });
+
 const server = http.createServer((req, res) => {
   if (tiendaApp && String(req.headers.host || '').split(':')[0].toLowerCase() === TIENDA_HOST) {
     tiendaApp(req, res);
@@ -4896,6 +4901,8 @@ const server = http.createServer((req, res) => {
     else res.end();
   });
 });
+
+remoteRelay.attach(server);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

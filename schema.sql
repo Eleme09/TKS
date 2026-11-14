@@ -466,3 +466,17 @@ create policy cb_attendance_daily_notice_anon_all   on public.cb_attendance_dail
 -- ============================================================================
 -- insert into public.cb_admins (username, password_hash, role, display_name)
 -- values ('admin', 'PEGAR_AQUI_EL_HASH_scrypt', 'administrador', 'Admin');
+
+-- Equipos de control remoto (2026-11-14): cada computador con el agente
+-- instalado se registra aquí; token_hash = sha256 del token que solo se
+-- muestra una vez al crear el equipo.
+create table if not exists public.cb_remote_devices (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  token_hash  text not null,
+  created_by  text,
+  created_at  timestamptz not null default now(),
+  last_seen   timestamptz
+);
+alter table public.cb_remote_devices enable row level security;
+create policy cb_remote_devices_anon_all on public.cb_remote_devices for all to anon using (true) with check (true);
