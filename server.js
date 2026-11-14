@@ -196,12 +196,25 @@ async function sbFetchAllRows(table, qs) {
     const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + qs, {
       headers: Object.assign({}, SB_HEADERS, { 'Range-Unit': 'items', Range: offset + '-' + (offset + pageSize - 1) }),
     });
-    if (!r.ok) return rows;
+    // Antes devolvia lo que llevara (a veces []) si una pagina fallaba: un
+    // total de tokens cortado en silencio terminaba mostrado (y cacheado)
+    // como el pago real. Ahora falla fuerte para que el endpoint responda
+    // 500 en vez de un numero menor.
+    if (!r.ok) throw new Error('Supabase ' + table + ' respondio HTTP ' + r.status);
     const page = await r.json();
     rows.push(...page);
     if (page.length < pageSize) return rows;
     offset += pageSize;
   }
+}
+
+// Lectura de una tabla que alimenta un pago: si Supabase falla, lanzar en vez
+// de devolver [] (un [] se veria como "esta modelo gano 0" y quedaria cacheado
+// en /api/models o mostrado en /api/payslips como pago real).
+async function sbFetchMoneyRows(table, qs) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + qs, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error('Supabase ' + table + ' respondio HTTP ' + r.status);
+  return r.json();
 }
 
 // Fuente de tipo de cambio USD -> moneda local. Cambia CURRENCY si hace falta.
@@ -262,6 +275,11 @@ const ONLINE_SEED_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 horas
 // proceso seguia vivo y sin reiniciarse -- sus tokens dejaron de contarse
 // en la app mientras seguian ganando en Chaturbate de verdad.
 const EVENTS_POLL_TIMEOUT_MS = 30 * 1000;
+// Tope para llamadas a APIs externas que no son el long-poll (Stats API de
+// Chaturbate, Studio API de Stripchat, tasa de cambio). Sin esto una conexion
+// colgada dejaba balancePollRunning en true para siempre (el finally nunca
+// llegaba) y el sondeo de balance no volvia a correr.
+const EXTERNAL_FETCH_TIMEOUT_MS = 20 * 1000;
 
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
 // El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
@@ -399,8 +417,9 @@ async function sbDeleteModel(username) {
 }
 
 async function sbFetchModelsWithTokens() {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username,token,last_cursor&token=not.is.null', { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  // Lanza si Supabase falla: devolver [] al arrancar dejaba el servidor sin
+  // ningun tracker (cero propinas registradas) hasta el siguiente deploy.
+  return sbFetchMoneyRows('cb_models', '?select=username,token,last_cursor&token=not.is.null');
 }
 
 async function sbFetchSavedToken(username) {
@@ -2004,6 +2023,10 @@ async function sbWriteCritical(label, url, body) {
         body: JSON.stringify(body),
       });
       if (resp.ok) return true;
+      // 409 = choca con un UNIQUE (username,event_id): la fila YA esta guardada
+      // (Chaturbate reenvio un evento tras retomar un cursor algo viejo). Eso
+      // es exito para quien llama -- si no, el cursor nunca avanzaria.
+      if (resp.status === 409) return true;
       if (i === attempts) console.error('FALLO GUARDANDO ' + label + ' tras ' + attempts + ' intentos: HTTP ' + resp.status + ' ' + JSON.stringify(body));
     } catch (e) {
       if (i === attempts) console.error('FALLO GUARDANDO ' + label + ' tras ' + attempts + ' intentos: ' + e.message + ' ' + JSON.stringify(body));
@@ -2037,12 +2060,14 @@ async function sbPatchCritical(label, url, body) {
   return false;
 }
 
+// Devuelven true solo si la fila quedo guardada (o ya existia): pollLoop no
+// avanza el cursor si alguna falla, para que Chaturbate la vuelva a entregar.
 async function sbInsertTip(username, tokens, eventId) {
-  await sbWriteCritical('tip', SUPABASE_URL + '/rest/v1/cb_tips', { username, tokens, event_id: eventId });
+  return sbWriteCritical('tip', SUPABASE_URL + '/rest/v1/cb_tips', { username, tokens, event_id: eventId });
 }
 
 async function sbInsertBroadcastEvent(username, eventType, eventId) {
-  await sbWriteCritical('broadcast_event', SUPABASE_URL + '/rest/v1/cb_broadcast_events', { username, event_type: eventType, event_id: eventId });
+  return sbWriteCritical('broadcast_event', SUPABASE_URL + '/rest/v1/cb_broadcast_events', { username, event_type: eventType, event_id: eventId });
 }
 
 // Cualquier evento de la Events API que no sea tip/broadcastStart/broadcastStop
@@ -2206,8 +2231,7 @@ async function sbUpsertStripchatEarningsBatch(rows, enteredBy) {
 
 async function sbFetchStripchatEarningsForPeriod(periodStartStr, periodEndStr) {
   const qs = '?select=username,tokens&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_stripchat_earnings', qs);
 }
 
 // Filas creadas por la reconciliación anterior de la frontera de 2 a.m. no
@@ -2221,8 +2245,7 @@ async function sbListStripchatPeriodsPendingApiReconcile() {
 
 async function sbFetchStripchatEarningsForUserSince(username, sincePeriodStartStr) {
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_stripchat_earnings' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_stripchat_earnings', qs);
 }
 
 // ---- Chaturbate: ingresos que la Events API no reporta como "tip" (privados,
@@ -2251,14 +2274,12 @@ async function sbUpsertChaturbateExtraEarningsBatch(rows, enteredBy) {
 
 async function sbFetchChaturbateExtraEarningsForPeriod(periodStartStr, periodEndStr) {
   const qs = '?select=username,tokens,note&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_chaturbate_extra_earnings', qs);
 }
 
 async function sbFetchChaturbateExtraEarningsForUserSince(username, sincePeriodStartStr) {
   const qs = '?select=period_start,period_end,tokens&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_extra_earnings' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_chaturbate_extra_earnings', qs);
 }
 
 // ---- Chaturbate: seguimiento automatico del balance (Stats API oficial) ----
@@ -2284,8 +2305,10 @@ async function sbUpdateLastBalance(username, balance, sampledAtIso) {
   });
 }
 
+// true solo si el tick quedo guardado. Si no, quien llama NO debe avanzar
+// last_balance: el proximo sondeo vuelve a ver la misma subida y la reintenta.
 async function sbInsertBalanceTick(username, tokens, sampledAtIso) {
-  await sbWriteCritical('balance_tick', SUPABASE_URL + '/rest/v1/cb_balance_ticks', { username, tokens, sampled_at: sampledAtIso });
+  return sbWriteCritical('balance_tick', SUPABASE_URL + '/rest/v1/cb_balance_ticks', { username, tokens, sampled_at: sampledAtIso });
 }
 
 // Cada vez que el balance baja (el retiro automatico diario de Chaturbate) se
@@ -2329,14 +2352,12 @@ async function sbUpsertPeriodBase(row) {
 
 async function sbFetchPeriodBaseForPeriod(periodStartStr, periodEndStr) {
   const qs = '?select=username,base_tokens,covers_until&period_start=eq.' + encodeURIComponent(periodStartStr) + '&period_end=eq.' + encodeURIComponent(periodEndStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_period_base' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_chaturbate_period_base', qs);
 }
 
 async function sbFetchPeriodBaseForUserSince(username, sincePeriodStartStr) {
   const qs = '?select=period_start,period_end,base_tokens,covers_until&username=eq.' + encodeURIComponent(username) + '&period_start=gte.' + encodeURIComponent(sincePeriodStartStr);
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_chaturbate_period_base' + qs, { headers: SB_HEADERS });
-  return r.ok ? r.json() : [];
+  return sbFetchMoneyRows('cb_chaturbate_period_base', qs);
 }
 
 // resolveChaturbateTokens ahora vive en chaturbate-lib.js (testeada ahi con
@@ -2352,7 +2373,7 @@ let chaturbateRateLimitedUntil = 0;
 async function fetchChaturbateBalance(username, statsToken) {
   const url = CHATURBATE_STATS_BASE + '?username=' + encodeURIComponent(username) + '&token=' + encodeURIComponent(statsToken);
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
     if (!resp.ok) {
       if (resp.status === 403 || resp.status === 429) {
         chaturbateRateLimitedUntil = Date.now() + BALANCE_RATE_LIMIT_COOLDOWN_MS;
@@ -2400,7 +2421,10 @@ async function pollChaturbateBalances() {
       if (balance == null) continue;
       const nowIso = new Date().toISOString();
       if (m.last_balance != null && balance > m.last_balance) {
-        await sbInsertBalanceTick(m.username, balance - m.last_balance, nowIso);
+        // Si el tick no se guardo, no tocar last_balance: avanzarlo igual
+        // perdia esa subida para siempre (el siguiente sondeo solo cuenta lo
+        // que suba POR ENCIMA del nuevo last_balance).
+        if (!(await sbInsertBalanceTick(m.username, balance - m.last_balance, nowIso))) continue;
       } else if (m.last_balance != null && balance < m.last_balance) {
         // Bajo: es el retiro automatico, no un gasto. No se resta nada del
         // acumulado (lo ya sumado sigue siendo plata que gano), solo se deja
@@ -2419,7 +2443,9 @@ async function pollChaturbateBalances() {
         // ese balance parcial YA es plata ganada desde el retiro real, asi
         // que se acredita como un tick mas, ademas de registrarse como reset.
         if (balance > 0) {
-          await sbInsertBalanceTick(m.username, balance, nowIso);
+          // Mismo criterio: sin el tick guardado no se avanza la base, asi el
+          // proximo sondeo vuelve a detectar el retiro y lo reintenta.
+          if (!(await sbInsertBalanceTick(m.username, balance, nowIso))) continue;
         }
       }
       await sbUpdateLastBalance(m.username, balance, nowIso);
@@ -2490,7 +2516,7 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
   const qs = '?periodStart=' + encodeURIComponent(fmtStripchatDateTime(periodStartMs)) + '&periodEnd=' + encodeURIComponent(fmtStripchatDateTime(periodEndMs));
   const url = STRIPCHAT_BASE + '/api/stats/v2/studios/username/' + encodeURIComponent(STRIPCHAT_STUDIO_USERNAME) + '/models/username/' + encodeURIComponent(modelUsername) + qs;
   try {
-    const resp = await fetch(url, { headers: { 'API-Key': STRIPCHAT_API_KEY, accept: 'application/json' } });
+    const resp = await fetch(url, { headers: { 'API-Key': STRIPCHAT_API_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
     if (!resp.ok) {
       console.error('Stripchat API respondio ' + resp.status + ' para ' + modelUsername);
       sbLogApiError('stripchat', 'HTTP ' + resp.status + ' para ' + modelUsername);
@@ -2802,6 +2828,15 @@ function startTracker(username, token, savedCursor) {
   pollLoop(tracker);
 }
 
+// Al arrancar: si Supabase no responde, reintenta en 30 s en vez de quedarse
+// sin trackers (y sin un unhandledRejection).
+function reconnectAllModelsWithRetry() {
+  reconnectAllModels().catch((e) => {
+    console.error('No se pudieron reconectar las modelos al arrancar (' + e.message + '); reintento en 30 s.');
+    setTimeout(reconnectAllModelsWithRetry, 30000);
+  });
+}
+
 async function reconnectAllModels() {
   const models = await sbFetchModelsWithTokens();
   for (const m of models) {
@@ -2932,9 +2967,13 @@ async function pollLoop(tracker) {
     } catch (e) {
       clearTimeout(pollTimeoutId);
       tracker.status = 'error';
+      if (!tracker.running) break;
       tracker.lastError = 'Respuesta no-JSON de la API';
       noteTrackerError(tracker);
-      await sleep(5000);
+      // Misma regla que los otros errores: backoff y, cada 3 fallos, soltar
+      // la url (puede ser un cursor que Chaturbate ya no acepta).
+      if (tracker.consecutiveErrors % 3 === 0) nextUrl = freshUrl;
+      await sleep(Math.min(5000 * tracker.consecutiveErrors, 60000));
       continue;
     }
     clearTimeout(pollTimeoutId);
@@ -2946,19 +2985,24 @@ async function pollLoop(tracker) {
     tracker.errorNotified = false;
 
     const events = data.events || [];
+    // Si una propina o un start/stop no se pudo guardar (tras los reintentos de
+    // sbWriteCritical), NO se avanza el cursor: se vuelve a pedir la misma url
+    // y Chaturbate reentrega el lote. Los que si se guardaron chocan con el
+    // UNIQUE(username,event_id) -> 409, que sbWriteCritical cuenta como exito.
+    let writeFailed = false;
     for (const ev of events) {
       if (ev.method === 'tip' && ev.object && ev.object.tip) {
-        await sbInsertTip(username, ev.object.tip.tokens || 0, ev.id);
+        if (!(await sbInsertTip(username, ev.object.tip.tokens || 0, ev.id))) { writeFailed = true; break; }
       } else if (ev.method === 'broadcastStart') {
         const wasOffline = !tracker.online;
         tracker.online = true;
         tracker.onlineSince = Date.now();
-        await sbInsertBroadcastEvent(username, 'start', ev.id);
+        if (!(await sbInsertBroadcastEvent(username, 'start', ev.id))) { writeFailed = true; break; }
         if (wasOffline) sendOnlineNotifications(username).catch(() => {});
       } else if (ev.method === 'broadcastStop') {
         tracker.online = false;
         tracker.onlineSince = null;
-        await sbInsertBroadcastEvent(username, 'stop', ev.id);
+        if (!(await sbInsertBroadcastEvent(username, 'stop', ev.id))) { writeFailed = true; break; }
       } else if (ev.method === 'userEnter' || ev.method === 'userLeave') {
         // El 80% del volumen de cb_unhandled_events era esto (verificado
         // 2026-09-26: 175.068 de ~217k filas, userEnter+userLeave) -- puro
@@ -2971,6 +3015,17 @@ async function pollLoop(tracker) {
         sbInsertUnhandledEvent(username, ev.method, ev);
       }
     }
+
+    if (writeFailed) {
+      tracker.writeErrorStreak = (tracker.writeErrorStreak || 0) + 1;
+      tracker.status = 'error';
+      tracker.lastError = 'No se pudo guardar en la base (reintentando sin perder eventos)';
+      // Sin saltar a freshUrl: eso descartaria justo los eventos sin guardar.
+      // Si la url llega a expirar, la rama !resp.ok ya maneja ese caso.
+      await sleep(Math.min(5000 * tracker.writeErrorStreak, 60000));
+      continue;
+    }
+    tracker.writeErrorStreak = 0;
 
     if (data.nextUrl) {
       nextUrl = data.nextUrl;
@@ -3002,7 +3057,7 @@ async function getDollarRate() {
   const now = Date.now();
   if (rateCache.rate && now - rateCache.updatedAt < RATE_CACHE_MS) return rateCache;
   try {
-    const resp = await fetch('https://open.er-api.com/v6/latest/USD');
+    const resp = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
     const data = await resp.json();
     const marketRate = data && data.rates ? data.rates[CURRENCY] : null;
     if (marketRate) {
@@ -4927,13 +4982,24 @@ server.on('error', (err) => {
 // sin los sondeos no se registra ni una propina.
 const UI_ONLY = process.env.SOLO_UI === '1';
 
+// Ultima red: una promesa rechazada sin catch o una excepcion suelta (p. ej. en
+// el relay WebSocket) no debe tumbar el proceso entero -- eso corta el sondeo de
+// todas las modelos a la vez. Solo se registra; cada flujo sigue con su propio
+// manejo de errores.
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection:', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err && err.stack ? err.stack : err);
+});
+
 server.listen(PORT, () => {
   console.log('Chaturbate token tracker corriendo en http://localhost:' + PORT);
   if (UI_ONLY) {
     console.log('SOLO_UI=1 — sondeos externos apagados (modo prueba de interfaz, no registra propinas).');
     return;
   }
-  reconnectAllModels();
+  reconnectAllModelsWithRetry();
   if (STRIPCHAT_ENABLED) {
     console.log('Integración con Stripchat activada (estudio: ' + STRIPCHAT_STUDIO_USERNAME + ') — se sincroniza sola cada ' + (STRIPCHAT_POLL_INTERVAL_MS / 60000) + ' min.');
     pollStripchatEarnings().then(reconcileStripchatPeriodsPendingApiReconcile);
