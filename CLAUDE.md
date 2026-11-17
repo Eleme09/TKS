@@ -3424,3 +3424,16 @@ La herramienta de SQL del MCP de Supabase se cuelga con cualquier DELETE (ni una
 sola fila pasa): no la uses para borrar, usa el endpoint de la app.
 La tienda usa otra base de datos que este MCP no ve: ahí se desactivan o borran
 las personas desde el panel de la propia tienda.
+
+## Corrección quincena 1–15 nov y ventana de sondeo post-corte (2026-11-17)
+
+Contra las pantallas oficiales "Period Earnings" de Chaturbate (capturas del usuario), el sistema
+tenía de menos: jax +20, conni +55, pinky +21, iris +30 (abigail exacta). Se fijaron con
+`cb_chaturbate_period_base` (period 2026-11-01..15, `covers_until` 2026-11-16 04:30 UTC,
+`manual-correction`, `Elemee-correccion-2026-11-17`). Los totales de Stripchat no se pueden
+contrastar desde aquí. Causa: el vaciado real a veces cae unos minutos DESPUÉS de las 04:30 UTC
+(conni 2026-11-12 sumaba a las 04:30:02 y el retiro se vio a las 04:36) y fuera de la ventana el
+sondeo era cada 2 min. Fix: `CASHOUT_POST_WINDOW_MINUTES = 6` en `chaturbate-lib.js` — se sigue
+sondeando cada 60 s (misma frecuencia de siempre, NO subirla) hasta 04:36 UTC. Si vuelve a
+aparecer un 403 en esa franja, volver a revisar `cb_api_errors` antes de tocar nada.
+Si el usuario manda otra captura "Period Earnings" que no cuadre, repetir la corrección igual.

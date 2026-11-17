@@ -295,8 +295,12 @@ describe('isNearChaturbateCashout (ventana pre-retiro, 04:18-04:30 UTC)', () => 
   test('en el minuto exacto del corte: true', () => {
     assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:30:00Z')), true);
   });
-  test('un minuto después del corte: false (ya no hay nada que rescatar)', () => {
-    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:31:00Z')), false);
+  test('hasta 6 minutos después del corte: true (el vaciado real puede caer pasadas las 04:30)', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:31:00Z')), true);
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:36:00Z')), true);
+  });
+  test('7 minutos después del corte: false', () => {
+    assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T04:37:00Z')), false);
   });
   test('mediodía, lejos de la ventana: false', () => {
     assert.equal(lib.isNearChaturbateCashout(at('2026-09-03T12:00:00Z')), false);

@@ -273,6 +273,14 @@ function resolveChaturbateTokens({ base, ticks, tips, extraTokens }) {
 const CHATURBATE_CASHOUT_UTC_HOUR = 4;
 const CHATURBATE_CASHOUT_UTC_MINUTE = 30;
 const CASHOUT_WINDOW_MINUTES = 12;
+// Minutos DESPUES de las 04:30 en que se sigue sondeando a la misma frecuencia
+// (cada 60 s, NO mas rapido). Evidencia 2026-11-17 contra las pantallas
+// oficiales "Period Earnings" de Chaturbate: faltaban 20-55 tokens por modelo
+// por quincena. Causa: el vaciado real a veces ocurre unos minutos DESPUES de
+// las 04:30:00 (conni_f00x el 2026-11-12 todavia sumaba un tick a las 04:30:02
+// y el retiro recien se vio a las 04:36), y fuera de esta ventana se sondea
+// cada 2 min, asi que lo ganado entre la ultima lectura y el vaciado se perdia.
+const CASHOUT_POST_WINDOW_MINUTES = 6;
 
 // Devuelve true si falta poco para el retiro automatico diario: ahi se sondea
 // denso para leer el balance mas alto posible antes de que se vacie a 0.
@@ -280,10 +288,10 @@ function isNearChaturbateCashout(nowMs) {
   const d = new Date(nowMs);
   const minutesNow = d.getUTCHours() * 60 + d.getUTCMinutes();
   const cashoutMinutes = CHATURBATE_CASHOUT_UTC_HOUR * 60 + CHATURBATE_CASHOUT_UTC_MINUTE;
-  // Solo la franja ANTES del retiro (incluido el minuto exacto), no despues:
-  // despues del vaciado no hay nada que rescatar.
+  // Franja antes del retiro y unos minutos despues (ver
+  // CASHOUT_POST_WINDOW_MINUTES): el vaciado real puede caer pasadas las 04:30.
   const minutesUntil = cashoutMinutes - minutesNow;
-  return minutesUntil >= 0 && minutesUntil <= CASHOUT_WINDOW_MINUTES;
+  return minutesUntil >= -CASHOUT_POST_WINDOW_MINUTES && minutesUntil <= CASHOUT_WINDOW_MINUTES;
 }
 
 // Corte de quincena (pedido explicito del usuario 2026-09-16, "la quincena
