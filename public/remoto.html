@@ -198,7 +198,7 @@
   setInterval(function () { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 20000);
 
   loadDevices();
-  setInterval(function () { if (!ws) loadDevices(); }, 8000);
+  setInterval(function () { if (!ws) loadDevices(); }, 30000);
 })();
 </script>
 </body>

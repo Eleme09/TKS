@@ -480,3 +480,15 @@ create table if not exists public.cb_remote_devices (
 );
 alter table public.cb_remote_devices enable row level security;
 create policy cb_remote_devices_anon_all on public.cb_remote_devices for all to anon using (true) with check (true);
+
+-- Índices que ya existen en producción (migraciones add_missing_foreign_key_indexes
+-- y add_created_at_indexes_for_studio_wide_range_scans). Los de created_at/
+-- sampled_at sirven a las lecturas de rango de TODO el estudio sin filtrar por
+-- username (sbFetchTipsInRange / sbFetchBalanceTicksInRange).
+create index if not exists idx_cb_balance_resets_username on public.cb_balance_resets (username);
+create index if not exists idx_cb_balance_ticks_username on public.cb_balance_ticks (username);
+create index if not exists idx_cb_news_comments_post_id on public.cb_news_comments (post_id);
+create index if not exists idx_cb_shifts_claimed_by on public.cb_shifts (claimed_by);
+create index if not exists idx_cb_unhandled_events_username on public.cb_unhandled_events (username);
+create index if not exists idx_cb_tips_created_at on public.cb_tips (created_at);
+create index if not exists idx_cb_balance_ticks_sampled_at on public.cb_balance_ticks (sampled_at);

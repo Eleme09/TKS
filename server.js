@@ -11,12 +11,10 @@ const crypto = require('crypto');
 const webpush = require('web-push');
 const nodemailer = require('nodemailer');
 const {
-  getQuincena, getQuincenaHistory, stripchatQuincenaWindow, toDateStr, sanitizeUsername,
+  getQuincena, getQuincenaHistory, stripchatQuincenaWindow, sanitizeUsername,
   hashPassword, verifyPassword, resolveChaturbateTokens,
-  CHATURBATE_CASHOUT_UTC_HOUR, CHATURBATE_CASHOUT_UTC_MINUTE, CASHOUT_WINDOW_MINUTES,
-  isNearChaturbateCashout, parseCsvLine, parseChaturbateTransactionsCsv,
+  isNearChaturbateCashout, parseChaturbateTransactionsCsv,
   sumChaturbateCsvEarningsForPeriod,
-  STUDIO_UTC_OFFSET_HOURS,
   studioDateStr, studioTimeStr, studioScheduledMs, studioWallToMs, studioQuincenaRange, previousAttendancePeriod, pickWorkDate,
   EARLY_EXIT_CHARGE_ENABLED, isStudioSunday, resolveCorrectionEntryMs, findBroadcastEarlyExit, computeLateMinutes, sumLateMinutes, sumEarlyExitMinutes, computeEarlyExitMinutes, lateDebtHours, lateDebtCop, lateDebtCopCapped,
   ATTENDANCE_SHIFTS, normalizeClock, shiftById, shiftFromTimes, shiftLabel,
@@ -282,7 +280,7 @@ const EVENTS_POLL_TIMEOUT_MS = 30 * 1000;
 const EXTERNAL_FETCH_TIMEOUT_MS = 20 * 1000;
 
 // Un tracker en memoria por cada modelo activa. La clave es el username en minúsculas.
-// El token SOLO vive aquí en memoria, nunca se escribe a disco ni a la base de datos.
+// El token vive aquí en memoria Y se guarda en cb_models.token (sbUpsertModel) para poder reconectar tras un reinicio; nunca se escribe a disco.
 const trackers = new Map();
 
 // getQuincena, getQuincenaHistory, toDateStr, sanitizeUsername, hashPassword,
@@ -316,6 +314,10 @@ function verifySession(token) {
   }
 }
 
+function safeDecode(v) {
+  try { return decodeURIComponent(v); } catch (e) { return v; }
+}
+
 function parseCookies(req) {
   const header = req.headers.cookie;
   const out = {};
@@ -323,7 +325,7 @@ function parseCookies(req) {
   for (const part of header.split(';')) {
     const idx = part.indexOf('=');
     if (idx === -1) continue;
-    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    out[part.slice(0, idx).trim()] = safeDecode(part.slice(idx + 1).trim());
   }
   return out;
 }
@@ -369,11 +371,14 @@ function clearSessionCookie(res) {
 // ---- Supabase (Postgres via REST/PostgREST) ----
 
 async function sbUpsertModel(username, token) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_models?on_conflict=username', {
-    method: 'POST',
-    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ username, role: 'modelo', token }),
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_models?on_conflict=username', {
+      method: 'POST',
+      headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ username, role: 'modelo', token }),
+    });
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 // Borra una modelo y todo lo suyo. Antes solo borraba la fila de cb_models y
@@ -597,18 +602,24 @@ async function sendNewsNotification(authorUsername, title) {
 }
 
 async function sbDeleteAdmin(username) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
-    method: 'DELETE',
-    headers: SB_HEADERS,
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_admins?username=eq.' + encodeURIComponent(username), {
+      method: 'DELETE',
+      headers: SB_HEADERS,
+    });
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 async function sbSetModelPassword(username, passwordHash) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
-    method: 'PATCH',
-    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ password_hash: passwordHash, must_change_password: false }),
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), {
+      method: 'PATCH',
+      headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({ password_hash: passwordHash, must_change_password: false }),
+    });
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 // Invalida todas las sesiones existentes de una cuenta (admin o modelo).
@@ -805,10 +816,13 @@ async function sbCreateNewsPost(authorUsername, authorRole, authorGender, author
 }
 
 async function sbDeleteNewsPost(id) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?id=eq.' + encodeURIComponent(id), {
-    method: 'DELETE',
-    headers: SB_HEADERS,
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?id=eq.' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: SB_HEADERS,
+    });
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 async function sbFetchNewsPostType(postId) {
@@ -860,6 +874,8 @@ async function sbDeleteNewsComment(id) {
 
 // ---- Noticias: quien vio cada publicacion (solo se muestra a admin/CEO, y solo lectores rol modelo) ----
 
+const newsReadMarked = new Map(); // 'rol:usuario' -> Set de post_id ya marcados como leidos
+
 async function sbMarkNewsRead(postIds, username, role) {
   if (!postIds.length) return;
   const body = postIds.map((id) => ({ post_id: id, username, role }));
@@ -892,9 +908,14 @@ async function sbListShifts() {
 // en 31 dias, el tercer mas alto de todo el sistema. 30s es invisible para
 // un calendario de turnos (nadie necesita ver un turno nuevo con menos de
 // 30s de diferencia) y corta la gran mayoria de esas llamadas redundantes.
+const payslipsCache = new Map(); // clave -> { at, payload }
+const PAYSLIPS_CACHE_MS = 60000;
+
 let shiftsListCache = null;
 let shiftsListCacheAt = 0;
 const SHIFTS_LIST_CACHE_MS = 30000;
+
+function invalidateShiftsCache() { shiftsListCache = null; shiftsListCacheAt = 0; }
 
 async function sbListShiftsCached() {
   const now = Date.now();
@@ -915,14 +936,19 @@ async function sbCreateShift(shiftDate, startTime, endTime, kind) {
       kind: kind || 'extra',
     }),
   });
+  invalidateShiftsCache();
   return resp.ok;
 }
 
 async function sbDeleteShift(id) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
-    method: 'DELETE',
-    headers: SB_HEADERS,
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: SB_HEADERS,
+    });
+    invalidateShiftsCache();
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 // Solo reclama si claimed_by todavia es null (evita que dos se apunten al mismo horario a la vez).
@@ -932,6 +958,7 @@ async function sbClaimShift(id, username) {
     headers: { ...SB_HEADERS, Prefer: 'return=representation' },
     body: JSON.stringify({ claimed_by: username, claimed_at: new Date().toISOString() }),
   });
+  invalidateShiftsCache();
   if (!resp.ok) return false;
   const rows = await resp.json();
   return rows.length > 0;
@@ -942,11 +969,15 @@ async function sbClaimShift(id, username) {
 // si no, quien reclame despues heredaria un "confirmation_sent_at"/"confirmed"
 // que no le corresponde y la UI mostraria un estado que no es el suyo.
 async function sbUnclaimShift(id) {
-  await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
-    method: 'PATCH',
-    headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
-    body: JSON.stringify({ claimed_by: null, claimed_at: null, confirmation_sent_at: null, confirmed: null }),
-  }).catch(() => {});
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({ claimed_by: null, claimed_at: null, confirmation_sent_at: null, confirmed: null }),
+    });
+    if (resp.ok) invalidateShiftsCache();
+    return resp.ok;
+  } catch (e) { return false; }
 }
 
 // Confirmacion de que SI va a tomar la extra/recuperacion a la que se apunto.
@@ -955,6 +986,7 @@ async function sbSetShiftConfirmed(id, confirmed) {
     SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&claimed_by=not.is.null',
     { method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' }, body: JSON.stringify({ confirmed }) }
   );
+  invalidateShiftsCache();
   if (!resp.ok) return false;
   const rows = await resp.json();
   return rows.length > 0;
@@ -968,6 +1000,7 @@ async function sbMarkShiftConfirmationSent(id) {
     SUPABASE_URL + '/rest/v1/cb_shifts?id=eq.' + encodeURIComponent(id) + '&confirmation_sent_at=is.null',
     { method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=representation' }, body: JSON.stringify({ confirmation_sent_at: new Date().toISOString() }) }
   );
+  invalidateShiftsCache();
   if (!resp.ok) return false;
   const rows = await resp.json();
   return rows.length > 0;
@@ -981,6 +1014,7 @@ async function sbForceShiftConfirmationSent(id) {
     method: 'PATCH', headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
     body: JSON.stringify({ confirmation_sent_at: new Date().toISOString(), confirmed: null }),
   });
+  invalidateShiftsCache();
   return resp.ok;
 }
 
@@ -1004,6 +1038,7 @@ async function sbSetShiftAttendance(id, status) {
       body: JSON.stringify({ attendance_status: status }),
     }
   );
+  invalidateShiftsCache();
   if (!resp.ok) return false;
   const rows = await resp.json();
   return rows.length > 0;
@@ -1321,8 +1356,11 @@ async function sbListAttendanceJustifications(fromDate, toDate, username) {
   return r.ok ? r.json() : [];
 }
 
-async function sbFetchAttendanceJustification(id) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications?id=eq.' + encodeURIComponent(id) + '&select=*', { headers: SB_HEADERS });
+// Por defecto NO trae el adjunto (base64 de hasta 5 MB) -- editar/borrar solo
+// necesitan los datos de texto. Solo la descarga del archivo pide withContent.
+async function sbFetchAttendanceJustification(id, withContent) {
+  const sel = withContent ? '*' : 'id,username,work_date,kind,body,created_at,excuse_filename,excuse_mime_type,excuse_size_bytes';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_justifications?id=eq.' + encodeURIComponent(id) + '&select=' + sel, { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
@@ -2178,8 +2216,9 @@ async function sbFetchUserTipsSince(username, sinceIso) {
   return sbFetchAllRows('cb_tips', qs);
 }
 
-// ---- Stripchat (sin API oficial de ganancias: se ingresa a mano, pegando el
-// reporte "Ganancias por modelo" del panel de Stripchat, o corrigiendo a mano) ----
+// ---- Stripchat (la fuente principal es la Studio API oficial, ver
+// pollStripchatEarnings; el ingreso manual pegando el reporte "Ganancias por
+// modelo" queda como respaldo dormido) ----
 
 // Interpreta el texto pegado desde "Ganancias por modelo": para cada modelo ya
 // dada de alta busca una linea que contenga su username y toma el numero mas
@@ -3081,8 +3120,15 @@ function readBody(req, maxBytes) {
   const limit = maxBytes || 1024 * 1024;
   return new Promise((resolve, reject) => {
     let chunks = '';
-    req.on('data', (c) => { chunks += c; if (chunks.length > limit) req.destroy(); });
+    let tooBig = false;
+    req.on('data', (c) => {
+      if (tooBig) return;
+      chunks += c;
+      if (chunks.length > limit) { tooBig = true; chunks = ''; req.destroy(); reject(new Error('Cuerpo demasiado grande')); }
+    });
+    req.on('close', () => { if (tooBig) reject(new Error('Cuerpo demasiado grande')); });
     req.on('end', () => {
+      if (tooBig) return;
       try { resolve(chunks ? JSON.parse(chunks) : {}); } catch (e) { reject(e); }
     });
     req.on('error', reject);
@@ -3414,7 +3460,14 @@ async function handleRequest(req, res) {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     if (!username) return sendJson(res, 400, { error: 'username inválido' });
-    await sbDeleteAdmin(username);
+    if (username.toLowerCase() === String(session.username).toLowerCase()) return sendJson(res, 400, { error: 'No puedes eliminar tu propia cuenta' });
+    const allAdmins = await sbListAdmins();
+    const target = allAdmins.find((a) => a.username === username);
+    if (!target) return sendJson(res, 404, { error: 'Cuenta no encontrada' });
+    if (target.role === 'administrador' && allAdmins.filter((a) => a.role === 'administrador').length <= 1) {
+      return sendJson(res, 400, { error: 'No se puede eliminar al último administrador' });
+    }
+    if (!(await sbDeleteAdmin(username))) return sendJson(res, 500, { error: 'No se pudo eliminar la cuenta' });
     await sbLogAudit(session, 'delete_account', username);
     return sendJson(res, 200, { ok: true });
   }
@@ -3445,7 +3498,7 @@ async function handleRequest(req, res) {
     const username = sanitizeUsername(body.username);
     const password = typeof body.password === 'string' ? body.password : '';
     if (!username || password.length < MIN_PASSWORD_LENGTH) return sendJson(res, 400, { error: 'Contraseña de al menos ' + MIN_PASSWORD_LENGTH + ' caracteres requerida' });
-    await sbSetModelPassword(username, hashPassword(password));
+    if (!(await sbSetModelPassword(username, hashPassword(password)))) return sendJson(res, 500, { error: 'No se pudo cambiar la contraseña' });
     await sbBumpSessionVersion('model', username);
     await sbLogAudit(session, 'reset_model_password', username);
     return sendJson(res, 200, { ok: true });
@@ -3548,7 +3601,7 @@ async function handleRequest(req, res) {
 
     const existing = await sbFetchSavedToken(username);
     const resumeCursor = existing && existing.token === token ? existing.last_cursor : null;
-    await sbUpsertModel(username, token);
+    if (!(await sbUpsertModel(username, token))) return sendJson(res, 500, { error: 'No se pudo guardar la modelo' });
     startTracker(username, token, resumeCursor);
     await sbLogAudit(session, 'add_model', username);
     return sendJson(res, 200, { ok: true });
@@ -3641,6 +3694,12 @@ async function handleRequest(req, res) {
     if (session.role === 'modelo') username = session.username;
     if (!username) return sendJson(res, 400, { error: 'username requerido' });
 
+    // Cache de 60s por (tipo de sesion, modelo): el payload de staff incluye
+    // el desprendible del estudio y el de modelo no, asi que no se comparten.
+    const payslipKey = (session.role === 'modelo' ? 'm:' : 's:') + username;
+    const payslipHit = payslipsCache.get(payslipKey);
+    if (payslipHit && Date.now() - payslipHit.at < PAYSLIPS_CACHE_MS) return sendJson(res, 200, payslipHit.payload);
+
     try {
       const now = Date.now();
       const periods = getQuincenaHistory(6, now);
@@ -3700,14 +3759,17 @@ async function handleRequest(req, res) {
       // selector de arriba.
       const studio = session.role === 'modelo' ? null : await buildStudioPayoutHistory(6);
 
-      return sendJson(res, 200, { username, periods: rows, currency: CURRENCY, ...(studio ? { studio } : {}) });
+      const payslipPayload = { username, periods: rows, currency: CURRENCY, ...(studio ? { studio } : {}) };
+      if (payslipsCache.size > 100) payslipsCache.clear();
+      payslipsCache.set(payslipKey, { at: Date.now(), payload: payslipPayload });
+      return sendJson(res, 200, payslipPayload);
     } catch (e) {
       console.error('Error en /api/payslips para ' + username + ': ' + e.message);
       return sendJson(res, 500, { error: 'Error consultando la base de datos' });
     }
   }
 
-  // ---- Stripchat (ingreso manual — no hay API oficial de ganancias) ----
+  // ---- Stripchat (endpoints de ingreso manual = respaldo; el sync principal usa la Studio API) ----
 
   if (parsed.pathname === '/api/stripchat/periods' && req.method === 'GET') {
     if (!(await requireAdmin(req, res))) return;
@@ -3977,7 +4039,18 @@ async function handleRequest(req, res) {
     const comments = await sbListNewsCommentsForPosts(postIds);
     const commentsByPost = {};
     for (const c of comments) (commentsByPost[c.post_id] = commentsByPost[c.post_id] || []).push(c);
-    await sbMarkNewsRead(postIds, session.username, session.role);
+    // Solo marca las que esta sesion todavia no marco (memoria del proceso):
+    // antes cada GET hacia un upsert de TODAS las publicaciones aunque ya
+    // estuvieran leidas. Si el proceso reinicia, se vuelve a marcar una vez
+    // (el upsert es idempotente).
+    const readKey = session.role + ':' + session.username;
+    let readSet = newsReadMarked.get(readKey);
+    if (!readSet) { readSet = new Set(); newsReadMarked.set(readKey, readSet); }
+    const unmarked = postIds.filter((id) => !readSet.has(id));
+    if (unmarked.length) {
+      await sbMarkNewsRead(unmarked, session.username, session.role);
+      for (const id of unmarked) readSet.add(id);
+    }
     let viewersByPost = {};
     if (session.role === 'administrador' || session.role === 'ceo') {
       const reads = await sbListNewsModeloReadsForPosts(postIds);
@@ -4049,7 +4122,7 @@ async function handleRequest(req, res) {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const id = Number(body.id);
     if (!id) return sendJson(res, 400, { error: 'id inválido' });
-    await sbDeleteNewsPost(id);
+    if (!(await sbDeleteNewsPost(id))) return sendJson(res, 500, { error: 'No se pudo eliminar la noticia' });
     await sbLogAudit(session, 'news_post_delete', null, { id });
     return sendJson(res, 200, { ok: true });
   }
@@ -4100,8 +4173,9 @@ async function handleRequest(req, res) {
     const endTime = typeof body.end_time === 'string' ? body.end_time.trim() : '';
     const kind = body.kind === 'recuperacion' ? 'recuperacion' : 'extra';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return sendJson(res, 400, { error: 'Fecha inválida' });
-    if (!/^\d{2}:\d{2}$/.test(startTime)) return sendJson(res, 400, { error: 'Hora de entrada inválida' });
-    if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) return sendJson(res, 400, { error: 'Hora de salida inválida' });
+    const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!HHMM.test(startTime)) return sendJson(res, 400, { error: 'Hora de entrada inválida' });
+    if (endTime && !HHMM.test(endTime)) return sendJson(res, 400, { error: 'Hora de salida inválida' });
     const ok = await sbCreateShift(shiftDate, startTime, endTime, kind);
     if (!ok) return sendJson(res, 400, { error: 'No se pudo crear el horario' });
     return sendJson(res, 200, { ok: true });
@@ -4145,7 +4219,7 @@ async function handleRequest(req, res) {
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
     const id = Number(body.id);
     if (!id) return sendJson(res, 400, { error: 'id inválido' });
-    await sbDeleteShift(id);
+    if (!(await sbDeleteShift(id))) return sendJson(res, 500, { error: 'No se pudo eliminar el horario' });
     return sendJson(res, 200, { ok: true });
   }
 
@@ -4187,7 +4261,7 @@ async function handleRequest(req, res) {
     } else if (session.role !== 'administrador' && session.role !== 'ceo') {
       return sendJson(res, 403, { error: 'No autorizado' });
     }
-    await sbUnclaimShift(id);
+    if (!(await sbUnclaimShift(id))) return sendJson(res, 500, { error: 'No se pudo liberar el horario' });
     return sendJson(res, 200, { ok: true });
   }
 
@@ -4210,7 +4284,7 @@ async function handleRequest(req, res) {
       await sbLogAudit(session, 'shift_confirm_yes', session.username, { id, shift_date: shift.shift_date });
       return sendJson(res, 200, { ok: true });
     }
-    await sbUnclaimShift(id);
+    if (!(await sbUnclaimShift(id))) return sendJson(res, 500, { error: 'No se pudo liberar el horario' });
     await sbLogAudit(session, 'shift_confirm_no', session.username, { id, shift_date: shift.shift_date });
     sendPushToRole(['administrador', 'ceo'],
       session.username + ' avisó que NO tomará su ' + shiftKindLabel(shift.kind) + ' del ' + shift.shift_date + ' — el cupo quedó libre.',
@@ -4385,6 +4459,7 @@ async function handleRequest(req, res) {
     const now = Date.now();
     const open = await sbFetchOpenAttendanceDay(session.username, now);
     if (!open) return sendJson(res, 400, { error: 'No tienes una jornada abierta para cerrar' });
+    if (open.status === 'pendiente') return sendJson(res, 400, { error: 'Tu llegada todavía está pendiente de validar; no puedes marcar salida aún' });
     const hers = await sbFetchScheduleForUser(session.username);
     let exitSource = null;
     let earlyMinutes = null;
@@ -4473,7 +4548,7 @@ async function handleRequest(req, res) {
     if (!session) return;
     const id = Number(parsed.query.id);
     if (!id) return sendJson(res, 400, { error: 'id inválido' });
-    const row = await sbFetchAttendanceJustification(id);
+    const row = await sbFetchAttendanceJustification(id, true);
     if (!row || !row.excuse_content_base64) return sendJson(res, 404, { error: 'No existe' });
     // Una modelo solo puede abrir sus propios adjuntos.
     if (session.role === 'modelo' && row.username !== session.username) {
