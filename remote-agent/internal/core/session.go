@@ -21,6 +21,15 @@ const DefaultCaptureInterval = 150 * time.Millisecond
 type CaptureOptions struct {
 	Interval       time.Duration // 0 → DefaultCaptureInterval (mínimo 50 ms)
 	MaxBytesPerSec int           // 0 → sin tope
+	MaxWidth       int           // ancho máximo enviado; 0 → MaxFrameWidth
+	MaxFPS         int           // tope de fps en modo regiones; 0 → 20 (máx. 30)
+}
+
+func (o CaptureOptions) maxW() int {
+	if o.MaxWidth > 0 {
+		return o.MaxWidth
+	}
+	return MaxFrameWidth
 }
 
 // Transport es por donde la sesión habla con el visor.
@@ -39,6 +48,8 @@ type Session struct {
 	consented bool
 	quality   int
 	guard     *KeyGuard
+	ts        *tileStreamer // nil si este controlador no usa regiones
+	tilesOn   bool          // el visor declaró soportar regiones
 }
 
 func (s *Session) isActive() bool {
@@ -66,6 +77,26 @@ func (s *Session) handleInput(m proto.InMsg) {
 		return
 	}
 	switch m.T {
+	case "ack": // control de flujo: no exige modo con control
+		if s.ts != nil && m.Seq >= 0 && m.Seq <= 4294967295 {
+			s.ts.onAck(uint32(m.Seq), m.Resync)
+		}
+	case "caps":
+		if s.ts != nil {
+			s.mu.Lock()
+			s.tilesOn = m.Tiles
+			s.mu.Unlock()
+			s.ts.forceFull()
+		}
+	case "text":
+		if s.viewOnly {
+			return
+		}
+		if t := proto.CleanText(m.Text); t != "" {
+			s.mu.Lock()
+			injectText(t)
+			s.mu.Unlock()
+		}
 	case "quality":
 		if q, ok := proto.QualityFromMsg(m.Q); ok {
 			s.mu.Lock()
@@ -78,6 +109,9 @@ func (s *Session) handleInput(m proto.InMsg) {
 		}
 		switch m.A {
 		case "move", "down", "up", "wheel":
+			if s.ts != nil {
+				s.ts.noteMotion()
+			}
 			s.mu.Lock()
 			injectMouse(m.A, m.X, m.Y, m.B, m.D)
 			s.mu.Unlock()
@@ -137,6 +171,15 @@ type Controller struct {
 	Opts     CaptureOptions
 	ViewOnly bool
 
+	// FullKeys: permite tecla Win y combinaciones (agente de nube).
+	FullKeys bool
+	// AllowTiles: habilita el envío por regiones con control de flujo (solo
+	// con visores que lo declaran con {t:'caps'}; los viejos siguen recibiendo
+	// JPEG completos).
+	AllowTiles bool
+	// Unattended: el consentimiento lo da la configuración local, sin aviso.
+	Unattended bool
+
 	// Sustituibles en pruebas.
 	Consent func(ctx context.Context, viewer string) bool
 	Capture func() (*image.RGBA, error)
@@ -158,7 +201,7 @@ func hostAndOS() (string, string) {
 // SendInfo manda al visor el tamaño de pantalla (antes de pedir consentimiento).
 func (c *Controller) SendInfo(tr Transport) {
 	if w, h, e := c.Size(); e == nil {
-		sw, sh := ScaledSize(w, h, MaxFrameWidth)
+		sw, sh := ScaledSize(w, h, c.Opts.maxW())
 		host, os := hostAndOS()
 		tr.WriteText(proto.InfoMsg(sw, sh, host, os))
 	}
@@ -170,8 +213,15 @@ func (c *Controller) SendInfo(tr Transport) {
 func (c *Controller) Start(connCtx context.Context, tr Transport, viewer string) <-chan struct{} {
 	c.End() // una sola sesión a la vez
 	ctx, cancel := context.WithCancel(connCtx)
+	guard := NewKeyGuard()
+	if c.FullKeys {
+		guard = NewKeyGuardFull()
+	}
 	s := &Session{cancel: cancel, done: make(chan struct{}), viewer: viewer, viewOnly: c.ViewOnly,
-		quality: DefaultQuality, guard: NewKeyGuard()}
+		quality: DefaultQuality, guard: guard}
+	if c.AllowTiles {
+		s.ts = newTileStreamer(c.Opts.maxW(), c.Opts.MaxFPS)
+	}
 	c.smu.Lock()
 	c.sess = s
 	c.smu.Unlock()
@@ -179,28 +229,38 @@ func (c *Controller) Start(connCtx context.Context, tr Transport, viewer string)
 	go func() {
 		defer close(s.done)
 		defer cancel()
-		Logf("«%s» solicita control remoto. Mostrando aviso…", viewer)
+		if c.Unattended {
+			Logf("«%s» solicita control remoto (modo desatendido, sin aviso).", viewer)
+		} else {
+			Logf("«%s» solicita control remoto. Mostrando aviso…", viewer)
+		}
 		ok := c.Consent(ctx, viewer)
 		if ctx.Err() != nil {
 			c.clear(s)
 			return
 		}
-		tr.WriteText(proto.ConsentMsg(ok, c.ViewOnly))
+		tr.WriteText(proto.ConsentMsgFull(ok, c.ViewOnly, c.Unattended && ok))
 		if !ok {
 			Logf("Solicitud rechazada (o sin respuesta en %d s).", proto.ConsentTimeout)
 			c.clear(s)
 			return
 		}
 		s.setConsented(true)
-		Logf("Sesión aceptada. Compartiendo pantalla con «%s».", viewer)
-		ShowBanner(viewer)
+		started := time.Now()
+		if c.Unattended {
+			Logf("Sesión aceptada AUTOMÁTICAMENTE (modo desatendido). Usuario del sitio: «%s» — %s.", viewer, started.Format("2006-01-02 15:04:05"))
+		} else {
+			Logf("Sesión aceptada. Compartiendo pantalla con «%s».", viewer)
+		}
+		// Sin franja/overlay en pantalla durante la sesión (quitado a pedido
+		// del usuario): la ventana abierta ya es el aviso. Solo queda el log.
 		defer func() {
+			Logf("Sesión de «%s» terminada (duró %s).", viewer, time.Since(started).Round(time.Second))
 			s.setConsented(false)
 			s.releaseAll()
-			HideBanner()
 			c.clear(s)
 		}()
-		c.captureLoop(ctx, s, tr.WriteBinary, func(w, h int) {
+		c.captureLoop(ctx, s, tr, func(w, h int) {
 			host, os := hostAndOS()
 			tr.WriteText(proto.InfoMsg(w, h, host, os))
 		})
@@ -264,8 +324,12 @@ func (c *Controller) LocalCut(notify func()) {
 	c.End()
 }
 
-// captureLoop envía frames JPEG hasta que ctx termine, respetando los límites.
-func (c *Controller) captureLoop(ctx context.Context, s *Session, send func([]byte) error, sendInfo func(w, h int)) {
+// captureLoop envía pantalla hasta que ctx termine. En modo regiones usa
+// goroutines separadas: este bucle captura y codifica; otra goroutine escribe
+// en la red (así un envío lento nunca frena la captura ni el input, que llega
+// por la goroutine de lectura del agente).
+func (c *Controller) captureLoop(ctx context.Context, s *Session, tr Transport, sendInfo func(w, h int)) {
+	send := tr.WriteBinary
 	interval := c.Opts.Interval
 	if interval <= 0 {
 		interval = DefaultCaptureInterval
@@ -275,22 +339,72 @@ func (c *Controller) captureLoop(ctx context.Context, s *Session, send func([]by
 	}
 	budget := &byteBudget{max: c.Opts.MaxBytesPerSec, nowFn: time.Now}
 	enc := NewFrameEncoder()
-	t := time.NewTicker(interval)
-	defer t.Stop()
+	enc.MaxW = c.Opts.maxW()
+
+	out := make(chan []byte, 2)
+	wctx, wcancel := context.WithCancel(ctx)
+	defer wcancel()
+	if s.ts != nil {
+		go func() {
+			for {
+				select {
+				case <-wctx.Done():
+					return
+				case b := <-out:
+					if err := send(b); err != nil {
+						s.cancel()
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
 	lastSent := time.Time{}
 	lw, lh := 0, 0
 	var lastErrLog time.Time
 	for {
+		s.mu.Lock()
+		tiles := s.ts != nil && s.tilesOn
+		quality := s.quality
+		s.mu.Unlock()
+		wait := interval
+		if tiles {
+			wait = s.ts.interval(quality)
+		}
+		timer.Reset(wait)
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-timer.C:
 		}
 		img, err := c.Capture()
 		if err != nil {
 			if time.Since(lastErrLog) > 10*time.Second {
 				Logf("Error capturando pantalla: %v", err)
 				lastErrLog = time.Now()
+			}
+			continue
+		}
+		if tiles {
+			pkt, nw, nh, err := s.ts.step(img, quality)
+			if nw > 0 {
+				sendInfo(nw, nh)
+			}
+			if err != nil {
+				Logf("Error codificando frame: %v", err)
+			}
+			if pkt != nil {
+				select {
+				case out <- pkt:
+				default:
+					s.ts.forceFull() // cola de red llena: el siguiente lleva todo lo nuevo
+				}
+			}
+			if m := s.ts.statMsg(); m != nil {
+				tr.WriteText(m)
 			}
 			continue
 		}

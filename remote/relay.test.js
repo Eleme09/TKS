@@ -231,9 +231,9 @@ describe('relay de control remoto', () => {
 
   it('tope de frames por segundo', async () => {
     const { a, v } = await connectedPair();
-    for (let i = 0; i < 20; i++) a.send(Buffer.alloc(50, i));
+    for (let i = 0; i < 60; i++) a.send(Buffer.alloc(50, i));
     await delay(200);
-    assert.ok(v.frames.length <= 8, 'frames: ' + v.frames.length);
+    assert.ok(v.frames.length <= 30, 'frames: ' + v.frames.length); // maxFps subió de 8 a 30 (2026-11-20)
     assert.ok(v.frames.length >= 1);
   });
 
@@ -261,6 +261,65 @@ describe('relay de control remoto', () => {
     env.relay._heartbeat();
     await v.closed;
     assert.ok(env.audits.find((x) => x.action === 'remote_session_end' && x.details.reason === 'inactividad'));
+  });
+
+  it('consent con unattended:true queda auditado', async () => {
+    const a = await authedAgent();
+    const v = viewer();
+    await v.opened;
+    await waitFor(() => a.msgs.find((m) => m.t === 'session_start'));
+    a.send(JSON.stringify({ t: 'consent', ok: true, unattended: true }));
+    await waitFor(() => v.msgs.find((m) => m.t === 'consent'));
+    const ev = env.audits.find((x) => x.action === 'remote_session_consent');
+    assert.ok(ev && ev.details.ok === true && ev.details.unattended === true);
+  });
+
+  it('consent sin unattended no agrega el campo a la auditoría', async () => {
+    await connectedPair();
+    const ev = env.audits.find((x) => x.action === 'remote_session_consent');
+    assert.ok(ev && !('unattended' in ev.details));
+  });
+
+  it('teclas Win y combos se reenvían al agente (compatibilidad control total)', async () => {
+    const { a, v } = await connectedPair();
+    for (const code of ['MetaLeft', 'MetaRight', 'ContextMenu', 'AltLeft', 'ControlRight', 'F5', 'PrintScreen']) {
+      v.send(JSON.stringify({ t: 'key', a: 'down', code }));
+    }
+    await waitFor(() => a.msgs.filter((m) => m.t === 'key').length >= 7);
+    const codes = a.msgs.filter((m) => m.t === 'key').map((m) => m.code);
+    assert.deepStrictEqual(codes, ['MetaLeft', 'MetaRight', 'ContextMenu', 'AltLeft', 'ControlRight', 'F5', 'PrintScreen']);
+  });
+
+  it('ack/caps se reenvían al agente y NO cuentan como actividad', async () => {
+    const { a, v } = await connectedPair();
+    env.relay._viewers.get(DEV_ID).lastInput = 0; // simula sesión "inactiva" hace mucho
+    v.send(JSON.stringify({ t: 'caps', tiles: true }));
+    v.send(JSON.stringify({ t: 'ack', seq: 3, resync: true }));
+    await waitFor(() => a.msgs.find((m) => m.t === 'ack'));
+    assert.ok(a.msgs.find((m) => m.t === 'caps' && m.tiles === true));
+    assert.ok(a.msgs.find((m) => m.t === 'ack' && m.seq === 3 && m.resync === true));
+    assert.strictEqual(env.relay._viewers.get(DEV_ID).lastInput, 0, 'ack/caps no deben actualizar lastInput');
+  });
+
+  it('ack/caps pasan incluso en modo solo-ver', async () => {
+    const a = await authedAgent();
+    const v = viewer();
+    await v.opened;
+    await waitFor(() => a.msgs.find((m) => m.t === 'session_start'));
+    a.send(JSON.stringify({ t: 'consent', ok: true, viewOnly: true }));
+    await waitFor(() => v.msgs.find((m) => m.t === 'consent'));
+    v.send(JSON.stringify({ t: 'ack', seq: 1 }));
+    v.send(JSON.stringify({ t: 'mouse', a: 'move', x: 0.1, y: 0.1 })); // esto SÍ se bloquea en solo-ver
+    await waitFor(() => a.msgs.find((m) => m.t === 'ack'));
+    await delay(80);
+    assert.strictEqual(a.msgs.filter((m) => m.t === 'mouse').length, 0);
+  });
+
+  it('reenvía {t:stat} del agente al visor, saneado', async () => {
+    const { a, v } = await connectedPair();
+    a.send(JSON.stringify({ t: 'stat', rtt: 45, fps: 22, kbps: 310, mode: 'completa', extra: 'fuera' }));
+    const m = await waitFor(() => v.msgs.find((x) => x.t === 'stat'));
+    assert.deepStrictEqual(m, { t: 'stat', rtt: 45, fps: 22, kbps: 310, mode: 'completa' });
   });
 });
 
@@ -296,6 +355,12 @@ describe('sanitizeViewerMessage', () => {
     assert.deepStrictEqual(s({ t: 'text', text: 'hola' }), { t: 'text', text: 'hola' });
     assert.deepStrictEqual(s({ t: 'quality', q: 2 }), { t: 'quality', q: 2 });
     assert.deepStrictEqual(s({ t: 'key', a: 'up', code: 'ArrowLeft' }), { t: 'key', a: 'up', code: 'ArrowLeft' });
+    assert.deepStrictEqual(s({ t: 'key', a: 'down', code: 'MetaLeft' }), { t: 'key', a: 'down', code: 'MetaLeft' });
+    assert.deepStrictEqual(s({ t: 'key', a: 'down', code: 'ContextMenu' }), { t: 'key', a: 'down', code: 'ContextMenu' });
+    assert.deepStrictEqual(s({ t: 'ack', seq: 42 }), { t: 'ack', seq: 42 });
+    assert.deepStrictEqual(s({ t: 'ack', seq: 0, resync: true }), { t: 'ack', seq: 0, resync: true });
+    assert.deepStrictEqual(s({ t: 'ack', seq: 5, resync: false }), { t: 'ack', seq: 5 });
+    assert.deepStrictEqual(s({ t: 'caps', tiles: true }), { t: 'caps', tiles: true });
   });
   it('rechaza basura', () => {
     assert.strictEqual(s(null), null);
@@ -303,5 +368,15 @@ describe('sanitizeViewerMessage', () => {
     assert.strictEqual(s({ t: 'mouse', a: 'move', x: NaN, y: 0 }), null);
     assert.strictEqual(s({ t: 'text', text: '' }), null);
     assert.strictEqual(s({ t: 'quality', q: 0 }), null);
+    assert.strictEqual(s({ t: 'ack', seq: -1 }), null);
+    assert.strictEqual(s({ t: 'ack', seq: 1.5 }), null);
+    assert.strictEqual(s({ t: 'ack', seq: 4294967296 }), null);
+    assert.strictEqual(s({ t: 'ack' }), null);
+    assert.strictEqual(s({ t: 'caps', tiles: false }), null);
+    assert.strictEqual(s({ t: 'caps' }), null);
+  });
+  it('rechaza texto largo (>200 caracteres)', () => {
+    assert.deepStrictEqual(s({ t: 'text', text: 'a'.repeat(200) }), { t: 'text', text: 'a'.repeat(200) });
+    assert.strictEqual(s({ t: 'text', text: 'a'.repeat(201) }), null);
   });
 });

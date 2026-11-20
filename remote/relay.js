@@ -27,6 +27,20 @@
 //         handler async va envuelto (una promesa rechazada sin manejar tumba
 //         el proceso entero de TKS);
 //       * inicio y fin de cada sesión quedan en cb_audit_log.
+//
+// 2026-11-20: control de flujo "sin lag" + icono de bandeja + modo
+// desatendido. El relay no decodifica el video — solo retransmite bytes —
+// así que lo nuevo acá es: dejar pasar {t:'ack',seq,resync?} y
+// {t:'caps',tiles:true} del visor (compatibilidad: un visor viejo nunca los
+// manda y todo sigue igual, JPEG completo de siempre); reenviar {t:'stat',...}
+// del agente al visor (medidor de RTT/fps/KB/s); auditar el campo opcional
+// unattended:true de {t:'consent'} cuando ese equipo tiene esa opción activa
+// en su config.json (decisión LOCAL del equipo, nunca algo que el servidor
+// pueda prender); ack/caps no cuentan para el corte por inactividad (igual
+// que ping) ni se bloquean en modo solo-ver (ahí también hay frames que
+// confirmar). maxFps/maxBytesPerSec subieron (8→30, 4→6 MB/s): el control de
+// flujo por ack ya evita que se acumule nada, así que el tope solo protege
+// contra un agente roto, no limita la fluidez normal.
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
@@ -37,13 +51,13 @@ const DEFAULT_LIMITS = {
   authTimeoutMs: 10000,
   viewerMaxMsgPerSec: 250,
   viewerBackpressureBytes: 1.5 * 1024 * 1024,
-  maxFps: 8,                           // frames/seg hacia el visor
-  maxBytesPerSec: 4 * 1024 * 1024,     // bytes/seg de frames hacia el visor
+  maxFps: 30,                          // frames/seg hacia el visor (control de flujo por ack evita que esto se acumule)
+  maxBytesPerSec: 6 * 1024 * 1024,     // bytes/seg de frames hacia el visor
   lastSeenWriteMs: 5 * 60 * 1000,      // last_seen en Supabase: cada 5 min
   heartbeatIntervalMs: 15000,
   heartbeatTimeoutMs: 45000,
   revalidateMs: 60 * 1000,
-  maxSessionMs: 2 * 60 * 60 * 1000,
+  maxSessionMs: 4 * 60 * 60 * 1000,
   idleMs: 15 * 60 * 1000,
   maxPendingGlobal: 50,                // conexiones sin autenticar, total
   maxPendingPerIp: 5,                  // conexiones sin autenticar, por IP
@@ -56,6 +70,7 @@ const MOUSE_ACTIONS = new Set(['move', 'down', 'up', 'wheel']);
 const KEY_ACTIONS = new Set(['down', 'up']);
 const KEY_CODE_RE = /^[A-Za-z0-9]{1,20}$/;
 const MAX_TEXT_CHARS = 200;
+const MAX_SEQ = 4294967295; // uint32, mismo tope que usa el agente para sus números de secuencia
 
 function sha256hex(s) {
   return crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -101,6 +116,23 @@ function sanitizeViewerMessage(msg) {
     case 'quality': {
       if (!Number.isInteger(msg.q) || msg.q < 1 || msg.q > 3) return null;
       return { t: 'quality', q: msg.q };
+    }
+    case 'ack': {
+      // Control de flujo "sin lag": el visor confirma hasta qué paquete ya
+      // dibujó; el agente nunca manda más de 2 sin confirmar y, si el visor
+      // va atrasado, descarta los viejos en vez de encolarlos. resync: true
+      // pide un refresco completo (p.ej. tras perder un paquete).
+      if (!Number.isInteger(msg.seq) || msg.seq < 0 || msg.seq > MAX_SEQ) return null;
+      const out = { t: 'ack', seq: msg.seq };
+      if (msg.resync === true) out.resync = true;
+      return out;
+    }
+    case 'caps': {
+      // El visor declara qué soporta (hoy solo "tiles": actualización por
+      // regiones). Un agente/visor viejo que nunca manda esto sigue en el
+      // modo de siempre (JPEG completo), así que es compatible hacia atrás.
+      if (msg.tiles !== true) return null;
+      return { t: 'caps', tiles: true };
     }
     default: return null;
   }
@@ -309,12 +341,27 @@ function create(deps) {
       if (msg.t === 'info') {
         a.info = { w: Number(msg.w) || 0, h: Number(msg.h) || 0, host: String(msg.host || '').slice(0, 80), os: String(msg.os || '').slice(0, 40) };
         if (v) sendCtl(v.ws, { t: 'info', ...a.info });
+      } else if (msg.t === 'stat') {
+        // Estadísticas del agente (rtt/fps/kbps medidos con los ack) para el
+        // medidor de latencia del visor. Solo números/texto corto: nunca se
+        // reenvía el objeto crudo del agente.
+        if (v) {
+          sendCtl(v.ws, {
+            t: 'stat',
+            rtt: Math.max(0, Number(msg.rtt) || 0),
+            fps: Math.max(0, Number(msg.fps) || 0),
+            kbps: Math.max(0, Number(msg.kbps) || 0),
+            mode: String(msg.mode || '').slice(0, 20),
+          });
+        }
       } else if (msg.t === 'consent') {
         if (!v) return;
         v.consent = msg.ok === true;
         v.viewOnly = msg.viewOnly === true;
+        const unattended = msg.unattended === true; // ese equipo tiene "unattended":true en su config.json (decisión local, no del servidor)
         sendCtl(v.ws, { t: 'consent', ok: v.consent, viewOnly: v.viewOnly });
-        audit({ username: v.user, role: 'administrador' }, 'remote_session_consent', deviceId, { ok: v.consent, viewOnly: v.viewOnly });
+        audit({ username: v.user, role: 'administrador' }, 'remote_session_consent', deviceId,
+          unattended ? { ok: v.consent, viewOnly: v.viewOnly, unattended: true } : { ok: v.consent, viewOnly: v.viewOnly });
         if (!v.consent) endViewerSession(deviceId, 'rechazada en el equipo');
       } else if (msg.t === 'ping') {
         maybeTouch(a, deviceId);
@@ -393,8 +440,11 @@ function create(deps) {
         if (!ag) return;
         if (viewers.get(deviceId) !== v) return;
         if (v.consent !== true) return; // sin consentimiento no pasa nada
-        if (v.viewOnly && msg.t !== 'quality') return;
-        v.lastInput = t;
+        // ack/caps son control de flujo del video, no entrada del usuario:
+        // pasan también en modo solo-ver (ahí también se reciben frames) y,
+        // como el ping, no cuentan para el corte por inactividad.
+        if (v.viewOnly && msg.t !== 'quality' && msg.t !== 'ack' && msg.t !== 'caps') return;
+        if (msg.t !== 'ack' && msg.t !== 'caps') v.lastInput = t;
         sendCtl(ag.ws, msg);
       } catch (e) {
         console.error('relay: error en mensaje de visor: ' + (e && e.message));

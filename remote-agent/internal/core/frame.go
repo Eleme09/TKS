@@ -38,6 +38,8 @@ type FrameEncoder struct {
 	lastHash uint64
 	hasLast  bool
 	buf      bytes.Buffer
+	MaxW     int // 0 → MaxFrameWidth
+	scaled   *image.RGBA
 }
 
 func NewFrameEncoder() *FrameEncoder { return &FrameEncoder{seed: maphash.MakeSeed()} }
@@ -48,7 +50,11 @@ func (f *FrameEncoder) ForceNext() { f.hasLast = false }
 // Encode devuelve el JPEG, el tamaño final y si hay que enviarlo.
 func (f *FrameEncoder) Encode(src *image.RGBA, quality int) (data []byte, w, h int, send bool, err error) {
 	sb := src.Bounds()
-	w, h = ScaledSize(sb.Dx(), sb.Dy(), MaxFrameWidth)
+	maxW := f.MaxW
+	if maxW <= 0 {
+		maxW = MaxFrameWidth
+	}
+	w, h = ScaledSize(sb.Dx(), sb.Dy(), maxW)
 	if w == 0 {
 		return nil, 0, 0, false, nil
 	}
@@ -56,7 +62,10 @@ func (f *FrameEncoder) Encode(src *image.RGBA, quality int) (data []byte, w, h i
 	if w == sb.Dx() && h == sb.Dy() {
 		img = src
 	} else {
-		img = image.NewRGBA(image.Rect(0, 0, w, h))
+		if f.scaled == nil || f.scaled.Bounds().Dx() != w || f.scaled.Bounds().Dy() != h {
+			f.scaled = image.NewRGBA(image.Rect(0, 0, w, h))
+		}
+		img = f.scaled
 		draw.ApproxBiLinear.Scale(img, img.Bounds(), src, sb, draw.Src, nil)
 	}
 	sum := hashPix(f.seed, img)

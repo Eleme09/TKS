@@ -75,3 +75,51 @@ func TestAgentProtocolAgainstFakeRelay(t *testing.T) {
 		}
 	}
 }
+
+// Modo desatendido: responde consent ok=true con unattended=true, sin aviso.
+func TestUnattendedConsent(t *testing.T) {
+	got := make(chan map[string]any, 8)
+	up := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		c.ReadMessage()
+		c.WriteMessage(websocket.TextMessage, []byte(`{"t":"authok","name":"pc"}`))
+		c.WriteMessage(websocket.TextMessage, []byte(`{"t":"session_start","viewer":"Elemee"}`))
+		for {
+			_, data, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			var m map[string]any
+			json.Unmarshal(data, &m)
+			got <- m
+		}
+	}))
+	defer srv.Close()
+	cfg := proto.Config{Server: strings.Replace(srv.URL, "http://", "ws://", 1), Device: "d", Token: "t", AllowInsecure: true, Unattended: true}
+	a, err := NewAgent(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Run(ctx)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case m := <-got:
+			if m["t"] == "consent" {
+				if m["ok"] != true || m["unattended"] != true {
+					t.Fatalf("consent: %v", m)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no llegó consent")
+		}
+	}
+}

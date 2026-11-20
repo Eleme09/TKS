@@ -26,6 +26,13 @@ type Config struct {
 	Device        string `json:"device"`
 	Token         string `json:"token"`
 	AllowInsecure bool   `json:"allowInsecure"`
+	// Unattended: acepta sesiones sin mostrar el aviso Sí/No. Decisión LOCAL de
+	// quien instala el agente; el servidor no puede activarla.
+	Unattended bool `json:"unattended"`
+	// MaxWidth: ancho máximo (px) de la imagen enviada. 0 → 1600.
+	MaxWidth int `json:"maxWidth"`
+	// MaxFPS: tope de cuadros por segundo. 0 → 20 (máximo 30).
+	MaxFPS int `json:"maxFps"`
 }
 
 // ParseConfig valida el contenido de config.json.
@@ -42,6 +49,12 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if _, err := BuildAgentURL(c.Server, c.AllowInsecure); err != nil {
 		return c, err
+	}
+	if c.MaxWidth != 0 && (c.MaxWidth < 320 || c.MaxWidth > 4096) {
+		return c, errors.New("maxWidth debe estar entre 320 y 4096")
+	}
+	if c.MaxFPS < 0 || c.MaxFPS > 30 {
+		return c, errors.New("maxFps debe estar entre 1 y 30")
 	}
 	return c, nil
 }
@@ -88,6 +101,10 @@ type InMsg struct {
 	D      float64 `json:"d,omitempty"`
 	Code   string  `json:"code,omitempty"`
 	Q      float64 `json:"q,omitempty"`
+	Text   string  `json:"text,omitempty"`
+	Seq    float64 `json:"seq,omitempty"`
+	Resync bool    `json:"resync,omitempty"`
+	Tiles  bool    `json:"tiles,omitempty"`
 }
 
 func ParseIn(data []byte) (InMsg, error) {
@@ -111,9 +128,46 @@ func InfoMsg(w, h int, host, os string) []byte {
 	return b
 }
 
-func ConsentMsg(ok, viewOnly bool) []byte {
-	b, _ := json.Marshal(map[string]any{"t": "consent", "ok": ok, "viewOnly": viewOnly})
+func ConsentMsg(ok, viewOnly bool) []byte { return ConsentMsgFull(ok, viewOnly, false) }
+
+// ConsentMsgFull añade el campo opcional unattended (solo cuando es true) para
+// que el relay lo deje en la auditoría.
+func ConsentMsgFull(ok, viewOnly, unattended bool) []byte {
+	m := map[string]any{"t": "consent", "ok": ok, "viewOnly": viewOnly}
+	if unattended {
+		m["unattended"] = true
+	}
+	b, _ := json.Marshal(m)
 	return b
+}
+
+// StatMsg: estadísticas del agente para la barra del visor (RTT agente↔visor medido con los ack).
+func StatMsg(rttMs, fps, kbps int, level string) []byte {
+	b, _ := json.Marshal(map[string]any{"t": "stat", "rtt": rttMs, "fps": fps, "kbps": kbps, "mode": level})
+	return b
+}
+
+// MaxTextRunes: tope de texto por mensaje {t:'text'} (igual que relay.js).
+const MaxTextRunes = 200
+
+// CleanText descarta controles (salvo \n y \t) y recorta a MaxTextRunes.
+func CleanText(s string) string {
+	var sb strings.Builder
+	n := 0
+	for _, r := range s {
+		if r == '\r' || r == '�' {
+			continue
+		}
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			continue
+		}
+		sb.WriteRune(r)
+		n++
+		if n >= MaxTextRunes {
+			break
+		}
+	}
+	return sb.String()
 }
 
 func PingMsg() []byte { return []byte(`{"t":"ping"}`) }

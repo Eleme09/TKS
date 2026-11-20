@@ -3,7 +3,9 @@ package core
 import "strings"
 
 // Mapeo de event.code de JS a teclas virtuales de Windows (lista blanca).
-// Lo desconocido se ignora. Win (Meta) y Ctrl+Alt+Supr se bloquean.
+// Lo desconocido se ignora. Win (Meta) solo se permite en modo "control total"
+// (agente de nube); Ctrl+Alt+Supr nunca (Windows no deja inyectarlo con
+// SendInput: es la "secuencia de atención segura").
 
 type keyInfo struct {
 	vk       uint16
@@ -66,6 +68,14 @@ func buildKeyTable() map[string]keyInfo {
 	set("NumpadDivide", 0x6F, true)
 	set("NumpadDecimal", 0x6E, false)
 	set("NumLock", 0x90, true)
+	set("PrintScreen", 0x2C, true)
+	set("ScrollLock", 0x91, false)
+	set("Pause", 0x13, false)
+	set("ContextMenu", 0x5D, true)
+	set("MetaLeft", 0x5B, true)
+	set("MetaRight", 0x5C, true)
+	set("OSLeft", 0x5B, true)
+	set("OSRight", 0x5C, true)
 	return t
 }
 
@@ -86,10 +96,17 @@ func itoa(i int) string {
 // KeyGuard lleva el estado de teclas pulsadas para bloquear combinaciones
 // peligrosas y poder soltarlo todo al cerrar la sesión.
 type KeyGuard struct {
-	down map[string]bool
+	down      map[string]bool
+	allowMeta bool
 }
 
+// NewKeyGuard: modo restringido (red local): sin tecla Windows.
 func NewKeyGuard() *KeyGuard { return &KeyGuard{down: map[string]bool{}} }
+
+// NewKeyGuardFull: control total (agente de nube): permite Win y sus combinaciones.
+func NewKeyGuardFull() *KeyGuard { return &KeyGuard{down: map[string]bool{}, allowMeta: true} }
+
+func isMeta(c string) bool { return strings.HasPrefix(c, "Meta") || c == "OSLeft" || c == "OSRight" }
 
 func isCtrl(c string) bool { return c == "ControlLeft" || c == "ControlRight" }
 func isAlt(c string) bool  { return c == "AltLeft" || c == "AltRight" }
@@ -101,8 +118,8 @@ func (g *KeyGuard) ctrlAltDown() bool {
 // Filter decide si un evento ('down'|'up') se ejecuta. Devuelve la tecla
 // virtual, si es extendida y si se permite.
 func (g *KeyGuard) Filter(action, code string) (vk uint16, ext bool, ok bool) {
-	if strings.HasPrefix(code, "Meta") || code == "OSLeft" || code == "OSRight" {
-		return 0, false, false // tecla Windows bloqueada
+	if isMeta(code) && !g.allowMeta {
+		return 0, false, false // tecla Windows bloqueada en modo restringido
 	}
 	ki, known := keyTable[code]
 	if !known {
@@ -120,7 +137,7 @@ func (g *KeyGuard) Filter(action, code string) (vk uint16, ext bool, ok bool) {
 		if !wasDown {
 			// Un "up" sin "down" previo: solo se permite para modificadores
 			// (evita soltar teclas que nunca pulsó el visor).
-			if !(isCtrl(code) || isAlt(code) || strings.HasPrefix(code, "Shift")) {
+			if !(isCtrl(code) || isAlt(code) || isMeta(code) || strings.HasPrefix(code, "Shift")) {
 				return 0, false, false
 			}
 		}

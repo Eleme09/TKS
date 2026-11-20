@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -26,14 +28,47 @@ type Agent struct {
 	conn *websocket.Conn
 
 	ctrl *core.Controller
+
+	// StatusFn: si no es nil, se llama con el estado para mostrar en el icono
+	// de bandeja ("En línea" / "Conectado a <viewer>" / "Desconectado del
+	// servidor") y si hay una sesión activa (para habilitar/deshabilitar
+	// "Cerrar sesión actual" en su menú). Puede quedar sin asignar (nil) sin
+	// que nada se rompa — el agente funciona igual sin bandeja.
+	StatusFn func(status string, sessionActive bool)
+
+	// Tras un corte local en modo desatendido no se acepta nada automáticamente
+	// durante localCutCooldown (UnixNano).
+	cutUntil atomic.Int64
 }
+
+func (a *Agent) setStatus(status string, active bool) {
+	if a.StatusFn != nil {
+		a.StatusFn(status, active)
+	}
+}
+
+const localCutCooldown = 60 * time.Second
 
 func NewAgent(cfg proto.Config) (*Agent, error) {
 	u, err := proto.BuildAgentURL(cfg.Server, cfg.AllowInsecure)
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{cfg: cfg, url: u, ctrl: core.NewController(core.CaptureOptions{}, false)}, nil
+	ctrl := core.NewController(core.CaptureOptions{MaxWidth: cfg.MaxWidth, MaxFPS: cfg.MaxFPS}, false)
+	ctrl.FullKeys = true   // control total: Win y combinaciones
+	ctrl.AllowTiles = true // regiones + ack con visores nuevos (los viejos siguen igual)
+	a := &Agent{cfg: cfg, url: u, ctrl: ctrl}
+	if cfg.Unattended {
+		ctrl.Unattended = true
+		ctrl.Consent = func(ctx context.Context, viewer string) bool {
+			if time.Now().UnixNano() < a.cutUntil.Load() {
+				core.Logf("Solicitud de «%s» rechazada: hubo un corte local hace menos de %s.", viewer, localCutCooldown)
+				return false
+			}
+			return true
+		}
+	}
+	return a, nil
 }
 
 // Run conecta y reconecta con backoff hasta que ctx termine.
@@ -58,6 +93,7 @@ func (a *Agent) Run(ctx context.Context) {
 		default:
 			core.Logf("Desconectado: %v", err)
 		}
+		a.setStatus("Desconectado del servidor", false)
 		wait := backoff + time.Duration(rand.Int63n(int64(backoff)/2+1))
 		core.Logf("Reintentando en %s…", wait.Round(time.Second))
 		select {
@@ -75,7 +111,19 @@ func (a *Agent) Run(ctx context.Context) {
 }
 
 func (a *Agent) connectOnce(parent context.Context) (authed bool, err error) {
-	d := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
+	nd := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	d := websocket.Dialer{
+		HandshakeTimeout:  15 * time.Second,
+		Proxy:             http.ProxyFromEnvironment,
+		EnableCompression: false, // sin permessage-deflate: los JPEG ya van comprimidos
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := nd.DialContext(ctx, network, addr)
+			if tc, ok := c.(*net.TCPConn); ok {
+				tc.SetNoDelay(true) // TCP_NODELAY: el input no espera a juntar paquetes
+			}
+			return c, err
+		},
+	}
 	core.Logf("Conectando a %s …", a.url)
 	conn, _, err := d.DialContext(parent, a.url, nil)
 	if err != nil {
@@ -114,7 +162,12 @@ func (a *Agent) connectOnce(parent context.Context) (authed bool, err error) {
 	}
 	conn.SetReadDeadline(time.Time{})
 	authed = true
-	core.Logf("Conectado y autenticado (equipo %s). Esperando solicitudes (no se comparte nada hasta que aceptes).", a.cfg.Device)
+	if a.cfg.Unattended {
+		core.Logf("Conectado y autenticado (equipo %s). MODO DESATENDIDO: las sesiones se aceptan sin preguntar (Ctrl+Shift+F12 corta).", a.cfg.Device)
+	} else {
+		core.Logf("Conectado y autenticado (equipo %s). Esperando solicitudes (no se comparte nada hasta que aceptes).", a.cfg.Device)
+	}
+	a.setStatus("En línea", false)
 
 	a.ctrl.SendInfo(a.transport(conn))
 
@@ -149,10 +202,16 @@ func (a *Agent) connectOnce(parent context.Context) (authed bool, err error) {
 		}
 		switch m.T {
 		case "session_start":
-			a.ctrl.Start(ctx, a.transport(conn), proto.SanitizeViewer(m.Viewer))
+			viewer := proto.SanitizeViewer(m.Viewer)
+			a.setStatus("Conectado a "+viewer, true)
+			done := a.ctrl.Start(ctx, a.transport(conn), viewer)
+			go func() {
+				<-done
+				a.setStatus("En línea", false)
+			}()
 		case "session_end":
 			a.ctrl.End()
-		case "mouse", "key", "quality":
+		case "mouse", "key", "quality", "text", "ack", "caps":
 			a.ctrl.HandleInput(m)
 		}
 	}
@@ -182,6 +241,9 @@ func (a *Agent) transport(conn *websocket.Conn) core.Transport {
 // LocalCut: corte local (Ctrl+Shift+F12). Avisa al relay con consent=false,
 // que cierra la sesión del visor.
 func (a *Agent) LocalCut() {
+	if a.cfg.Unattended && a.ctrl.Active() {
+		a.cutUntil.Store(time.Now().Add(localCutCooldown).UnixNano())
+	}
 	a.ctrl.LocalCut(func() {
 		a.wmu.Lock()
 		c := a.conn

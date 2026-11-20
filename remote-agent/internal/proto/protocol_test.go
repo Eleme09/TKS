@@ -82,3 +82,31 @@ func TestQuality(t *testing.T) {
 		t.Error("0 no válido")
 	}
 }
+
+func TestUnattendedConfigAndMessages(t *testing.T) {
+	c, err := ParseConfig([]byte(`{"server":"a.com","device":"d","token":"t","unattended":true,"maxWidth":1280,"maxFps":25}`))
+	if err != nil || !c.Unattended || c.MaxWidth != 1280 || c.MaxFPS != 25 {
+		t.Fatal(c, err)
+	}
+	c, _ = ParseConfig([]byte(`{"server":"a.com","device":"d","token":"t"}`))
+	if c.Unattended {
+		t.Error("por defecto false")
+	}
+	for _, bad := range []string{`"maxWidth":100`, `"maxFps":99`} {
+		if _, err := ParseConfig([]byte(`{"server":"a.com","device":"d","token":"t",` + bad + `}`)); err == nil {
+			t.Errorf("debería fallar %s", bad)
+		}
+	}
+	if got := string(ConsentMsgFull(true, false, true)); got != `{"ok":true,"t":"consent","unattended":true,"viewOnly":false}` {
+		t.Error(got)
+	}
+	if strings.Contains(string(ConsentMsg(true, false)), "unattended") {
+		t.Error("sin campo cuando no es desatendido")
+	}
+	if got := CleanText("a\x00b\r\nc\td"); got != "ab\nc\td" {
+		t.Errorf("%q", got)
+	}
+	if len([]rune(CleanText(strings.Repeat("ñ", 500)))) != MaxTextRunes {
+		t.Error("recorte")
+	}
+}

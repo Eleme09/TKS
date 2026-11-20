@@ -35,6 +35,8 @@
     padding: 10px 15px; border-radius: 10px; display: inline-flex; align-items: center; min-height: 40px; }
   .btn:hover { background: linear-gradient(180deg, rgba(255,143,190,.26), rgba(255,143,190,.12)); }
   .btn.bad { color: var(--bad); border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.08); }
+  .btn:disabled, .btn.disabled { opacity: .35; cursor: not-allowed; }
+  .btn.small { font-size: 10.5px; padding: 7px 10px; min-height: 32px; }
   .card { background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%); border: 1px solid var(--border);
     border-radius: var(--r-md); padding: 20px; margin-bottom: 14px; }
   .dev { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -48,14 +50,28 @@
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   input[type=text] { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-3);
     color: var(--text); font-family: var(--font-body); font-size: 14px; min-width: 220px; }
+  select.q { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-3);
+    color: var(--text); font-family: var(--font-body); font-size: 12.5px; min-height: 36px; }
   .token { font-family: var(--font-mono); background: var(--surface-3); border: 1px dashed var(--pink-line); border-radius: 10px;
     padding: 12px; word-break: break-all; margin-top: 10px; font-size: 13px; }
   #screenWrap { display: none; }
-  #bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-  #status { font-size: 12.5px; color: var(--muted); flex: 1; min-width: 180px; }
-  #stage { background: #000; border: 1px solid var(--border-strong); border-radius: var(--r-sm); overflow: hidden; line-height: 0; }
-  #screen { width: 100%; height: auto; display: block; cursor: crosshair; outline: none; touch-action: none; }
+  #bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #status { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+  #stat { font-size: 11px; color: var(--muted-dim); font-family: var(--font-mono); }
+  #stage { background: #000; border: 1px solid var(--border-strong); border-radius: var(--r-sm); overflow: hidden;
+    line-height: 0; position: relative; }
+  #screen { width: 100%; height: auto; display: block; cursor: none; outline: none; touch-action: none; }
+  #cursor { position: absolute; width: 18px; height: 18px; pointer-events: none; z-index: 5; display: none;
+    transform: translate(-2px, -2px); filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
   .warn { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  #pasteBox { display: none; margin-top: 10px; }
+  #pasteBox textarea { width: 100%; min-height: 70px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-3); color: var(--text); font-family: var(--font-body); font-size: 13px; padding: 10px; }
+  .tip { position: relative; }
+  .tip:hover .tipText { display: block; }
+  .tipText { display: none; position: absolute; bottom: 110%; left: 0; background: var(--surface-3); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 7px 10px; font-size: 11px; color: var(--muted); width: 210px; z-index: 10; }
 </style>
 </head>
 <body>
@@ -63,7 +79,7 @@
   <div class="top">
     <div>
       <h1>Control remoto</h1>
-      <div class="sub">Equipos del estudio con el agente instalado. Cada sesión exige que quien está en el computador la acepte.</div>
+      <div class="sub">Equipos del estudio con el agente instalado. Cada sesión exige que quien está en el computador la acepte (salvo que ese equipo tenga el modo desatendido activado localmente).</div>
     </div>
     <a class="btn" href="/">Volver</a>
   </div>
@@ -84,11 +100,38 @@
   </div>
 
   <div id="screenWrap" class="card">
-    <div id="bar">
-      <button class="btn bad" id="btnClose">Cerrar sesión</button>
-      <div id="status"></div>
+    <div id="toolbar">
+      <button class="btn small" id="btnWin" title="Tecla Windows">Win</button>
+      <button class="btn small" id="btnWinR" title="Abrir Ejecutar (Win+R)">Win+R</button>
+      <span class="tip"><button class="btn small disabled" id="btnCad" disabled>Ctrl+Alt+Supr</button>
+        <span class="tipText">Windows no permite inyectar esta combinación por software (es la "secuencia de atención segura"). Si hace falta bloquear la sesión o abrir el administrador de tareas, usa Ctrl+Shift+Esc.</span></span>
+      <button class="btn small" id="btnAltTab" title="Cambiar de ventana">Alt+Tab</button>
+      <button class="btn small" id="btnCse" title="Administrador de tareas">Ctrl+Shift+Esc</button>
+      <button class="btn small" id="btnAltF4" title="Cerrar la ventana activa">Alt+F4</button>
+      <button class="btn small" id="btnPaste" title="Escribir un texto en el equipo remoto">Pegar texto</button>
+      <select class="q" id="selQuality" title="Calidad de imagen">
+        <option value="1">Calidad: baja</option>
+        <option value="2" selected>Calidad: media</option>
+        <option value="3">Calidad: alta</option>
+      </select>
+      <button class="btn small" id="btnFull" title="Pantalla completa">Pantalla completa</button>
+      <button class="btn bad small" id="btnClose">Cerrar sesión</button>
     </div>
-    <div id="stage"><canvas id="screen" tabindex="0"></canvas></div>
+    <div id="pasteBox">
+      <textarea id="pasteText" maxlength="200" placeholder="Hasta 200 caracteres. Se escriben en el equipo remoto como si los tipearas ahí."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn small" id="btnPasteSend">Escribir</button>
+        <button class="btn small" id="btnPasteCancel">Cancelar</button>
+      </div>
+    </div>
+    <div id="bar">
+      <div id="status">Conectando…</div>
+      <div id="stat"></div>
+    </div>
+    <div id="stage">
+      <canvas id="screen" tabindex="0"></canvas>
+      <svg id="cursor" viewBox="0 0 24 24"><path fill="#ffffff" stroke="#111" stroke-width="1" d="M3 2l7 18 2.5-7.5L20 10z"/></svg>
+    </div>
   </div>
 </div>
 
@@ -96,8 +139,11 @@
 (function () {
   var devList = document.getElementById('devList');
   var ws = null, cur = null, imgW = 0, imgH = 0, consent = false, viewOnly = false;
+  var tilesCapsSent = false;
+  var userClosed = false, reconnectTimer = null, reconnectDelay = 1000;
   var canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');
-  var statusEl = document.getElementById('status');
+  var cursorEl = document.getElementById('cursor');
+  var statusEl = document.getElementById('status'), statEl = document.getElementById('stat');
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function api(path, body) {
@@ -145,57 +191,313 @@
 
   function setStatus(t) { statusEl.textContent = t; }
 
+  // ---- Conexión y reconexión automática (con backoff; no reconecta si el
+  // usuario cerró la sesión a propósito con "Cerrar sesión"). ----
   function connect(id) {
-    if (ws) closeSession();
-    cur = id; consent = false; viewOnly = false; imgW = imgH = 0;
+    userClosed = false;
+    reconnectDelay = 1000;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    openSocket(id);
+  }
+
+  function openSocket(id) {
+    if (ws) closeSocketOnly();
+    cur = id; consent = false; viewOnly = false; imgW = imgH = 0; tilesCapsSent = false;
+    resetTileState();
     document.getElementById('screenWrap').style.display = 'block';
     setStatus('Conectando…');
+    statEl.textContent = '';
     var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
     ws = new WebSocket(proto + location.host + '/ws/remote/viewer?device=' + encodeURIComponent(id));
-    ws.binaryType = 'blob';
-    ws.onmessage = function (ev) {
-      if (typeof ev.data === 'string') {
-        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.t === 'waiting_consent') setStatus('Esperando que acepten en el equipo ' + (m.name || '') + '…');
-        else if (m.t === 'consent') { consent = !!m.ok; viewOnly = !!m.viewOnly; setStatus(m.ok ? (viewOnly ? 'Conectado — solo ver' : 'Conectado — control activo') : 'Rechazado en el equipo'); canvas.focus(); }
-        else if (m.t === 'info') { imgW = m.w; imgH = m.h; }
-        else if (m.t === 'agent_offline') setStatus('El equipo se desconectó');
-        else if (m.t === 'error') setStatus(m.error || 'Error');
-      } else {
-        createImageBitmap(ev.data).then(function (bmp) {
-          if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
-          ctx.drawImage(bmp, 0, 0);
-          imgW = bmp.width; imgH = bmp.height;
-          bmp.close();
-        }).catch(function () {});
-      }
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () { reconnectDelay = 1000; };
+    ws.onmessage = onSocketMessage;
+    ws.onclose = function () {
+      ws = null; consent = false;
+      setStatus('Sesión cerrada');
+      loadDevices();
+      scheduleReconnect();
     };
-    ws.onclose = function () { setStatus('Sesión cerrada'); ws = null; consent = false; loadDevices(); };
     ws.onerror = function () { setStatus('No se pudo conectar'); };
   }
 
-  function closeSession() { if (ws) { try { ws.close(); } catch (e) {} } ws = null; }
+  function scheduleReconnect() {
+    if (userClosed || !cur) return;
+    setStatus('Reconectando en ' + Math.round(reconnectDelay / 1000) + ' s…');
+    reconnectTimer = setTimeout(function () {
+      if (userClosed || !cur) return;
+      openSocket(cur);
+      reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+    }, reconnectDelay);
+  }
+
+  function closeSocketOnly() { try { if (ws) ws.close(); } catch (e) {} ws = null; }
+  function closeSession() {
+    userClosed = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    closeSocketOnly();
+  }
   document.getElementById('btnClose').addEventListener('click', function () {
-    closeSession(); document.getElementById('screenWrap').style.display = 'none'; loadDevices();
+    closeSession();
+    document.getElementById('screenWrap').style.display = 'none';
+    cur = null;
+    loadDevices();
   });
 
+  // ---- Control de flujo por confirmación (sin lag): se confirma cada
+  // paquete de pantalla dibujado; si llega uno más nuevo mientras se procesa
+  // el anterior, el navegador ya los recibe en orden por el propio WebSocket
+  // (TCP), así que basta con mandar el ack tras pintar cada uno. ----
+  var lastAckedSeq = 0;
+  function sendAck(seq, resync) {
+    if (!ws || ws.readyState !== 1) return;
+    var m = { t: 'ack', seq: seq };
+    if (resync) m.resync = true;
+    ws.send(JSON.stringify(m));
+    lastAckedSeq = seq;
+  }
+
+  // ---- Composición por regiones (tiles) ----
+  // prevCanvas: lienzo fuera de pantalla con el último estado dibujado;
+  // sirve para no perder nada si llegan tiles sueltos antes del primer frame
+  // completo (en ese caso se pide un resync).
+  var haveFullFrame = false;
+
+  function resetTileState() { haveFullFrame = false; }
+
+  function ensureCanvasSize(w, h) {
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  }
+
+  function onSocketMessage(ev) {
+    if (typeof ev.data === 'string') return onControlMessage(ev.data);
+    onBinaryFrame(ev.data);
+  }
+
+  function onControlMessage(raw) {
+    var m; try { m = JSON.parse(raw); } catch (e) { return; }
+    if (m.t === 'waiting_consent') setStatus('Esperando que acepten en el equipo ' + (m.name || '') + '…');
+    else if (m.t === 'consent') {
+      consent = !!m.ok; viewOnly = !!m.viewOnly;
+      setStatus(m.ok ? (viewOnly ? 'Conectado — solo ver' : 'Conectado — control activo') : 'Rechazado en el equipo');
+      if (m.ok && !tilesCapsSent) { ws.send(JSON.stringify({ t: 'caps', tiles: true })); tilesCapsSent = true; }
+      canvas.focus();
+    }
+    else if (m.t === 'info') { imgW = m.w; imgH = m.h; }
+    else if (m.t === 'agent_offline') setStatus('El equipo se desconectó');
+    else if (m.t === 'error') setStatus(m.error || 'Error');
+    else if (m.t === 'stat') renderStat(m);
+    else if (m.t === 'pong') onPong();
+  }
+
+  function renderStat(m) {
+    var modeLbl = { completa: 'nítida', media: 'media', reducida: 'reducida' }[m.mode] || m.mode || '';
+    statEl.textContent = 'RTT ' + (netRtt != null ? netRtt + ' ms' : '—') +
+      ' · agente ' + (m.rtt || 0) + ' ms · ' + (m.fps || 0) + ' fps · ' + (m.kbps || 0) + ' KB/s' +
+      (modeLbl ? ' · imagen ' + modeLbl : '');
+  }
+
+  // Latencia de red visor↔relay (independiente de la del agente, que ya
+  // manda la suya en {t:'stat'}): ping/pong propios del visor.
+  var netRtt = null, lastPingAt = 0;
+  function onPong() { if (lastPingAt) netRtt = Math.max(0, Math.round(performance.now() - lastPingAt)); }
+  setInterval(function () {
+    if (ws && ws.readyState === 1) { lastPingAt = performance.now(); ws.send('{"t":"ping"}'); }
+  }, 4000);
+
+  // Decodifica un binario entrante: puede ser (a) un JPEG completo "a la
+  // vieja" (agente/visor sin soporte de regiones: empieza con 0xFF 0xD8), o
+  // (b) un paquete nuevo [tipo][seq][w][h]...: tipo 1 = imagen completa,
+  // tipo 2 = solo las regiones que cambiaron. El visor sigue funcionando con
+  // el protocolo viejo sin ningún cambio (es exactamente la rama (a)).
+  function onBinaryFrame(buf) {
+    var bytes = new Uint8Array(buf);
+    if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xD8) {
+      drawLegacyJpeg(buf);
+      return;
+    }
+    if (bytes.length < 9 || (bytes[0] !== 1 && bytes[0] !== 2)) return; // desconocido: se ignora
+    var dv = new DataView(buf);
+    var type = bytes[0];
+    var seq = dv.getUint32(1, false);
+    var w = dv.getUint16(5, false), h = dv.getUint16(7, false);
+    ensureCanvasSize(w, h);
+    if (type === 1) {
+      decodeAndDraw(buf.slice(9), 0, 0, w, h, function (ok) {
+        haveFullFrame = ok;
+        sendAck(seq, !ok);
+      });
+      return;
+    }
+    // type 2: regiones. Si todavía no hay un frame completo de base, no se
+    // puede componer nada coherente: se descarta y se pide resync.
+    if (!haveFullFrame) { sendAck(seq, true); return; }
+    var n = dv.getUint16(9, false);
+    var off = 11, pending = n, failed = false;
+    if (n === 0) { sendAck(seq, false); return; }
+    for (var i = 0; i < n; i++) {
+      var x = dv.getUint16(off, false), y = dv.getUint16(off + 2, false);
+      var rw = dv.getUint16(off + 4, false), rh = dv.getUint16(off + 6, false);
+      var len = dv.getUint32(off + 8, false);
+      var start = off + 12;
+      (function (x, y, rw, rh, jpegBuf) {
+        decodeAndDraw(jpegBuf, x, y, rw, rh, function (ok) {
+          if (!ok) failed = true;
+          if (--pending === 0) sendAck(seq, failed);
+        });
+      })(x, y, rw, rh, buf.slice(start, start + len));
+      off = start + len;
+    }
+  }
+
+  function drawLegacyJpeg(buf) {
+    createImageBitmap(new Blob([buf])).then(function (bmp) {
+      ensureCanvasSize(bmp.width, bmp.height);
+      ctx.drawImage(bmp, 0, 0);
+      imgW = bmp.width; imgH = bmp.height;
+      haveFullFrame = true;
+      bmp.close();
+    }).catch(function () {});
+  }
+
+  function decodeAndDraw(jpegBuf, x, y, w, h, done) {
+    createImageBitmap(new Blob([jpegBuf])).then(function (bmp) {
+      ctx.drawImage(bmp, x, y, w, h);
+      bmp.close();
+      done(true);
+    }).catch(function () { done(false); });
+  }
+
+  // ---- Barra de herramientas ----
+  function sendKeySeq(steps) {
+    // steps: [[code, 'down'|'up', delayMsBefore], ...]
+    var i = 0;
+    function next() {
+      if (i >= steps.length) return;
+      var s = steps[i++];
+      setTimeout(function () { send({ t: 'key', a: s[1], code: s[0] }); next(); }, s[2] || 0);
+    }
+    next();
+  }
+  document.getElementById('btnWin').addEventListener('click', function () {
+    sendKeySeq([['MetaLeft', 'down', 0], ['MetaLeft', 'up', 80]]);
+  });
+  document.getElementById('btnWinR').addEventListener('click', function () {
+    sendKeySeq([['MetaLeft', 'down', 0], ['KeyR', 'down', 60], ['KeyR', 'up', 40], ['MetaLeft', 'up', 40]]);
+  });
+  document.getElementById('btnAltTab').addEventListener('click', function () {
+    sendKeySeq([['AltLeft', 'down', 0], ['Tab', 'down', 60], ['Tab', 'up', 40], ['AltLeft', 'up', 400]]);
+  });
+  document.getElementById('btnCse').addEventListener('click', function () {
+    sendKeySeq([['ControlLeft', 'down', 0], ['ShiftLeft', 'down', 20], ['Escape', 'down', 40], ['Escape', 'up', 40],
+      ['ShiftLeft', 'up', 20], ['ControlLeft', 'up', 20]]);
+  });
+  document.getElementById('btnAltF4').addEventListener('click', function () {
+    sendKeySeq([['AltLeft', 'down', 0], ['F4', 'down', 60], ['F4', 'up', 40], ['AltLeft', 'up', 40]]);
+  });
+  document.getElementById('btnFull').addEventListener('click', function () {
+    var st = document.getElementById('stage');
+    if (st.requestFullscreen) st.requestFullscreen().catch(function () {});
+  });
+  document.getElementById('selQuality').addEventListener('change', function (ev) {
+    send({ t: 'quality', q: Number(ev.target.value) });
+  });
+  document.getElementById('btnPaste').addEventListener('click', function () {
+    var box = document.getElementById('pasteBox');
+    box.style.display = box.style.display === 'block' ? 'none' : 'block';
+    if (box.style.display === 'block') document.getElementById('pasteText').focus();
+  });
+  document.getElementById('btnPasteCancel').addEventListener('click', function () {
+    document.getElementById('pasteBox').style.display = 'none';
+  });
+  document.getElementById('btnPasteSend').addEventListener('click', function () {
+    var ta = document.getElementById('pasteText');
+    var t = ta.value;
+    if (t) send({ t: 'text', text: t.slice(0, 200) });
+    ta.value = '';
+    document.getElementById('pasteBox').style.display = 'none';
+    canvas.focus();
+  });
+
+  // ---- Entrada: mouse/teclado ----
   function send(o) { if (ws && ws.readyState === 1 && consent && !viewOnly) ws.send(JSON.stringify(o)); }
+
   function norm(ev) {
     var r = canvas.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) };
   }
-  var lastMove = 0;
+  function placeCursor(ev) {
+    var r = document.getElementById('stage').getBoundingClientRect();
+    cursorEl.style.left = (ev.clientX - r.left) + 'px';
+    cursorEl.style.top = (ev.clientY - r.top) + 'px';
+    cursorEl.style.display = 'block';
+  }
+
+  // Movimientos de mouse agrupados: solo se manda la última posición cada
+  // cuadro (requestAnimationFrame, ~16 ms) — nunca una cola de posiciones
+  // viejas. El cursor propio, en cambio, se mueve al instante (sin esperar
+  // red ni al próximo frame de video), para que se sienta fluido.
+  var pendingMove = null;
+  function rafLoop() {
+    if (pendingMove) { send({ t: 'mouse', a: 'move', x: pendingMove.x, y: pendingMove.y }); pendingMove = null; }
+    requestAnimationFrame(rafLoop);
+  }
+  requestAnimationFrame(rafLoop);
+
   canvas.addEventListener('mousemove', function (ev) {
-    var n = Date.now(); if (n - lastMove < 40) return; lastMove = n;
-    var p = norm(ev); send({ t: 'mouse', a: 'move', x: p.x, y: p.y });
+    placeCursor(ev);
+    pendingMove = norm(ev);
   });
   canvas.addEventListener('mousedown', function (ev) { ev.preventDefault(); canvas.focus(); var p = norm(ev); send({ t: 'mouse', a: 'down', b: ev.button, x: p.x, y: p.y }); });
   canvas.addEventListener('mouseup', function (ev) { ev.preventDefault(); var p = norm(ev); send({ t: 'mouse', a: 'up', b: ev.button, x: p.x, y: p.y }); });
+  canvas.addEventListener('mouseleave', function () { cursorEl.style.display = 'none'; });
+  canvas.addEventListener('mouseenter', function () { cursorEl.style.display = 'block'; });
   canvas.addEventListener('wheel', function (ev) { ev.preventDefault(); send({ t: 'mouse', a: 'wheel', d: ev.deltaY > 0 ? -1 : 1 }); }, { passive: false });
   canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
-  canvas.addEventListener('keydown', function (ev) { ev.preventDefault(); send({ t: 'key', a: 'down', code: ev.code }); });
-  canvas.addEventListener('keyup', function (ev) { ev.preventDefault(); send({ t: 'key', a: 'up', code: ev.code }); });
-  setInterval(function () { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 20000);
+
+  // ---- Teclado: libera todo lo que haya quedado pulsado al perder foco,
+  // para no dejar Ctrl/Shift/Alt "pegados" en el equipo remoto. ----
+  var downCodes = {};
+  canvas.addEventListener('keydown', function (ev) {
+    ev.preventDefault();
+    downCodes[ev.code] = true;
+    send({ t: 'key', a: 'down', code: ev.code });
+  });
+  canvas.addEventListener('keyup', function (ev) {
+    ev.preventDefault();
+    delete downCodes[ev.code];
+    send({ t: 'key', a: 'up', code: ev.code });
+  });
+  function releaseAllKeys() {
+    Object.keys(downCodes).forEach(function (code) { send({ t: 'key', a: 'up', code: code }); });
+    downCodes = {};
+  }
+  canvas.addEventListener('blur', releaseAllKeys);
+  window.addEventListener('blur', releaseAllKeys);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) releaseAllKeys(); });
+
+  // ---- Táctil básico: un dedo = clic izquierdo; dos dedos = clic derecho. ----
+  var touchBtn = 0;
+  canvas.addEventListener('touchstart', function (ev) {
+    ev.preventDefault();
+    var t = ev.touches[0];
+    touchBtn = ev.touches.length >= 2 ? 2 : 0;
+    var p = norm(t);
+    send({ t: 'mouse', a: 'move', x: p.x, y: p.y });
+    send({ t: 'mouse', a: 'down', b: touchBtn, x: p.x, y: p.y });
+  }, { passive: false });
+  canvas.addEventListener('touchmove', function (ev) {
+    ev.preventDefault();
+    var t = ev.touches[0]; if (!t) return;
+    var p = norm(t);
+    pendingMove = p;
+  }, { passive: false });
+  canvas.addEventListener('touchend', function (ev) {
+    ev.preventDefault();
+    var t = ev.changedTouches[0]; if (!t) return;
+    var p = norm(t);
+    send({ t: 'mouse', a: 'up', b: touchBtn, x: p.x, y: p.y });
+  }, { passive: false });
 
   loadDevices();
   setInterval(function () { if (!ws) loadDevices(); }, 30000);

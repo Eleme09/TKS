@@ -4,6 +4,7 @@ package core
 
 import (
 	"math"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -33,6 +34,7 @@ const (
 
 	kevExtended = 0x0001
 	kevKeyUp    = 0x0002
+	kevUnicode  = 0x0004
 )
 
 type mouseInput struct {
@@ -173,4 +175,39 @@ func injectKey(vk uint16, ext bool, down bool) {
 		ki.flags |= kevKeyUp
 	}
 	sendInput(&in)
+}
+
+// injectText teclea texto Unicode (KEYEVENTF_UNICODE): sirve para cualquier
+// idioma y para "pegar" sin tocar el portapapeles del equipo.
+func injectText(s string) {
+	unicodeKey := func(u uint16, down bool) {
+		var in input
+		in.typ = inputKeyboard
+		ki := (*keybdInput)(unsafe.Pointer(&in.mi))
+		ki.scan = u
+		ki.flags = kevUnicode
+		if !down {
+			ki.flags |= kevKeyUp
+		}
+		sendInput(&in)
+	}
+	for _, r := range s {
+		switch {
+		case r == '\r':
+			continue
+		case r == '\n':
+			injectKey(0x0D, false, true)
+			injectKey(0x0D, false, false)
+		case r == '\t':
+			injectKey(0x09, false, true)
+			injectKey(0x09, false, false)
+		case r < 0x20:
+			continue
+		default:
+			for _, u := range utf16.Encode([]rune{r}) {
+				unicodeKey(u, true)
+				unicodeKey(u, false)
+			}
+		}
+	}
 }

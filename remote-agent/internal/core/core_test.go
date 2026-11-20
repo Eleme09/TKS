@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"testing"
@@ -93,5 +95,106 @@ func TestFrameEncoderSkipsIdentical(t *testing.T) {
 	img.Set(5, 5, color.RGBA{1, 2, 3, 255})
 	if _, _, _, send, _ := e.Encode(img, 60); !send {
 		t.Error("frame distinto debe enviarse")
+	}
+}
+
+func TestFullGuardAllowsWinAndCombos(t *testing.T) {
+	g := NewKeyGuardFull()
+	for _, code := range []string{"MetaLeft", "MetaRight", "OSLeft", "PrintScreen", "F5", "ContextMenu", "Tab"} {
+		if _, _, ok := g.Filter("down", code); !ok {
+			t.Errorf("%s debe permitirse en control total", code)
+		}
+	}
+	if vk, ext, _ := g.Filter("down", "MetaLeft"); vk != 0x5B || !ext {
+		t.Error("MetaLeft debe ser VK_LWIN extendida")
+	}
+	if _, _, ok := g.Filter("up", "MetaLeft"); !ok {
+		t.Error("up de Win")
+	}
+	// Ctrl+Alt+Supr sigue bloqueado y lo desconocido también.
+	g.Filter("down", "ControlLeft")
+	g.Filter("down", "AltLeft")
+	if _, _, ok := g.Filter("down", "Delete"); ok {
+		t.Error("Ctrl+Alt+Supr no se inyecta")
+	}
+	if _, _, ok := g.Filter("down", "LaunchApp1"); ok {
+		t.Error("tecla desconocida")
+	}
+	// El modo restringido sigue sin Win.
+	if _, _, ok := NewKeyGuard().Filter("down", "MetaLeft"); ok {
+		t.Error("modo restringido bloquea Win")
+	}
+}
+
+func TestDiffAndPacketRoundtrip(t *testing.T) {
+	cur := image.NewRGBA(image.Rect(0, 0, 200, 130))
+	prev := image.NewRGBA(image.Rect(0, 0, 200, 130))
+	ch := make([]bool, 4*3)
+	if _, _, n := diffTiles(prev, cur, ch); n != 0 {
+		t.Fatalf("idénticas: %d", n)
+	}
+	cur.Set(70, 70, color.RGBA{255, 0, 0, 255}) // tile (1,1)
+	cols, rows, n := diffTiles(prev, cur, ch)
+	if n != 1 || !ch[1*cols+1] || cols != 4 || rows != 3 {
+		t.Fatalf("un tile: n=%d", n)
+	}
+	rs := runsFromTiles(ch, cols, rows, 200, 130)
+	if len(rs) != 1 || rs[0] != image.Rect(64, 64, 128, 128) {
+		t.Fatalf("runs: %v", rs)
+	}
+	cur.Set(199, 129, color.RGBA{0, 255, 0, 255}) // tile de borde (3,2): 8x2
+	cols, rows, _ = diffTiles(prev, cur, ch)
+	rs = runsFromTiles(ch, cols, rows, 200, 130)
+	if len(rs) != 2 || rs[1] != image.Rect(192, 128, 200, 130) {
+		t.Fatalf("borde: %v", rs)
+	}
+	var jb bytes.Buffer
+	pkt, err := encodeDeltaPacket(cur, rs, 7, 60, &jb)
+	if err != nil || pkt[0] != PktDelta || binary.BigEndian.Uint32(pkt[1:5]) != 7 ||
+		binary.BigEndian.Uint16(pkt[5:7]) != 200 || binary.BigEndian.Uint16(pkt[9:11]) != 2 {
+		t.Fatalf("cabecera delta: %v %v", pkt[:11], err)
+	}
+	off := 11
+	for i := 0; i < 2; i++ {
+		l := int(binary.BigEndian.Uint32(pkt[off+8 : off+12]))
+		if pkt[off+12] != 0xFF || pkt[off+13] != 0xD8 {
+			t.Fatal("la región debe ser JPEG")
+		}
+		off += 12 + l
+	}
+	if off != len(pkt) {
+		t.Fatal("longitud inconsistente")
+	}
+	full, err := encodeFullPacket(cur, 8, 60, &jb)
+	if err != nil || full[0] != PktFull || full[9] != 0xFF {
+		t.Fatal("paquete completo")
+	}
+}
+
+func TestStreamerFlowControlSkipsInsteadOfQueueing(t *testing.T) {
+	ts := newTileStreamer(1600, 20)
+	ts.onAck(0, false) // el visor declara ack
+	img := image.NewRGBA(image.Rect(0, 0, 640, 360))
+	p1, _, _, err := ts.step(img, 60)
+	if err != nil || p1 == nil || p1[0] != PktFull {
+		t.Fatalf("primer paquete debe ser completo: %v", err)
+	}
+	img.Set(10, 10, color.RGBA{9, 9, 9, 255})
+	p2, _, _, _ := ts.step(img, 60)
+	if p2 == nil || p2[0] != PktDelta {
+		t.Fatal("segundo: solo regiones")
+	}
+	img.Set(300, 300, color.RGBA{9, 9, 9, 255})
+	if p3, _, _, _ := ts.step(img, 60); p3 != nil {
+		t.Fatal("con 2 en vuelo no se envía (se salta)")
+	}
+	ts.onAck(1, false)
+	p4, _, _, _ := ts.step(img, 60)
+	if p4 == nil || p4[0] != PktDelta || binary.BigEndian.Uint16(p4[9:11]) == 0 {
+		t.Fatal("tras el ack se manda lo más reciente (incluye lo saltado)")
+	}
+	ts.onAck(3, true) // resync pedido por el visor
+	if p, _, _, _ := ts.step(img, 60); p == nil || p[0] != PktFull {
+		t.Fatal("resync → paquete completo")
 	}
 }

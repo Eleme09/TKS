@@ -1,100 +1,24 @@
 package core
 
-import (
-	"fmt"
-	"sync"
-	"time"
-)
+// Salida de consola.
+//
+// Ya NO hay franja/banner visual durante la sesión (quitado 2026-11-20 a
+// pedido explícito del usuario): el aviso de que el control remoto existe es
+// que el programa está visible — ventana o, en el agente de nube, icono de
+// bandeja — no un mensaje adicional que interrumpa a quien está frente al
+// equipo mientras la sesión corre. Lo que sigue intacto: el programa nunca se
+// oculta de la lista de procesos, Ctrl+Shift+F12 sigue cortando la sesión
+// desde este mismo equipo, y el relay sigue auditando quién se conectó y
+// cuándo (eso es trazabilidad interna, no un aviso en pantalla).
+//
+// Logf (qué se registra) y RecentLog (buffer para la ventanita de la
+// bandeja) viven en filelog.go, junto con EnableFileLog.
 
-// Salida de consola con banner permanente mientras hay sesión activa.
-
-// BaseTitle es el título de la consola cuando no hay sesión activa.
+// BaseTitle es el título de la consola cuando el programa corre con consola
+// visible (servidor/visor de red local). El agente de nube, como icono de
+// bandeja, no usa esto.
 var BaseTitle = "Placer — control remoto"
 
-var (
-	outMu    sync.Mutex
-	vtOK     bool // lo fija InitConsole (true si la consola entiende ANSI)
-	bannerOn bool
-	bannerCh chan struct{}
-)
-
-func Logf(format string, args ...any) {
-	outMu.Lock()
-	defer outMu.Unlock()
-	fmt.Printf("%s  %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
-}
-
-func bannerText(viewer string, since time.Time) string {
-	d := time.Since(since).Round(time.Second)
-	return fmt.Sprintf(" SESIÓN REMOTA ACTIVA — %s controla este equipo — %02d:%02d — Ctrl+Shift+F12 o cierra esta ventana para cortar ",
-		viewer, int(d.Minutes()), int(d.Seconds())%60)
-}
-
-// ShowBanner deja una franja roja fija arriba (región de scroll reservada)
-// hasta HideBanner. Nunca se oculta sola mientras la sesión esté activa.
-func ShowBanner(viewer string) {
-	outMu.Lock()
-	if bannerOn {
-		outMu.Unlock()
-		return
-	}
-	bannerOn = true
-	ch := make(chan struct{})
-	bannerCh = ch
-	since := time.Now()
-	SetConsoleTitle("SESIÓN REMOTA ACTIVA — Placer")
-	if vtOK {
-		fmt.Print("\x1b[2J\x1b[H")
-		paintBannerLocked(viewer, since)
-		fmt.Print("\x1b[4;999r\x1b[4;1H")
-	} else {
-		fmt.Println("\n*** SESIÓN REMOTA ACTIVA — " + viewer + " controla este equipo ***\n")
-	}
-	outMu.Unlock()
-
-	go func() {
-		t := time.NewTicker(time.Second)
-		defer t.Stop()
-		n := 0
-		for {
-			select {
-			case <-ch:
-				return
-			case <-t.C:
-				outMu.Lock()
-				if bannerOn && bannerCh == ch {
-					if vtOK {
-						fmt.Print("\x1b7")
-						paintBannerLocked(viewer, since)
-						fmt.Print("\x1b8")
-					} else if n++; n%10 == 0 {
-						fmt.Println("*** SESIÓN REMOTA ACTIVA ***")
-					}
-				}
-				outMu.Unlock()
-			}
-		}
-	}()
-}
-
-func paintBannerLocked(viewer string, since time.Time) {
-	fmt.Print("\x1b[1;1H\x1b[2K\x1b[97;41;1m" + bannerText(viewer, since) + "\x1b[0m")
-}
-
-func HideBanner() {
-	outMu.Lock()
-	defer outMu.Unlock()
-	if !bannerOn {
-		return
-	}
-	bannerOn = false
-	if bannerCh != nil {
-		close(bannerCh)
-		bannerCh = nil
-	}
-	if vtOK {
-		fmt.Print("\x1b[r\x1b[2J\x1b[H")
-	}
-	SetConsoleTitle(BaseTitle)
-	fmt.Printf("%s  Sesión remota terminada.\n", time.Now().Format("15:04:05"))
-}
+// vtOK: si la consola entiende ANSI. Ya sin uso real (el banner que lo
+// necesitaba se quitó), se deja declarado para no romper InitConsole.
+var vtOK bool
