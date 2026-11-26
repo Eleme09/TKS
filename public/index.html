@@ -2924,7 +2924,9 @@
       rechazada: 'color:var(--bad); border-color:rgba(255,90,95,0.35);',
       pendiente: 'color:var(--warn); border-color:rgba(245,194,107,0.35);',
     };
-    return '<div class="acc-list">' + rows.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
+    const pendientes = rows.filter(function (j) { return j.status === 'pendiente'; }).length;
+    const cabecera = '<summary style="cursor:pointer; font-weight:600; padding:6px 0;">Ver excusas (' + rows.length + ')' + (pendientes ? ' · ' + pendientes + ' pendiente' + (pendientes > 1 ? 's' : '') : '') + '</summary>';
+    return '<details>' + cabecera + '<div class="acc-list">' + rows.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
       const st = j.status;
       const chip = '<span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid var(--border); '
         + (colorEstado[st] || 'color:var(--muted);') + '">' + escapeHtml(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
@@ -2943,7 +2945,7 @@
         + '<div class="meta-small">' + escapeHtml(j.body || '') + (j.has_file ? ' · con archivo' : '') + '</div>'
         + '<div class="acc-actions">' + acciones + '</div>'
         + '</div>';
-    }).join('') + '</div>';
+    }).join('') + '</div></details>';
   }
 
   function attPendingExcuseHtml(list) {
