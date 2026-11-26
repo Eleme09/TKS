@@ -2113,7 +2113,7 @@ function buildExcuseLog(days, justifications) {
       }
     }
     out.push({
-      id: j.id, username: j.username, work_date: j.work_date, kind: j.kind, body: j.body,
+      id: j.id, day_id: d ? d.id : null, username: j.username, work_date: j.work_date, kind: j.kind, body: j.body,
       created_at: j.created_at, has_file: !!j.excuse_filename, status, reviewed_at: reviewedAt,
       late_minutes: d ? d.late_minutes : null,
     });
@@ -4850,33 +4850,46 @@ async function handleRequest(req, res) {
     const day = await sbFetchAttendanceDayById(id);
     if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
     const nowIso = new Date().toISOString();
-    // Rechazar un justificante pendiente (excused:false sin revisar antes) =
-    // la excusa no es valida: el dia pasa a FALTA con el turno completo, igual
-    // que marcar falta sin justificar (suma a deuda y umbral de seguridad
-    // social). Pedido 2026-11-26. Quitar una justificacion ya revisada no
-    // convierte nada en falta.
-    if (!excused && !day.late_excuse_reviewed_at && day.late_minutes > 0) {
+    const antes = { late_minutes: day.late_minutes, late_excused: day.late_excused || false, official_source: day.official_source || null };
+
+    // La decision se puede cambiar en cualquier momento (pedido 2026-11-26):
+    // aprobada <-> rechazada. Rechazar = FALTA con turno completo (suma a
+    // deuda y umbral de seguridad social). Aprobar algo que estaba rechazado
+    // devuelve la hora real (official_at se conserva para eso).
+    if (!excused) {
+      if (day.official_source === 'falta_justificada') return sendJson(res, 400, { error: 'Es una falta justificada: no hay retraso que rechazar' });
       const schedule = await sbListAttendanceSchedule();
       const hers = schedule.find((s) => s.username === day.username);
       const durationMin = hers && hers.exit_time ? shiftDurationMinutes(hers.entry_time, hers.exit_time) : null;
       if (durationMin == null) return sendJson(res, 400, { error: 'Esa modelo no tiene horario asignado: no se puede convertir en falta' });
       const result = await sbUpdateAttendanceDay(id, {
         late_excused: false, late_excuse_reviewed_at: nowIso,
-        status: 'validada', official_at: null, official_source: 'falta', exit_at: null, exit_source: null,
+        status: 'validada', official_source: 'falta', exit_at: null, exit_source: null,
         early_exit_minutes: null, late_minutes: durationMin,
-        note: 'Justificante rechazado: falta', validated_at: nowIso, validated_by: session.username,
+        note: 'Justificante rechazado: falta',
       });
       if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
-      await sbLogAudit(session, 'attendance_day_excuse_late_rejected_to_falta', day.username, {
-        id, work_date: day.work_date, antes: { late_minutes: day.late_minutes, official_source: day.official_source || null }, late_minutes: durationMin,
-      });
+      await sbLogAudit(session, 'attendance_day_excuse_late_rejected_to_falta', day.username, { id, work_date: day.work_date, antes, late_minutes: durationMin });
       return sendJson(res, 200, { ok: true, day: result });
     }
-    const result = await sbUpdateAttendanceDay(id, { late_excused: excused, late_excuse_reviewed_at: nowIso });
+
+    // Aprobar. Si la jornada estaba convertida en falta por un rechazo, se
+    // recalcula el retraso real desde la hora validada.
+    const wasFaltaPorRechazo = day.official_source === 'falta' && day.late_excuse_reviewed_at && day.late_excused === false;
+    if (wasFaltaPorRechazo) {
+      if (!day.official_at || !day.scheduled_at) return sendJson(res, 400, { error: 'Esta falta no tiene hora real guardada: no se puede revertir desde aquí' });
+      const real = computeLateMinutes(Date.parse(day.official_at), Date.parse(day.scheduled_at));
+      const result = await sbUpdateAttendanceDay(id, {
+        late_excused: true, late_excuse_reviewed_at: nowIso,
+        official_source: 'reportada', late_minutes: real, note: null,
+      });
+      if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+      await sbLogAudit(session, 'attendance_day_excuse_late_approved_from_falta', day.username, { id, work_date: day.work_date, antes, late_minutes: real });
+      return sendJson(res, 200, { ok: true, day: result });
+    }
+    const result = await sbUpdateAttendanceDay(id, { late_excused: true, late_excuse_reviewed_at: nowIso });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
-    await sbLogAudit(session, 'attendance_day_excuse_late', day.username, {
-      id, work_date: day.work_date, late_minutes: day.late_minutes, excused, antes: { late_excused: day.late_excused || false },
-    });
+    await sbLogAudit(session, 'attendance_day_excuse_late', day.username, { id, work_date: day.work_date, late_minutes: day.late_minutes, excused: true, antes });
     return sendJson(res, 200, { ok: true, day: result });
   }
 

@@ -2698,6 +2698,20 @@
     if (isAdmin || isCeo) {
       el.attExcuseLogCard.style.display = 'block';
       el.attExcuseLogList.innerHTML = attExcuseLogHtml(attData.excuseLog || []);
+      el.attExcuseLogList.querySelectorAll('[data-excuse-day]').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          const excused = b.getAttribute('data-excuse-set') === '1';
+          const which = b.getAttribute('data-excuse-which');
+          const id = Number(b.getAttribute('data-excuse-day'));
+          const msg = excused
+            ? '¿Aprobar esta justificación? Deja de sumar hacia la deuda y el umbral de seguridad social.'
+            : (which === 'early'
+              ? '¿Rechazar esta justificación de salida antes de tiempo?'
+              : '¿Rechazar esta justificación? El día queda como FALTA (turno completo): suma a la deuda y al umbral de seguridad social.');
+          if (!(await uiConfirm(msg))) return;
+          attExcuseLate(id, excused, which);
+        });
+      });
     }
 
     if (isAdmin || isCeo) {
@@ -2857,26 +2871,36 @@
     }).join('');
   }
 
+  // Lista compacta de todas las excusas de la quincena, con su decision y
+  // botones para cambiarla (aprobar <-> rechazar) en cualquier momento.
   function attExcuseLogHtml(list) {
-    if (!list.length) return '<div class="meta-small">Todavía no hay justificantes esta quincena.</div>';
-    const estilo = {
+    const rows = list.filter(function (j) { return j.day_id != null && j.status !== 'sin efecto'; });
+    if (!rows.length) return '<div class="meta-small">Todavía no hay justificantes esta quincena.</div>';
+    const colorEstado = {
       aprobada: 'color:var(--good); border-color:rgba(95,220,170,0.35);',
       rechazada: 'color:var(--bad); border-color:rgba(255,90,95,0.35);',
       pendiente: 'color:var(--warn); border-color:rgba(245,194,107,0.35);',
     };
-    return list.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
+    return '<div class="acc-list">' + rows.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
       const st = j.status;
       const chip = '<span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid var(--border); '
-        + (estilo[st] || 'color:var(--muted);') + '">' + escapeHtml(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
-      const cuando = j.reviewed_at ? ' · revisada ' + escapeHtml(new Date(j.reviewed_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })) : '';
-      return '<div class="att-row">'
-        + '<div class="att-row-head">'
-        + '<span class="att-row-name">' + escapeHtml(j.username) + '</span>' + chip
-        + '</div>'
-        + '<div class="meta-small">' + attFechaCorta(j.work_date) + ' · [' + escapeHtml(attKindShort(j.kind)) + ']' + cuando + (j.has_file ? ' · con archivo' : '') + '</div>'
-        + '<div class="meta-small">' + escapeHtml(j.body || '') + '</div>'
+        + (colorEstado[st] || 'color:var(--muted);') + '">' + escapeHtml(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
+      const which = j.kind === 'salida_temprano' ? 'early' : 'late';
+      const btn = function (excused, label, cls) {
+        return '<button class="acc-btn ' + cls + '" data-excuse-day="' + j.day_id + '" data-excuse-which="' + which + '" data-excuse-set="' + (excused ? '1' : '0') + '">' + label + '</button>';
+      };
+      let acciones = '';
+      if (st !== 'aprobada') acciones += btn(true, 'Aprobar', '');
+      if (st !== 'rechazada') acciones += btn(false, 'Rechazar', 'acc-danger');
+      const fecha = attFechaCorta(j.work_date) + ' · ' + escapeHtml(attKindShort(j.kind));
+      return '<div class="acc-row" data-name="' + escapeHtml(j.username.toLowerCase()) + '" style="flex-direction:column; align-items:stretch;">'
+        + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+        + '<span class="acc-name">' + escapeHtml(j.username) + '</span>' + chip
+        + '<span class="meta-small" style="margin-left:auto;">' + fecha + '</span></div>'
+        + '<div class="meta-small">' + escapeHtml(j.body || '') + (j.has_file ? ' · con archivo' : '') + '</div>'
+        + '<div class="acc-actions">' + acciones + '</div>'
         + '</div>';
-    }).join('');
+    }).join('') + '</div>';
   }
 
   function attPendingExcuseHtml(list) {
