@@ -359,7 +359,7 @@ async function getSessionAccountInfo(type, username) {
   if (cached && now - cached.updatedAt < SESSION_VERSION_CACHE_MS) return cached;
   const row = type === 'model' ? await sbFindModelAuth(username) : await sbFindAdmin(username);
   if (!row) return null;
-  const info = { version: row.session_version || 1, mustChangePassword: !!row.must_change_password, adminPermissions: type === 'model' && !!row.admin_permissions, updatedAt: now };
+  const info = { version: row.session_version || 1, mustChangePassword: !!row.must_change_password, updatedAt: now };
   sessionVersionCache.set(key, info);
   return info;
 }
@@ -374,12 +374,6 @@ async function getSession(req) {
   // Admin en "vista de modelo": la app la ve como modelo, pero real_role conserva
   // el permiso de administrador para requireAdmin/requireAdminOrCeo.
   if (payload.view === 'modelo' && payload.role === 'administrador') {
-    return { ...payload, real_role: 'administrador', role: 'modelo', must_change_password: info.mustChangePassword };
-  }
-  // Cuenta de modelo con permisos de administrador (cb_models.admin_permissions):
-  // por defecto se ve como modelo; view 'admin' la deja en vista de administrador.
-  if (payload.type === 'model' && info.adminPermissions) {
-    if (payload.view === 'admin') return { ...payload, real_role: 'administrador', role: 'administrador', must_change_password: info.mustChangePassword };
     return { ...payload, real_role: 'administrador', role: 'modelo', must_change_password: info.mustChangePassword };
   }
   return { ...payload, must_change_password: info.mustChangePassword };
@@ -505,7 +499,7 @@ async function sbFindAdmin(username) {
 }
 
 async function sbFindModelAuth(username) {
-  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash,session_version,must_change_password,admin_permissions', { headers: SB_HEADERS });
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=password_hash,session_version,must_change_password', { headers: SB_HEADERS });
   if (!r.ok) return null;
   const rows = await r.json();
   return rows.length ? rows[0] : null;
@@ -3431,10 +3425,9 @@ async function handleRequest(req, res) {
     if ((session.real_role || session.role) !== 'administrador') return sendJson(res, 403, { error: 'No autorizado' });
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
-    const esModelo = session.type === 'model';
-    const base = { type: session.type, username: session.username, role: esModelo ? 'modelo' : 'administrador', gender: session.gender || null, v: session.v || 1 };
+    const base = { type: session.type, username: session.username, role: 'administrador', gender: session.gender || null, v: session.v || 1 };
     if (session.admin_return) base.admin_return = session.admin_return;
-    if (body.view === 'modelo' || body.view === 'admin') base.view = body.view;
+    if (body.view === 'modelo') base.view = 'modelo';
     setSessionCookie(res, signSession(base));
     return sendJson(res, 200, { ok: true, view: base.view || 'admin' });
   }
