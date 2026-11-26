@@ -857,11 +857,10 @@ describe('classifyBroadcastColor', () => {
 });
 
 describe('resolveOwesAlertMessage', () => {
-  test('sin mensaje personalizado para esa modelo, usa el default con el nombre reemplazado', () => {
+  test('sin mensaje personalizado para esa modelo, usa el default (sin nombre visible)', () => {
     const r = lib.resolveOwesAlertMessage(null, 'pinky_f00x');
-    assert.match(r, /^pinky_f00x /);
-    assert.match(r, /asume su propia seguridad social/);
-    assert.equal(r.indexOf('{modelo}'), -1);
+    assert.equal(r, 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.');
+    assert.equal(r.indexOf('pinky_f00x'), -1);
   });
   test('mensaje personalizado por modelo con {modelo} lo reemplaza donde corresponda', () => {
     const r = lib.resolveOwesAlertMessage('{modelo} faltó un día completo y por eso asume su salud esta quincena.', 'conni_f00x');
@@ -876,23 +875,22 @@ describe('resolveOwesAlertMessage', () => {
   // texto con "esta quincena" fijo -- bajo el titulo "quincena pasada" el
   // cuerpo seguia diciendo "esta quincena", contradictorio (reportado con
   // captura real). Ahora el llamador pasa el periodo como tercer argumento.
-  test('el default con periodo "la quincena pasada" no dice "esta quincena"', () => {
+  test('el default no depende del periodo ni dice "esta quincena"', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x', 'la quincena pasada');
-    assert.match(r, /^tamar4_f00x /);
-    assert.match(r, /injustificada la quincena pasada/);
-    assert.doesNotMatch(r, /esta quincena/);
+    assert.doesNotMatch(r, /esta quincena|quincena pasada/);
+    assert.match(r, /constancia de conexión no cumplido en el periodo/);
   });
   test('sin periodo explícito, el default sigue diciendo "esta quincena" (compatibilidad)', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
-    assert.match(r, /injustificada esta quincena/);
+    assert.equal(r, 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.');
   });
   // Pedido 2026-09-26: el default ahora también avisa que pierde el acceso
   // a la meta (incentivo por tokens) al cruzar el umbral, sin explicar en
   // el texto qué es "la meta" -- eso ya lo sabe cualquier modelo del
   // estudio, no hace falta un parrafo aparte en la propia UI.
-  test('el default menciona que se pierde el acceso a la meta, sin explicar qué es', () => {
+  test('el default muestra incentivo comercial no activo y constancia de conexión', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
-    assert.match(r, /pierde el acceso a la meta/);
+    assert.match(r, /Incentivo comercial no activo/);
   });
   test('mensaje personalizado con {periodo} lo resuelve igual que {modelo}', () => {
     const r = lib.resolveOwesAlertMessage('{modelo}: debe {periodo}.', 'kitty_f00x', 'la quincena pasada');
