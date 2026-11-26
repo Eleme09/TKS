@@ -4801,7 +4801,7 @@ async function handleRequest(req, res) {
   // sumLateMinutes en chaturbate-lib.js). Reversible: mandar excused:false
   // vuelve a contarlo, por si se marcó por error.
   if (parsed.pathname === '/api/attendance/day/excuse-late' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -4810,7 +4810,30 @@ async function handleRequest(req, res) {
     const excused = body.excused !== false;
     const day = await sbFetchAttendanceDayById(id);
     if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
-    const result = await sbUpdateAttendanceDay(id, { late_excused: excused, late_excuse_reviewed_at: new Date().toISOString() });
+    const nowIso = new Date().toISOString();
+    // Rechazar un justificante pendiente (excused:false sin revisar antes) =
+    // la excusa no es valida: el dia pasa a FALTA con el turno completo, igual
+    // que marcar falta sin justificar (suma a deuda y umbral de seguridad
+    // social). Pedido 2026-11-26. Quitar una justificacion ya revisada no
+    // convierte nada en falta.
+    if (!excused && !day.late_excuse_reviewed_at && day.late_minutes > 0) {
+      const schedule = await sbListAttendanceSchedule();
+      const hers = schedule.find((s) => s.username === day.username);
+      const durationMin = hers && hers.exit_time ? shiftDurationMinutes(hers.entry_time, hers.exit_time) : null;
+      if (durationMin == null) return sendJson(res, 400, { error: 'Esa modelo no tiene horario asignado: no se puede convertir en falta' });
+      const result = await sbUpdateAttendanceDay(id, {
+        late_excused: false, late_excuse_reviewed_at: nowIso,
+        status: 'validada', official_at: null, official_source: 'falta', exit_at: null, exit_source: null,
+        early_exit_minutes: null, late_minutes: durationMin,
+        note: 'Justificante rechazado: falta', validated_at: nowIso, validated_by: session.username,
+      });
+      if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+      await sbLogAudit(session, 'attendance_day_excuse_late_rejected_to_falta', day.username, {
+        id, work_date: day.work_date, antes: { late_minutes: day.late_minutes, official_source: day.official_source || null }, late_minutes: durationMin,
+      });
+      return sendJson(res, 200, { ok: true, day: result });
+    }
+    const result = await sbUpdateAttendanceDay(id, { late_excused: excused, late_excuse_reviewed_at: nowIso });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_day_excuse_late', day.username, {
       id, work_date: day.work_date, late_minutes: day.late_minutes, excused, antes: { late_excused: day.late_excused || false },
@@ -4820,7 +4843,7 @@ async function handleRequest(req, res) {
 
   // Igual que excuse-late pero para la salida antes de tiempo (2026-10-20).
   if (parsed.pathname === '/api/attendance/day/excuse-early' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }

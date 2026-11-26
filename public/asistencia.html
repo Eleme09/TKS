@@ -1007,7 +1007,7 @@
       var esSalidaR = rechazarPendiente.getAttribute('data-tipo') === 'early';
       postFix(esSalidaR ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late',
         { id: Number(rechazarPendiente.getAttribute('data-rechazar-pendiente')), excused: false },
-        '¿Rechazar esta justificación de ' + (esSalidaR ? 'salida antes de tiempo' : 'retraso') + '? Seguirá sumando hacia la deuda y el umbral de seguridad social, y ya no se acepta sola.');
+        (esSalidaR ? '¿Rechazar esta justificación de salida antes de tiempo? Ya no se acepta sola.' : '¿Rechazar esta justificación? El día queda como FALTA (turno completo): suma hacia la deuda y el umbral de seguridad social, y ya no se acepta sola.'));
       return;
     }
     var excusar = e.target.closest && e.target.closest('[data-excusar]');
