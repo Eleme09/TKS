@@ -1550,6 +1550,7 @@
     attPendingExcuseList: document.getElementById('attPendingExcuseList'),
     attExcuseLogCard: document.getElementById('attExcuseLogCard'),
     attExcuseLogList: document.getElementById('attExcuseLogList'),
+    attPendingExcuseError: document.getElementById('attPendingExcuseError'),
     attPendingError: document.getElementById('attPendingError'),
     attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
     attTotalsList: document.getElementById('attTotalsList'),
@@ -2991,7 +2992,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, excused: excused, reason: reason }),
     });
     const data = await r.json().catch(function () { return {}; });
-    if (!r.ok) return attShowBox(el.attPendingExcuseError, data.error || 'No se pudo guardar');
+    if (!r.ok) return uiToast(data.error || 'No se pudo guardar', 'error');
     await refreshAttendance();
   }
 
