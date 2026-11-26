@@ -2025,6 +2025,10 @@ function applyExtraReference(normalMs, reportedMs, win) {
   return { scheduledMs: referencia, officialMs: Math.max(reportedMs, referencia) };
 }
 
+// Margen para una modelo cuya extra cubre su hora normal: se valida su entrada
+// a la hora normal solo despues de este tiempo (verificacion de transmision).
+const EXTRA_ENTRY_GRACE_MS = 30 * 60 * 1000;
+
 async function checkAutoValidateArrivals() {
   if (autoValidateArrivalsRunning) return;
   autoValidateArrivalsRunning = true;
@@ -2049,7 +2053,13 @@ async function checkAutoValidateArrivals() {
       }
       // Si tiene extra reclamada ese dia, la referencia es la hora de la extra
       // y llegar antes de ella no cuenta como temprano.
-      const ref = applyExtraReference(scheduledMs, reportedMs, claimedExtraWindow(shifts, d.username, d.work_date));
+      const win = claimedExtraWindow(shifts, d.username, d.work_date);
+      // Extra que cubre su hora normal: la entrada se valida EN PUNTO a su hora
+      // normal, pero no antes de 30 min despues de esa hora (asi si todavia no
+      // esta transmitiendo, se le da ese margen). Aviso a admin/CEO para verificar.
+      const cubre = win && scheduledMs != null && win.startMs <= scheduledMs && (win.endMs == null || win.endMs >= scheduledMs);
+      if (cubre && now < scheduledMs + EXTRA_ENTRY_GRACE_MS) continue;
+      const ref = applyExtraReference(scheduledMs, reportedMs, win);
       scheduledMs = ref.scheduledMs;
       const officialMs = ref.officialMs;
       const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
@@ -2063,6 +2073,11 @@ async function checkAutoValidateArrivals() {
         late_minutes: lateMinutes,
         reject_reason: null,
       });
+      if (updated && cubre) {
+        sendPushToRole(['administrador', 'ceo'],
+          d.username + ' — entrada validada a las ' + studioTimeStr(scheduledMs) + ' (su extra cubre ese horario). Confirmá que siga transmitiendo.',
+          { tag: 'placer-extra-verificar-' + d.id }).catch(() => {});
+      }
       if (updated) {
         await sbLogAudit({ username: 'sistema', role: 'sistema' }, 'attendance_auto_validate', d.username, {
           id: d.id, work_date: d.work_date, late_minutes: lateMinutes, reported_at: d.reported_at,
