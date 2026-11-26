@@ -1077,13 +1077,13 @@
         </div>
 
         <div class="card">
-          <h3 class="card-title">Justificaciones</h3>
+          <h3 class="card-title">Justificantes / excusas</h3>
           <div class="meta-small" style="margin-bottom:12px;">Cuéntanos qué pasó. Si tienes una foto o PDF de la excusa (máx. 5 MB), adjúntala. El archivo es opcional.</div>
           <label for="attJustBody">¿Por qué subes la excusa? ¿Qué pasó?</label>
           <textarea id="attJustBody" rows="3" minlength="3" required placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
           <label>Adjuntar archivo (opcional)</label>
           <div class="file-pick">
-            <label for="attJustFile" class="file-pick-btn">Elegir archivo (obligatorio)</label>
+            <label for="attJustFile" class="file-pick-btn">Elegir archivo</label>
             <span class="file-pick-name" id="attJustFileName">Ningún archivo seleccionado</span>
             <input id="attJustFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" class="file-pick-input">
           </div>
@@ -3003,7 +3003,6 @@
     const body = el.attJustBody.value.trim();
     if (body.length < 3) return attShowBox(el.attJustError, 'Cuéntanos qué pasó (mínimo 3 caracteres)');
     const file = el.attJustFile.files && el.attJustFile.files[0];
-    if (!file) return attShowBox(el.attJustError, 'Adjunta la excusa (foto o PDF): es obligatoria');
     const payload = { kind: 'otro', body: body };
     if (file) {
       if (file.size > 5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 5 MB');
@@ -3377,11 +3376,15 @@
       const displayName = a.hide_name ? 'Anónimo' : escapeHtml(a.username);
       return '<div class="admin-list-row"><span>' + displayName + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
         '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
+        (currentRole === 'administrador' ? '<button class="btnEnterAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Entrar</button>' : '') +
         '<button class="btnKeyAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
         '<button class="btnLogoutAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
         '<button class="btnDeleteAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,90,95,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
         '</span></div>';
     }).join('');
+    el.adminList.querySelectorAll('.btnEnterAdmin').forEach(function (btn) {
+      btn.addEventListener('click', function () { impersonateAccount('admin', btn.getAttribute('data-user')); });
+    });
     el.adminList.querySelectorAll('.btnKeyAdmin').forEach(function (btn) {
       btn.addEventListener('click', function () { setAdminPassword(btn.getAttribute('data-user')); });
     });
@@ -3481,11 +3484,13 @@
     owesClearRequest({ all: true });
   });
 
-  async function impersonateModel(username) {
+  async function impersonateModel(username) { return impersonateAccount('model', username); }
+
+  async function impersonateAccount(type, username) {
     if (!(await uiConfirm('¿Entrar a la cuenta de "' + username + '" sin su contraseña? Vas a ver exactamente su panel; podés volver a tu cuenta admin cuando quieras.'))) return;
     const r = await fetch('/api/accounts/impersonate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ username, type: type }),
     });
     if (!r.ok) {
       const err = await r.json().catch(function () { return {}; });

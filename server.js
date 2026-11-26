@@ -3622,10 +3622,32 @@ async function handleRequest(req, res) {
   // menos. `/api/accounts/stop-impersonation` es la unica ruta que no exige
   // rol admin -- exige que el cookie ACTUAL traiga `admin_return`.
   if (parsed.pathname === '/api/accounts/impersonate' && req.method === 'POST') {
-    const session = await requireAdminOrCeo(req, res);
-    if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    // type 'admin' = entrar a una cuenta administrador o CEO: solo el administrador
+    // (no el CEO) puede hacerlo. type 'model' (por defecto) = cuenta de modelo.
+    if (body.type === 'admin') {
+      const session = await requireAdmin(req, res);
+      if (!session) return;
+      const username = sanitizeUsername(body.username);
+      if (!username) return sendJson(res, 400, { error: 'Cuenta inválida' });
+      if (username === session.username) return sendJson(res, 400, { error: 'Ya estás en esa cuenta' });
+      const target = await sbFindAdmin(username);
+      if (!target) return sendJson(res, 400, { error: 'Esa cuenta no existe' });
+      const token = signSession({
+        type: 'admin',
+        username,
+        role: target.role,
+        gender: target.gender || null,
+        v: target.session_version || 1,
+        admin_return: { type: session.type, username: session.username, role: session.role, gender: session.gender || null },
+      });
+      setSessionCookie(res, token);
+      await sbLogAudit(session, 'admin_impersonate_start', username, { cuenta: target.role });
+      return sendJson(res, 200, { ok: true, username, role: target.role });
+    }
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
     const username = sanitizeUsername(body.username);
     if (!username) return sendJson(res, 400, { error: 'Modelo inválida' });
     const modelAuth = await sbFindModelAuth(username);
@@ -4624,8 +4646,6 @@ async function handleRequest(req, res) {
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
     const row = { username: targetUsername, work_date: workDate, kind, body: text };
     const hasFile = typeof body.excuse_content_base64 === 'string' && body.excuse_content_base64.length > 0;
-    // La excusa (foto o PDF) es obligatoria cuando la escribe la propia modelo.
-    if (session.role === 'modelo' && !hasFile) return sendJson(res, 400, { error: 'Adjunta la excusa (foto o PDF): es obligatoria' });
     if (hasFile) {
       const filename = typeof body.excuse_filename === 'string' ? body.excuse_filename.trim().slice(0, 200) : '';
       const mime = typeof body.excuse_mime_type === 'string' ? body.excuse_mime_type.trim().slice(0, 100) : '';
