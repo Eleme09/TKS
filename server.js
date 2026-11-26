@@ -4161,13 +4161,6 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, username, currentBalance: balance });
   }
 
-  if (parsed.pathname === '/api/chaturbate-stats-token/status' && req.method === 'GET') {
-    if (!(await requireAdmin(req, res))) return;
-    const models = await sbFetchAllModels();
-    const entries = models.filter((m) => m.role === 'modelo').map((m) => ({ username: m.username, active: !!m.stats_api_token }));
-    return sendJson(res, 200, { entries });
-  }
-
   // ---- Noticias ----
 
   if (parsed.pathname === '/api/news' && req.method === 'GET') {
@@ -4908,14 +4901,6 @@ async function handleRequest(req, res) {
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : '';
     if (!workDate) return sendJson(res, 400, { error: 'Fecha inválida' });
     const day = await sbFetchAttendanceDay(me, workDate);
-
-    if (parsed.pathname === '/api/attendance/mine/day/clear') {
-      if (!day) return sendJson(res, 200, { ok: true, deleted: false });
-      const ok = await sbDeleteAttendanceDay(day.id);
-      if (!ok) return sendJson(res, 500, { error: 'No se pudo quitar' });
-      await sbLogAudit(session, 'prueba_self_edit', me, { op: 'day_clear', work_date: workDate });
-      return sendJson(res, 200, { ok: true, deleted: true });
-    }
 
     if (parsed.pathname === '/api/attendance/mine/day/edit') {
       const entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
