@@ -842,6 +842,13 @@
       </div>
     </div>
 
+    <div class="att-warning" id="viewModeBanner" style="display:none; margin: 0 20px 16px;">
+      <div style="flex:1;">
+        <div class="att-warning-title">Vista de modelo</div>
+        <div class="att-warning-body">Estás viendo la app como una modelo. Tus permisos de administrador siguen activos. <button type="button" id="btnBackToAdminView" class="btn-primary" style="margin-top:8px; padding:7px 14px; font-size:11.5px; display:block;">Volver a vista admin</button></div>
+      </div>
+    </div>
+
     <div class="tabnav" id="tabnav">
       <button class="tabbtn tabIcon" data-tab="modelos" id="tabBtnModelos" title="Modelos">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="var(--pink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-3.8 3.4-6.4 7.5-6.4s7.5 2.6 7.5 6.4"/></svg>
@@ -1275,6 +1282,7 @@
       <input id="accSearch" class="acc-search" placeholder="Buscar cuenta…" autocomplete="off" style="width:100%;">
       <div class="card" id="adminAccountsCard">
         <h3 class="card-title">Cuentas administrativas</h3>
+        <button type="button" id="btnViewAsModel" style="margin-bottom:12px; background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:7px 12px; font-size:12px; border-radius:8px;">Ver la app como modelo</button>
         <div id="adminList"></div>
         <label for="ceoUser" style="margin-top:16px;">Nuevo usuario CEO</label>
         <input id="ceoUser" autocomplete="off">
@@ -1433,6 +1441,9 @@
     btnLogoutEverywhere: document.getElementById('btnLogoutEverywhere'),
     btnLogout: document.getElementById('btnLogout'),
     impersonateBanner: document.getElementById('impersonateBanner'),
+    viewModeBanner: document.getElementById('viewModeBanner'),
+    btnBackToAdminView: document.getElementById('btnBackToAdminView'),
+    btnViewAsModel: document.getElementById('btnViewAsModel'),
     impersonateUser: document.getElementById('impersonateUser'),
     btnStopImpersonate: document.getElementById('btnStopImpersonate'),
     username: document.getElementById('username'),
@@ -4211,6 +4222,7 @@
     } else {
       el.impersonateBanner.style.display = 'none';
     }
+    el.viewModeBanner.style.display = (session.real_role === 'administrador' && session.role === 'modelo' && !session.impersonating) ? 'block' : 'none';
 
     const isAdmin = session.role === 'administrador';
     const isCeo = session.role === 'ceo';
@@ -4399,6 +4411,13 @@
   });
 
   el.btnStopImpersonate.addEventListener('click', stopImpersonation);
+  async function setAdminView(view) {
+    const r = await fetch('/api/me/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view: view }) });
+    if (!r.ok) return uiToast('No se pudo cambiar la vista', 'error');
+    location.reload();
+  }
+  el.btnViewAsModel.addEventListener('click', function () { setAdminView('modelo'); });
+  el.btnBackToAdminView.addEventListener('click', function () { setAdminView('admin'); });
 
   el.btnLogoutEverywhere.addEventListener('click', async function () {
     const ok = await uiConfirm('Esto va a cerrar tu sesión en este y en cualquier otro dispositivo donde hayas iniciado sesión. ¿Continuar?');

@@ -371,6 +371,11 @@ async function getSession(req) {
   const info = await getSessionAccountInfo(payload.type, payload.username);
   if (!info) return null; // la cuenta ya no existe
   if ((payload.v || 1) < info.version) return null; // sesion cerrada remotamente
+  // Admin en "vista de modelo": la app la ve como modelo, pero real_role conserva
+  // el permiso de administrador para requireAdmin/requireAdminOrCeo.
+  if (payload.view === 'modelo' && payload.role === 'administrador') {
+    return { ...payload, real_role: 'administrador', role: 'modelo', must_change_password: info.mustChangePassword };
+  }
   return { ...payload, must_change_password: info.mustChangePassword };
 }
 
@@ -3323,7 +3328,7 @@ async function requireSession(req, res) {
 async function requireAdmin(req, res) {
   const session = await requireSession(req, res);
   if (!session) return null;
-  if (session.role !== 'administrador') {
+  if ((session.real_role || session.role) !== 'administrador') {
     sendJson(res, 403, { error: 'No autorizado' });
     return null;
   }
@@ -3333,7 +3338,7 @@ async function requireAdmin(req, res) {
 async function requireAdminOrCeo(req, res) {
   const session = await requireSession(req, res);
   if (!session) return null;
-  if (session.role !== 'administrador' && session.role !== 'ceo') {
+  if ((session.real_role || session.role) !== 'administrador' && (session.real_role || session.role) !== 'ceo') {
     sendJson(res, 403, { error: 'No autorizado' });
     return null;
   }
@@ -3406,10 +3411,25 @@ async function handleRequest(req, res) {
     const session = await getSession(req);
     if (!session) return sendJson(res, 401, { error: 'No autenticado' });
     return sendJson(res, 200, {
-      username: session.username, role: session.role, gender: session.gender || null,
+      username: session.username, role: session.role, real_role: session.real_role || null, gender: session.gender || null,
       must_change_password: !!session.must_change_password,
       impersonating: session.admin_return ? { username: session.admin_return.username } : null,
     });
+  }
+
+  // Admin: cambiar entre su vista de administrador y la vista de modelo (solo
+  // cambia lo que se pinta; los permisos de administrador siguen en el servidor).
+  if (parsed.pathname === '/api/me/view' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session) return sendJson(res, 401, { error: 'No autenticado' });
+    if ((session.real_role || session.role) !== 'administrador') return sendJson(res, 403, { error: 'No autorizado' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const base = { type: session.type, username: session.username, role: 'administrador', gender: session.gender || null, v: session.v || 1 };
+    if (session.admin_return) base.admin_return = session.admin_return;
+    if (body.view === 'modelo') base.view = 'modelo';
+    setSessionCookie(res, signSession(base));
+    return sendJson(res, 200, { ok: true, view: base.view || 'admin' });
   }
 
   // Invalida todas las sesiones abiertas de esta cuenta (este dispositivo incluido).
