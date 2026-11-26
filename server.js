@@ -840,6 +840,16 @@ async function sbCheckStripchatSync() {
 
 // ---- Noticias (anuncios de admin/CEO; el hilo de comentarios queda abierto a todos) ----
 
+// undefined = no se pudo leer; null = sin restriccion; number = inicio (ms).
+async function sbFetchModelNewsVisibleFrom(username) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username) + '&select=news_visible_from', { headers: SB_HEADERS });
+  if (!r.ok) return undefined;
+  const rows = await r.json();
+  if (!rows.length) return null;
+  const v = rows[0].news_visible_from;
+  return v ? Date.parse(v) : null;
+}
+
 async function sbListNewsPosts(limit) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_news_posts?select=*&order=created_at.desc&limit=' + (limit || 50), { headers: SB_HEADERS });
   return r.ok ? r.json() : [];
@@ -4037,7 +4047,15 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/news' && req.method === 'GET') {
     const session = await requireSession(req, res);
     if (!session) return;
-    const posts = await sbListNewsPosts(50);
+    let posts = await sbListNewsPosts(50);
+    // Modelos con fecha de inicio de Noticias (cb_models.news_visible_from): solo
+    // ven publicaciones desde esa fecha en adelante. Si no se puede leer la
+    // fecha, no se muestra nada a esa modelo (falla cerrado, no abierto).
+    if (session.role === 'modelo') {
+      const cutoff = await sbFetchModelNewsVisibleFrom(session.username);
+      if (cutoff === undefined) posts = [];
+      else if (cutoff !== null) posts = posts.filter((p) => Date.parse(p.created_at) >= cutoff);
+    }
     const postIds = posts.map((p) => p.id);
     const comments = await sbListNewsCommentsForPosts(postIds);
     const commentsByPost = {};

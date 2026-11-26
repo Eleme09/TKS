@@ -45,7 +45,8 @@ create table public.cb_models (
   last_cursor      text,                 -- nextUrl persistido para resumir el long-poll sin perder tips
   stats_api_token  text,                 -- token del Stats API oficial (balance en vivo), opcional
   last_balance     int4,                 -- último token_balance visto, para detectar deltas
-  last_balance_at  timestamptz
+  last_balance_at  timestamptz,
+  news_visible_from timestamptz         -- si tiene fecha, la modelo solo ve Noticias publicadas desde esa fecha
 );
 
 
