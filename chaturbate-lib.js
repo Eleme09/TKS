@@ -739,13 +739,13 @@ function computeEarlyExitMinutes(exitMs, scheduledExitMs) {
 // saben qué es y no hace falta un párrafo aparte para eso.
 const DEFAULT_OWES_ALERT_MESSAGE = 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.';
 
-function resolveOwesAlertMessage(template, username, periodo) {
+function resolveOwesAlertMessage(template, username, periodo, isGeneral) {
   const usingDefault = !(template && String(template).trim());
   let t = usingDefault ? DEFAULT_OWES_ALERT_MESSAGE : String(template).trim();
   t = t.indexOf('{periodo}') !== -1 ? t.split('{periodo}').join(periodo || 'esta quincena') : t;
   if (t.indexOf('{modelo}') !== -1) return t.split('{modelo}').join(username);
-  // El texto predeterminado no lleva nombre (lo ve la propia modelo).
-  return usingDefault ? t : t + ' (' + username + ')';
+  // El texto predeterminado y el general no llevan nombre (lo ve la propia modelo).
+  return (usingDefault || isGeneral) ? t : t + ' (' + username + ')';
 }
 
 // Un fallo de API externo con forma "HTTP <codigo> para <modelo>" es un

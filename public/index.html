@@ -1303,8 +1303,11 @@
       </div>
       <div class="card" id="owesAuditCard">
         <h3 class="card-title">Mensajes de seguridad social</h3>
-        <div class="meta-small" style="margin-bottom:12px;">Revisa qué mensaje ve cada modelo. Quitar un personalizado la devuelve al mensaje predeterminado.</div>
-        <div id="owesAuditList"></div>
+        <div class="meta-small" style="margin-bottom:12px;">Mensaje general para todas las modelos, y uno propio por modelo si quieres.</div>
+        <label for="owesGeneralMsg">Mensaje general</label>
+        <textarea id="owesGeneralMsg" rows="3" class="att-textarea" placeholder="Vacío = mensaje predeterminado del sistema."></textarea>
+        <div class="row" style="margin-top:8px;"><button id="btnOwesGeneralSave" class="btn-primary" style="flex:1;">Guardar general</button><button id="btnOwesGeneralReset" style="flex:1;">Restablecer</button></div>
+        <div id="owesAuditList" style="margin-top:14px;"></div>
         <div class="row" style="margin-top:10px;"><button id="btnOwesClearAll" style="flex:1;">Quitar personalizado de todas</button></div>
       </div>
       <div class="card" id="shiftConfirmCard">
@@ -1470,6 +1473,9 @@
     modelAccountsCard: document.getElementById('modelAccountsCard'),
     owesAuditCard: document.getElementById('owesAuditCard'),
     owesAuditList: document.getElementById('owesAuditList'),
+    owesGeneralMsg: document.getElementById('owesGeneralMsg'),
+    btnOwesGeneralSave: document.getElementById('btnOwesGeneralSave'),
+    btnOwesGeneralReset: document.getElementById('btnOwesGeneralReset'),
     btnOwesClearAll: document.getElementById('btnOwesClearAll'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     shiftConfirmCard: document.getElementById('shiftConfirmCard'),
@@ -3603,20 +3609,54 @@
     const r = await fetch('/api/attendance/owes-messages');
     if (!r.ok) { el.owesAuditList.innerHTML = '<div class="meta-small">No se pudo cargar.</div>'; return; }
     const data = await r.json();
+    if (document.activeElement !== el.owesGeneralMsg) el.owesGeneralMsg.value = data.general_message || '';
     const list = data.models || [];
     if (!list.length) { el.owesAuditList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>'; return; }
-    el.owesAuditList.innerHTML = list.map(function (m) {
-      return '<div class="att-row" style="padding:8px 0; border-bottom:1px solid var(--border);">' +
-        '<div class="att-row-head"><span class="att-row-name">' + escapeHtml(m.username) + '</span> ' +
-        '<span class="role-badge modelo">' + (m.custom ? 'personalizado' : 'predeterminado') + '</span></div>' +
-        '<div class="meta-small" style="margin:4px 0;">' + escapeHtml(m.message || data.default_message) + '</div>' +
-        (m.custom ? '<button class="btnOwesClear" data-user="' + escapeHtml(m.username) + '" style="padding:5px 10px; font-size:11.5px;">Quitar personalizado</button>' : '') +
-        '</div>';
-    }).join('');
+    const pista = data.general_message || data.default_message;
+    el.owesAuditList.innerHTML = '<div class="acc-list">' + list.map(function (m) {
+      return '<div class="acc-row" data-name="' + escapeHtml(m.username.toLowerCase()) + '" style="flex-direction:column; align-items:stretch;">'
+        + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+        + '<span class="acc-name">' + escapeHtml(m.username) + '</span>'
+        + '<span class="role-badge modelo">' + (m.custom ? 'propio' : 'general') + '</span></div>'
+        + '<textarea rows="2" class="att-textarea owesOne" data-owes-user="' + escapeHtml(m.username) + '" placeholder="' + escapeHtml(pista) + '">' + escapeHtml(m.message_own || '') + '</textarea>'
+        + '<div class="acc-actions">'
+        + '<button class="acc-btn btnOwesSaveOne" data-user="' + escapeHtml(m.username) + '">Guardar</button>'
+        + (m.custom ? '<button class="acc-btn btnOwesClear" data-user="' + escapeHtml(m.username) + '">Quitar propio</button>' : '')
+        + '</div></div>';
+    }).join('') + '</div>';
+    el.owesAuditList.querySelectorAll('.btnOwesSaveOne').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const u = btn.getAttribute('data-user');
+        const ta = el.owesAuditList.querySelector('textarea[data-owes-user="' + u + '"]');
+        saveOwesOne(u, ta ? ta.value : '');
+      });
+    });
     el.owesAuditList.querySelectorAll('.btnOwesClear').forEach(function (btn) {
       btn.addEventListener('click', function () { owesClear(btn.getAttribute('data-user')); });
     });
   }
+
+  async function saveOwesOne(username, message) {
+    const r = await fetch('/api/attendance/owes-alert-message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, message: message }),
+    });
+    const d = await r.json().catch(function () { return {}; });
+    if (!r.ok) return uiToast(d.error || 'No se pudo guardar', 'error');
+    uiToast('Mensaje de ' + username + ' guardado.');
+    refreshOwesAudit();
+  }
+
+  async function saveOwesGeneral(message) {
+    const r = await fetch('/api/attendance/owes-default-message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: message }),
+    });
+    const d = await r.json().catch(function () { return {}; });
+    if (!r.ok) return uiToast(d.error || 'No se pudo guardar', 'error');
+    uiToast(message ? 'Mensaje general guardado.' : 'Mensaje general restablecido.');
+    refreshOwesAudit();
+  }
+  el.btnOwesGeneralSave.addEventListener('click', function () { saveOwesGeneral(el.owesGeneralMsg.value.trim()); });
+  el.btnOwesGeneralReset.addEventListener('click', function () { saveOwesGeneral(''); });
 
   async function owesClear(username) {
     if (!(await uiConfirm('¿Quitar el mensaje personalizado de "' + username + '"? Volverá al predeterminado.'))) return;

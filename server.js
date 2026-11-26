@@ -1498,6 +1498,24 @@ async function sbFetchAttendanceSettings() {
   return rows.length ? { ...ATTENDANCE_DEFAULTS, ...rows[0] } : { ...ATTENDANCE_DEFAULTS };
 }
 
+// Mensaje de seguridad social de una modelo: el propio si lo tiene; si no, el
+// general (cb_attendance_settings.owes_default_message); si tampoco, el predeterminado.
+function resolveOwesMessageFor(settings, schedRow, username, periodo) {
+  const own = schedRow && schedRow.owes_message && String(schedRow.owes_message).trim();
+  const general = settings && settings.owes_default_message && String(settings.owes_default_message).trim();
+  if (own) return resolveOwesAlertMessage(own, username, periodo);
+  return resolveOwesAlertMessage(general || null, username, periodo, !!general);
+}
+
+async function sbSetOwesDefaultMessage(message) {
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
+    method: 'POST',
+    headers: { ...SB_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ id: 1, owes_default_message: message }),
+  });
+  return r.ok;
+}
+
 async function sbUpdateAttendanceSettings(thresholdMinutes, feeCop, socialSecurityEnabled) {
   const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_settings', {
     method: 'POST',
@@ -1693,7 +1711,7 @@ async function buildAttendancePayload(session) {
         : 'sin asignar',
       owes_social_security: socialSecurityEnabled && lateMinutes >= threshold,
       owes_message: (socialSecurityEnabled && lateMinutes >= threshold)
-        ? resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username, 'esta quincena')
+        ? resolveOwesMessageFor(settings, scheduleByUser[username], username, 'esta quincena')
         : null,
       // La deuda en plata se cobra por hora alcanzada, no proporcional (ver
       // lateDebtCop). Con socialSecurityEnabled=true (Placer Studios) tiene
@@ -1732,7 +1750,7 @@ async function buildAttendancePayload(session) {
       return {
         username,
         late_minutes: lateMinutes,
-        owes_message: resolveOwesAlertMessage(scheduleByUser[username] && scheduleByUser[username].owes_message, username, 'la quincena pasada'),
+        owes_message: resolveOwesMessageFor(settings, scheduleByUser[username], username, 'la quincena pasada'),
       };
     }).filter(Boolean);
     if (prevTotals.length) {
@@ -5127,14 +5145,29 @@ async function handleRequest(req, res) {
   if (parsed.pathname === '/api/attendance/owes-messages' && req.method === 'GET') {
     const session = await requireAdminOrCeo(req, res);
     if (!session) return;
-    const [models, schedule] = await Promise.all([sbFetchAllModels(), sbListAttendanceSchedule()]);
+    const [models, schedule, settings] = await Promise.all([sbFetchAllModels(), sbListAttendanceSchedule(), sbFetchAttendanceSettings()]);
     const byUser = {};
     for (const r of schedule) byUser[r.username] = r;
+    const general = (settings.owes_default_message && String(settings.owes_default_message).trim()) || null;
     const list = models.filter((m) => m.role === 'modelo').map((m) => {
-      const msg = byUser[m.username] && byUser[m.username].owes_message;
-      return { username: m.username, has_schedule: !!byUser[m.username], custom: !!(msg && String(msg).trim()), message: (msg && String(msg).trim()) || null };
+      const own = (byUser[m.username] && byUser[m.username].owes_message && String(byUser[m.username].owes_message).trim()) || null;
+      return { username: m.username, has_schedule: !!byUser[m.username], custom: !!own, message: own || general, message_own: own };
     });
-    return sendJson(res, 200, { models: list, default_message: DEFAULT_OWES_ALERT_MESSAGE });
+    return sendJson(res, 200, { models: list, general_message: general, default_message: DEFAULT_OWES_ALERT_MESSAGE });
+  }
+
+  // Mensaje GENERAL de seguridad social (todas las modelos sin mensaje propio).
+  // admin O ceo. Vacio = vuelve al predeterminado del sistema.
+  if (parsed.pathname === '/api/attendance/owes-default-message' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const message = typeof body.message === 'string' ? body.message.trim().slice(0, 500) : '';
+    const ok = await sbSetOwesDefaultMessage(message || null);
+    if (!ok) return sendJson(res, 500, { error: 'No se pudo guardar el mensaje general' });
+    await sbLogAudit(session, 'attendance_owes_default_message_set', '(general)', { message: message || null });
+    return sendJson(res, 200, { ok: true, message: message || null });
   }
 
   // Quitar el personalizado de una modelo ({username}) o de todas ({all:true}).
