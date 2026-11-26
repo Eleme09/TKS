@@ -23,7 +23,7 @@ const {
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
   resolveOwesAlertMessage,
   DEFAULT_OWES_ALERT_MESSAGE,
-  isAttendanceDemoSession,
+  isAttendanceDemoSession, ATTENDANCE_DEMO_USERNAME,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
