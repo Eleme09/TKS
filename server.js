@@ -3584,8 +3584,11 @@ async function handleRequest(req, res) {
     if (body.type === 'admin') {
       const session = await requireAdmin(req, res);
       if (!session) return;
-      const username = sanitizeUsername(body.username);
-      if (!username) return sendJson(res, 400, { error: 'Cuenta inválida' });
+      // Los nombres de cuentas admin/CEO vienen tal cual se guardaron (hay
+      // mayusculas y espacios, p. ej. "CAMILO", "LUZ ADRIANA"), asi que no se
+      // pasan por sanitizeUsername: se busca el valor exacto de la lista.
+      const username = typeof body.username === 'string' ? body.username.trim() : '';
+      if (!username || username.length > 50 || /[\x00-\x1f]/.test(username)) return sendJson(res, 400, { error: 'Cuenta inválida' });
       if (username === session.username) return sendJson(res, 400, { error: 'Ya estás en esa cuenta' });
       const target = await sbFindAdmin(username);
       if (!target) return sendJson(res, 400, { error: 'Esa cuenta no existe' });
