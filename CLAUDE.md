@@ -252,21 +252,13 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
   Verified for real against all 6 models before shipping (matched a
   manual Swagger "Try it out" call exactly: amaranta_f00x = 1101 for the
   same window).
-  **Manual entry is now the fallback**, not the primary path: admin
-  pastes the "Ganancias por modelo" table text into a textarea,
-  `parseStripchatPaste()` matches each known model's username against a
-  line of that text and takes the largest number on that line as her
-  token count, admin reviews/edits the parsed preview, then confirms to
-  save. Useful if the API key ever breaks/rotates, or to backfill a
-  quincena the poller didn't cover (it only ever writes the *current*
-  period — there's no automatic historical backfill). Data lives in
-  `cb_stripchat_earnings` (columns: `username, period_start date,
-  period_end date, tokens, entered_by, created_at, updated_at`,
-  `unique(username, period_start, period_end)` so re-saving a period —
-  by either path — corrects it via upsert instead of duplicating).
-  Endpoints: `GET /api/stripchat/periods` (current + 2 prior quincenas),
-  `POST /api/stripchat/parse` (text → matched/unmatched preview, no
-  write), `POST /api/stripchat/save` (admin-only, upserts). Wired into
+  **Entrada manual de Stripchat: eliminada (2026-11-26).** Los endpoints de
+  pegar y guardar (`/api/stripchat/periods|current|parse|save`) y el de
+  chaturbate-extra (`periods|current|save`) se quitaron por no tener llamador.
+  Si la API de Stripchat falla, el respaldo es `POST /api/stripchat/sync-live`
+  (una modelo, una quincena) y el historial de git. La tabla
+  `cb_stripchat_earnings` (`unique(username, period_start, period_end)`) sigue
+  igual: re-guardar corrige por upsert. Se usa en
   `buildModelReports()` (current quincena, exposes
   `chaturbateTokensPeriod`/`stripchatTokensPeriod` alongside the combined
   `totalTokensPeriod`) and `/api/payslips` (same breakdown per historical
