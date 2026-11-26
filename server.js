@@ -23,6 +23,7 @@ const {
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
   resolveOwesAlertMessage,
   DEFAULT_OWES_ALERT_MESSAGE,
+  isAttendanceDemoSession,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -1349,6 +1350,42 @@ async function resolveAttendanceCorrection(id, approve, resolvedBy) {
     }
   }
   return { ok: true, corr: claimed };
+}
+
+// Patch de una jornada con hora de entrada/salida escrita a mano. Lo usan
+// /api/attendance/day/edit (admin) y /api/attendance/mine/day/edit (cuenta
+// demo 'prueba') para no duplicar reglas: turno, cruce de medianoche
+// (studioInstantAfter), late_minutes y salida temprano.
+function buildManualDayPatch({ workDate, entryTime, exitTime, hers, scheduledMs, now, validatedBy }) {
+  const patch = {
+    status: 'validada',
+    validated_at: new Date(now).toISOString(),
+    validated_by: validatedBy,
+    reject_reason: null,
+  };
+  if (scheduledMs != null) patch.scheduled_at = new Date(scheduledMs).toISOString();
+  if (entryTime) {
+    const officialMs = studioScheduledMs(workDate, entryTime);
+    patch.official_at = new Date(officialMs).toISOString();
+    patch.official_source = 'reportada';
+    patch.reported_at = new Date(officialMs).toISOString();
+    patch.late_minutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
+  }
+  if (exitTime) {
+    const refEntry = entryTime || (hers ? hers.entry_time : null);
+    const exitMs = studioInstantAfter(workDate, exitTime, refEntry);
+    if (exitMs != null) {
+      patch.exit_at = new Date(exitMs).toISOString();
+      patch.exit_source = null;
+      // Si se corrige la salida, la salida antes de tiempo se recalcula
+      // contra su horario (antes quedaba el valor viejo y se seguía cobrando).
+      const scheduledExitMs = hers && hers.exit_time && hers.entry_time
+        ? studioInstantAfter(workDate, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time))
+        : null;
+      patch.early_exit_minutes = computeEarlyExitMinutes(exitMs, scheduledExitMs) || null;
+    }
+  }
+  return patch;
 }
 
 // La ultima jornada abierta (sin hora de salida) de las ultimas 36h. Se busca
@@ -4813,6 +4850,80 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true });
   }
 
+  // ---- Cuenta de demostración 'prueba' (solo ella; ver isAttendanceDemoSession) ----
+  // Puede limpiar lo que anota. Cualquier otra modelo recibe 403. Solo toca
+  // filas de su propio username.
+  if (parsed.pathname.startsWith('/api/attendance/mine/') && req.method === 'POST') {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (!isAttendanceDemoSession(session)) return sendJson(res, 403, { error: 'No autorizado' });
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const me = session.username;
+
+    if (parsed.pathname === '/api/attendance/mine/justification/delete') {
+      const id = Number(body.id);
+      if (!id) return sendJson(res, 400, { error: 'id inválido' });
+      const row = await sbFetchAttendanceJustification(id);
+      if (!row || row.username !== me) return sendJson(res, 404, { error: 'Ese justificante no existe' });
+      const ok = await sbDeleteAttendanceJustification(id);
+      if (!ok) return sendJson(res, 500, { error: 'No se pudo borrar' });
+      await sbLogAudit(session, 'prueba_self_edit', me, { op: 'justification_delete', id });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : '';
+    if (!workDate) return sendJson(res, 400, { error: 'Fecha inválida' });
+    const day = await sbFetchAttendanceDay(me, workDate);
+
+    if (parsed.pathname === '/api/attendance/mine/day/clear') {
+      if (!day) return sendJson(res, 200, { ok: true, deleted: false });
+      const ok = await sbDeleteAttendanceDay(day.id);
+      if (!ok) return sendJson(res, 500, { error: 'No se pudo quitar' });
+      await sbLogAudit(session, 'prueba_self_edit', me, { op: 'day_clear', work_date: workDate });
+      return sendJson(res, 200, { ok: true, deleted: true });
+    }
+
+    if (parsed.pathname === '/api/attendance/mine/day/edit') {
+      const entryTime = typeof body.entry_time === 'string' ? body.entry_time.trim() : '';
+      const exitTime = typeof body.exit_time === 'string' ? body.exit_time.trim() : '';
+      if (entryTime && !VALID_HHMM.test(entryTime)) return sendJson(res, 400, { error: 'Hora de entrada inválida (usa HH:MM)' });
+      if (exitTime && !VALID_HHMM.test(exitTime)) return sendJson(res, 400, { error: 'Hora de salida inválida (usa HH:MM)' });
+
+      // Quitar la llegada deja la jornada sin nada (la salida depende de ella):
+      // se borra la fila entera.
+      if (body.clear_entry === true) {
+        if (!day) return sendJson(res, 200, { ok: true, deleted: false });
+        const ok = await sbDeleteAttendanceDay(day.id);
+        if (!ok) return sendJson(res, 500, { error: 'No se pudo quitar' });
+        await sbLogAudit(session, 'prueba_self_edit', me, { op: 'clear_entry', work_date: workDate });
+        return sendJson(res, 200, { ok: true, deleted: true });
+      }
+      if (body.clear_exit === true && !exitTime) {
+        if (!day) return sendJson(res, 400, { error: 'No hay jornada ese día' });
+        const updated = await sbUpdateAttendanceDay(day.id, {
+          exit_at: null, exit_source: null,
+          early_exit_minutes: null, early_exit_excused: false, early_exit_reviewed_at: null,
+        });
+        if (!updated) return sendJson(res, 500, { error: 'No se pudo quitar la salida' });
+        await sbLogAudit(session, 'prueba_self_edit', me, { op: 'clear_exit', work_date: workDate });
+        return sendJson(res, 200, { ok: true, day: updated });
+      }
+      if (!entryTime && !exitTime) return sendJson(res, 400, { error: 'Escribe al menos una hora' });
+
+      const hers = await sbFetchScheduleForUser(me);
+      const scheduledMs = hers && hers.entry_time ? studioScheduledMs(workDate, hers.entry_time) : null;
+      const patch = buildManualDayPatch({ workDate, entryTime, exitTime, hers, scheduledMs, now: Date.now(), validatedBy: me });
+      const result = day
+        ? await sbUpdateAttendanceDay(day.id, patch)
+        : await sbInsertAttendanceDay({ username: me, work_date: workDate, reported_at: new Date().toISOString(), ...patch });
+      if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
+      await sbLogAudit(session, 'prueba_self_edit', me, { op: 'edit', work_date: workDate, entry_time: entryTime || null, exit_time: exitTime || null });
+      return sendJson(res, 200, { ok: true, day: result });
+    }
+    return sendJson(res, 404, { error: 'No existe' });
+  }
+
   if (parsed.pathname === '/api/attendance/day/edit' && req.method === 'POST') {
     const session = await requireAdmin(req, res);
     if (!session) return;
@@ -4834,35 +4945,7 @@ async function handleRequest(req, res) {
     const day = await sbFetchAttendanceDay(username, workDate);
     const now = Date.now();
 
-    const patch = {
-      status: 'validada',
-      validated_at: new Date(now).toISOString(),
-      validated_by: session.username,
-      reject_reason: null,
-    };
-    if (scheduledMs != null) patch.scheduled_at = new Date(scheduledMs).toISOString();
-
-    if (entryTime) {
-      const officialMs = studioScheduledMs(workDate, entryTime);
-      patch.official_at = new Date(officialMs).toISOString();
-      patch.official_source = 'reportada';
-      patch.reported_at = new Date(officialMs).toISOString();
-      patch.late_minutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
-    }
-    if (exitTime) {
-      const refEntry = entryTime || (hers ? hers.entry_time : null);
-      const exitMs = studioInstantAfter(workDate, exitTime, refEntry);
-      if (exitMs != null) {
-        patch.exit_at = new Date(exitMs).toISOString();
-        patch.exit_source = null;
-        // Si el admin corrige la salida, la salida antes de tiempo se recalcula
-        // contra su horario (antes quedaba el valor viejo y se seguía cobrando).
-        const scheduledExitMs = hers && hers.exit_time && hers.entry_time
-          ? studioInstantAfter(workDate, normalizeClock(hers.exit_time), normalizeClock(hers.entry_time))
-          : null;
-        patch.early_exit_minutes = computeEarlyExitMinutes(exitMs, scheduledExitMs) || null;
-      }
-    }
+    const patch = buildManualDayPatch({ workDate, entryTime, exitTime, hers, scheduledMs, now, validatedBy: session.username });
 
     const antes = day ? { status: day.status, official_at: day.official_at, exit_at: day.exit_at, late_minutes: day.late_minutes } : null;
     const result = day

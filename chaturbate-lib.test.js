@@ -970,3 +970,15 @@ describe('resolveCorrectionEntryMs', () => {
     assert.strictEqual(lib.resolveCorrectionEntryMs('2026-11-09', '10:00', null), sched('2026-11-09', '10:00'));
   });
 });
+
+describe('isAttendanceDemoSession', () => {
+  test('solo la modelo llamada exactamente prueba pasa', () => {
+    assert.strictEqual(lib.isAttendanceDemoSession({ role: 'modelo', username: 'prueba' }), true);
+  });
+  test('otras modelos, otros roles y variantes no pasan', () => {
+    assert.strictEqual(lib.isAttendanceDemoSession({ role: 'modelo', username: 'Prueba' }), false);
+    assert.strictEqual(lib.isAttendanceDemoSession({ role: 'modelo', username: 'prueba2' }), false);
+    assert.strictEqual(lib.isAttendanceDemoSession({ role: 'administrador', username: 'prueba' }), false);
+    assert.strictEqual(lib.isAttendanceDemoSession(null), false);
+  });
+});

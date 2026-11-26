@@ -932,7 +932,15 @@ function classifyBroadcastColor({ onlineMinutes, maxGapMinutes, shiftDurationMin
   return null;
 }
 
+// Cuenta de demostración: la modelo llamada EXACTAMENTE 'prueba' puede limpiar
+// lo que anota (para que admin/CEO la usen en demos). Ninguna otra cuenta.
+const ATTENDANCE_DEMO_USERNAME = 'prueba';
+function isAttendanceDemoSession(session) {
+  return !!session && session.role === 'modelo' && session.username === ATTENDANCE_DEMO_USERNAME;
+}
+
 module.exports = {
+  ATTENDANCE_DEMO_USERNAME, isAttendanceDemoSession,
   EARLY_EXIT_CHARGE_ENABLED,
   isStudioSunday, findBroadcastEarlyExit, resolveCorrectionEntryMs,
   MESES,

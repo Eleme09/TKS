@@ -193,6 +193,7 @@
   button:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
   button:active:not(:disabled) { transform: translateY(0) scale(0.96); }
   #btnLogin { background: var(--text); color: #0a0a0b; text-transform: uppercase; letter-spacing: 0.03em; }
+  .btn-ghost { padding: 10px 14px; min-height: 40px; border-radius: 8px; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.04); color: inherit; cursor: pointer; font-family: var(--font-body); font-size: 13px; }
   .btn-primary {
     background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
     color: var(--pink); border: 1px solid var(--pink-line);
@@ -1032,6 +1033,7 @@
           <div class="model-grid" id="attMyGrid"></div>
           <div class="row" id="attMyActions"></div>
           <div id="attMyError" class="errbox"></div>
+          <div id="attDemoTools" style="display:none; margin-top:16px; padding-top:14px; border-top:1px solid var(--border);"></div>
           <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
             <div class="meta-small" style="margin-bottom:10px; font-size:12px;">Corregir una hora</div>
             <label for="attCorrDate">Día</label>
@@ -1506,6 +1508,7 @@
     attCorrStaffError: document.getElementById('attCorrStaffError'),
     attJustError: document.getElementById('attJustError'),
     attMyJustList: document.getElementById('attMyJustList'),
+    attDemoTools: document.getElementById('attDemoTools'),
     attMyPeriodHint: document.getElementById('attMyPeriodHint'),
     attMyTable: document.getElementById('attMyTable'),
     attPendingCard: document.getElementById('attPendingCard'),
@@ -2394,7 +2397,83 @@
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
 
     el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false);
+    if (attIsDemo()) {
+      // Cuenta de demostración 'prueba': botón para borrar cada justificación.
+      el.attMyJustList.querySelectorAll('.att-row').forEach(function (row, i) {
+        const j = (attData.justifications || [])[i];
+        if (!j) return;
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn-ghost'; b.textContent = 'Borrar esta justificación';
+        b.style.marginTop = '8px';
+        b.addEventListener('click', function () { attDemoDeleteJust(j.id); });
+        row.appendChild(b);
+      });
+    }
+    attRenderDemoTools();
     attRenderCorrectionForm();
+  }
+
+  // ---- Cuenta de demostración 'prueba' (solo ella; el servidor también lo exige) ----
+  function attIsDemo() { return attData && attData.role === 'modelo' && attData.username === 'prueba'; }
+
+  function attRenderDemoTools() {
+    if (!attIsDemo()) { el.attDemoTools.style.display = 'none'; el.attDemoTools.innerHTML = ''; return; }
+    if (el.attDemoTools.dataset.ready !== '1') {
+      const opts = [];
+      const base = new Date(attData.today + 'T12:00:00Z');
+      for (let i = 0; i < 3; i++) {
+        const iso = new Date(base.getTime() - i * 86400000).toISOString().slice(0, 10);
+        opts.push('<option value="' + iso + '">' + (i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : 'Antier') + ' · ' + attFechaCorta(iso) + '</option>');
+      }
+      el.attDemoTools.innerHTML =
+        '<div class="meta-small" style="margin-bottom:10px; font-size:12px;">Herramientas de demostración (solo esta cuenta)</div>'
+        + '<label for="attDemoDate">Día</label><select id="attDemoDate">' + opts.join('') + '</select>'
+        + '<label for="attDemoEntry">Hora de llegada</label><input id="attDemoEntry" type="time">'
+        + '<label for="attDemoExit">Hora de salida</label><input id="attDemoExit" type="time">'
+        + '<div class="row" style="margin-top:10px; flex-wrap:wrap; gap:8px;">'
+        + '<button type="button" id="btnDemoEdit" class="btn-primary">Editar mi hora</button>'
+        + '<button type="button" id="btnDemoClearEntry" class="btn-ghost">Quitar mi llegada de este día</button>'
+        + '<button type="button" id="btnDemoClearExit" class="btn-ghost">Quitar mi salida</button>'
+        + '</div><div id="attDemoError" class="errbox"></div>';
+      document.getElementById('btnDemoEdit').addEventListener('click', function () {
+        const entry = document.getElementById('attDemoEntry').value;
+        const exit = document.getElementById('attDemoExit').value;
+        if (!entry && !exit) return attShowBox(document.getElementById('attDemoError'), 'Escribe al menos una hora');
+        attDemoPost('/api/attendance/mine/day/edit', { entry_time: entry || undefined, exit_time: exit || undefined });
+      });
+      document.getElementById('btnDemoClearEntry').addEventListener('click', async function () {
+        if (!(await uiConfirm('¿Quitar tu llegada de este día? Se borra también la salida.'))) return;
+        attDemoPost('/api/attendance/mine/day/edit', { clear_entry: true });
+      });
+      document.getElementById('btnDemoClearExit').addEventListener('click', async function () {
+        if (!(await uiConfirm('¿Quitar tu salida de este día?'))) return;
+        attDemoPost('/api/attendance/mine/day/edit', { clear_exit: true });
+      });
+      el.attDemoTools.dataset.ready = '1';
+    }
+    el.attDemoTools.style.display = 'block';
+  }
+
+  async function attDemoPost(url, payload) {
+    const box = document.getElementById('attDemoError');
+    attClearBox(box);
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ work_date: document.getElementById('attDemoDate').value }, payload)),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(box, data.error || 'No se pudo guardar');
+    await refreshAttendance();
+  }
+
+  async function attDemoDeleteJust(id) {
+    if (!(await uiConfirm('¿Borrar esta justificación?'))) return;
+    const r = await fetch('/api/attendance/mine/justification/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    if (!r.ok) return attShowBox(el.attMyError, data.error || 'No se pudo borrar');
+    await refreshAttendance();
   }
 
   // Encabezado de columna: texto en pantalla ancha, ícono en móvil. El usuario
