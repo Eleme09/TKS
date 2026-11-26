@@ -1999,6 +1999,19 @@ function startAutoExitChecking() {
 // `pendiente` y esta rutina la ignora sin hacer nada.
 const AUTO_VALIDATE_ARRIVAL_AFTER_MS = 15 * 60 * 1000;
 let autoValidateArrivalsRunning = false;
+// Si la modelo tiene una extra o recuperacion reclamada para ese dia, esa hora
+// de inicio reemplaza su horario normal como referencia de llegada. Llegar antes
+// de la extra cuenta como puntual (no como "temprano" frente a su horario
+// normal). shifts = lista de cb_shifts. Ignora las que quedaron "no cumplio".
+function claimedExtraStartMs(shifts, username, workDate) {
+  const sh = (shifts || []).find((x) => x.claimed_by === username
+    && String(x.shift_date).slice(0, 10) === workDate
+    && x.attendance_status !== 'no_cumplio'
+    && x.start_time);
+  if (!sh) return null;
+  return studioScheduledMs(String(sh.shift_date).slice(0, 10), normalizeClock(sh.start_time));
+}
+
 async function checkAutoValidateArrivals() {
   if (autoValidateArrivalsRunning) return;
   autoValidateArrivalsRunning = true;
@@ -2006,7 +2019,7 @@ async function checkAutoValidateArrivals() {
     const now = Date.now();
     const from = studioDateStr(now - 3 * 24 * 3600000);
     const to = studioDateStr(now);
-    const [days, schedule] = await Promise.all([sbListAttendanceDays(from, to, null), sbListAttendanceSchedule()]);
+    const [days, schedule, shifts] = await Promise.all([sbListAttendanceDays(from, to, null), sbListAttendanceSchedule(), sbListShifts()]);
     const scheduleByUser = {};
     for (const s of schedule) scheduleByUser[s.username] = s;
     for (const d of days) {
@@ -2021,11 +2034,19 @@ async function checkAutoValidateArrivals() {
         const hers = scheduleByUser[d.username];
         if (hers) scheduledMs = studioScheduledMs(d.work_date, hers.entry_time);
       }
-      const lateMinutes = scheduledMs != null ? computeLateMinutes(reportedMs, scheduledMs) : null;
+      // Si tiene extra reclamada ese dia, la referencia es la hora de la extra
+      // y llegar antes de ella no cuenta como temprano.
+      const extraMs = claimedExtraStartMs(shifts, d.username, d.work_date);
+      let officialMs = reportedMs;
+      if (extraMs != null) {
+        scheduledMs = extraMs;
+        officialMs = Math.max(reportedMs, extraMs);
+      }
+      const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
       const updated = await sbUpdateAttendanceDay(d.id, {
         status: 'validada',
         scheduled_at: scheduledMs != null ? new Date(scheduledMs).toISOString() : null,
-        official_at: new Date(reportedMs).toISOString(),
+        official_at: new Date(officialMs).toISOString(),
         official_source: 'reportada',
         validated_at: new Date(now).toISOString(),
         validated_by: 'sistema (15 min sin validar)',
@@ -4464,6 +4485,13 @@ async function handleRequest(req, res) {
       const schedule = await sbListAttendanceSchedule();
       const hers = schedule.find((s) => s.username === day.username);
       if (hers) scheduledMs = studioScheduledMs(day.work_date, hers.entry_time);
+    }
+    // Extra o recuperacion reclamada ese dia: su hora de inicio es la referencia,
+    // y llegar antes de ella (con la hora reportada) cuenta como puntual.
+    const extraMs = claimedExtraStartMs(await sbListShifts(), day.username, day.work_date);
+    if (extraMs != null) {
+      scheduledMs = extraMs;
+      if (source === 'reportada') officialMs = Math.max(officialMs, extraMs);
     }
     // Hora normal, sin ningun margen interno (eliminado 2026-09-10).
     const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
