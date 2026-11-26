@@ -2663,7 +2663,8 @@ async function fetchStripchatModelEarnings(modelUsername, periodStartMs, periodE
 async function syncStripchatEarningsForPeriod(period) {
   const models = await sbFetchAllModels();
   const rows = [];
-  for (const m of models.filter((x) => x.role === 'modelo')) {
+  // La cuenta de demostración 'prueba' no existe en Stripchat: no se consulta (evita errores 400 en cada ciclo).
+  for (const m of models.filter((x) => x.role === 'modelo' && x.username !== ATTENDANCE_DEMO_USERNAME)) {
     const tokens = await fetchStripchatModelEarnings(m.username, period.start, period.end);
     if (tokens != null) rows.push({ username: m.username, period_start: period.startDate, period_end: period.endDate, tokens });
   }
