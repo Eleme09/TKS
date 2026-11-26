@@ -672,7 +672,7 @@
 
   function justificantesHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
-    return list.map(function (j) {
+    var fila = function (j) {
       return '<div class="row-item">'
         + '<div class="row-head">'
         + '<span class="row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + '<span class="tag">' + kindShort(j.kind) + '</span></span>'
@@ -690,7 +690,14 @@
               + '</div>'
             : '')
         + '</div>';
-    }).join('');
+    };
+    var grupo = function (titulo, items) {
+      if (!items.length) return '';
+      return '<details style="margin-top:6px;"><summary style="cursor:pointer; font-weight:600; padding:6px 0;">' + titulo + ' (' + items.length + ')</summary>'
+        + items.map(fila).join('') + '</details>';
+    };
+    return grupo('Excusas', list.filter(function (j) { return j.excuse_filename; }))
+      + grupo('Justificantes escritos', list.filter(function (j) { return !j.excuse_filename; }));
   }
 
   function warningHtml() {

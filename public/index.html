@@ -2656,9 +2656,11 @@
     }).join('');
   }
 
+  // Dos grupos desplegables: "Excusas" (con archivo adjunto) y
+  // "Justificantes escritos" (solo texto, sin archivo).
   function attJustListHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
-    return list.map(function (j) {
+    const row = function (j) {
       return '<div class="att-row">'
         + '<div class="att-row-head">'
         + '<span class="att-row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + attKindLabel(j.kind) + '</span>'
@@ -2670,7 +2672,14 @@
               + 'Excusa</a>'
             : '')
         + '</div>';
-    }).join('');
+    };
+    const grupo = function (titulo, items) {
+      if (!items.length) return '';
+      return '<details style="margin-top:6px;"><summary style="cursor:pointer; font-weight:600; padding:6px 0;">' + titulo + ' (' + items.length + ')</summary>'
+        + items.map(row).join('') + '</details>';
+    };
+    return grupo('Excusas', list.filter(function (j) { return j.excuse_filename; }))
+      + grupo('Justificantes escritos', list.filter(function (j) { return !j.excuse_filename; }));
   }
 
   function renderAttendanceStaff() {
