@@ -1005,8 +1005,10 @@
     var rechazarPendiente = e.target.closest && e.target.closest('[data-rechazar-pendiente]');
     if (rechazarPendiente) {
       var esSalidaR = rechazarPendiente.getAttribute('data-tipo') === 'early';
+      var motivoR = window.prompt('Motivo del rechazo (lo verá la modelo):');
+      if (!motivoR || motivoR.trim().length < 3) return;
       postFix(esSalidaR ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late',
-        { id: Number(rechazarPendiente.getAttribute('data-rechazar-pendiente')), excused: false },
+        { id: Number(rechazarPendiente.getAttribute('data-rechazar-pendiente')), excused: false, reason: motivoR.trim() },
         (esSalidaR ? '¿Rechazar esta justificación de salida antes de tiempo? Ya no se acepta sola.' : '¿Rechazar esta justificación? El día queda como FALTA (turno completo): suma hacia la deuda y el umbral de seguridad social, y ya no se acepta sola.'));
       return;
     }
@@ -1015,8 +1017,10 @@
       var yaExcusado = excusar.getAttribute('data-excusado') === '1';
       var esSalida = excusar.getAttribute('data-tipo') === 'early';
       var que = esSalida ? 'esta salida antes de tiempo' : 'este retraso';
+      var motivoT = yaExcusado ? window.prompt('Motivo del rechazo (lo verá la modelo):') : null;
+      if (yaExcusado && (!motivoT || motivoT.trim().length < 3)) return;
       postFix(esSalida ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late',
-        { id: Number(excusar.getAttribute('data-excusar')), excused: !yaExcusado },
+        { id: Number(excusar.getAttribute('data-excusar')), excused: !yaExcusado, reason: motivoT ? motivoT.trim() : null },
         yaExcusado
           ? '¿Quitar la justificación de ' + que + '? Volverá a sumar hacia la deuda y el umbral de seguridad social.'
           : '¿Marcar ' + que + ' como justificado? Deja de sumar hacia la deuda y el umbral de seguridad social — se puede deshacer volviendo a tocar el botón.');

@@ -1778,6 +1778,7 @@ async function buildAttendancePayload(session) {
     payload.my_day = days.find((d) => d.work_date === today) || null;
     payload.my_open_day = days.find((d) => !d.exit_at && d.status !== 'rechazada') || null;
     payload.my_total = totals[0] || null;
+    payload.my_excuses = buildExcuseLog(days, justifications);
     payload.my_corrections = (await sbListAttendanceCorrections(studioDateStr(now - 5 * 24 * 3600000), session.username)).slice(0, 10);
   }
   return payload;
@@ -2115,10 +2116,27 @@ function buildExcuseLog(days, justifications) {
     out.push({
       id: j.id, day_id: d ? d.id : null, username: j.username, work_date: j.work_date, kind: j.kind, body: j.body,
       created_at: j.created_at, has_file: !!j.excuse_filename, status, reviewed_at: reviewedAt,
+      reject_reason: d ? (j.kind === 'salida_temprano' ? d.early_exit_reject_reason : (j.kind === 'falta' ? null : d.late_reject_reason)) || null : null,
       late_minutes: d ? d.late_minutes : null,
     });
   }
   return out;
+}
+
+// Motivo de rechazo escrito por admin/CEO: obligatorio, 3 a 300 caracteres.
+function readRejectReason(body) {
+  const t = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (t.length < 3 || t.length > 300) return null;
+  return t;
+}
+
+// Aviso SOLO a la modelo dueña de la jornada, con el motivo. No dice quien
+// rechazo. Fire-and-forget: nunca bloquea ni rompe la respuesta al admin/CEO.
+function notifyExcuseRejected(day, tipo, motivo, convertidaEnFalta) {
+  const fecha = day.work_date;
+  const extra = convertidaEnFalta ? ' El día quedó como falta.' : '';
+  const body = 'Tu justificante de ' + tipo + ' del ' + fecha + ' no fue aceptado. Motivo: ' + motivo + '.' + extra;
+  sendPushToUser(day.username, body, { tag: 'placer-excusa-rechazada-' + day.id }).catch(() => {});
 }
 
 function findPendingExcuses(days, justifications) {
@@ -4858,6 +4876,8 @@ async function handleRequest(req, res) {
     // devuelve la hora real (official_at se conserva para eso).
     if (!excused) {
       if (day.official_source === 'falta_justificada') return sendJson(res, 400, { error: 'Es una falta justificada: no hay retraso que rechazar' });
+      const motivo = readRejectReason(body);
+      if (!motivo) return sendJson(res, 400, { error: 'Escribe el motivo del rechazo' });
       const schedule = await sbListAttendanceSchedule();
       const hers = schedule.find((s) => s.username === day.username);
       const durationMin = hers && hers.exit_time ? shiftDurationMinutes(hers.entry_time, hers.exit_time) : null;
@@ -4866,10 +4886,11 @@ async function handleRequest(req, res) {
         late_excused: false, late_excuse_reviewed_at: nowIso,
         status: 'validada', official_source: 'falta', exit_at: null, exit_source: null,
         early_exit_minutes: null, late_minutes: durationMin,
-        note: 'Justificante rechazado: falta',
+        note: 'Justificante rechazado: falta', late_reject_reason: motivo,
       });
       if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
-      await sbLogAudit(session, 'attendance_day_excuse_late_rejected_to_falta', day.username, { id, work_date: day.work_date, antes, late_minutes: durationMin });
+      await sbLogAudit(session, 'attendance_day_excuse_late_rejected_to_falta', day.username, { id, work_date: day.work_date, antes, late_minutes: durationMin, motivo });
+      notifyExcuseRejected(day, 'retraso', motivo, true);
       return sendJson(res, 200, { ok: true, day: result });
     }
 
@@ -4881,13 +4902,13 @@ async function handleRequest(req, res) {
       const real = computeLateMinutes(Date.parse(day.official_at), Date.parse(day.scheduled_at));
       const result = await sbUpdateAttendanceDay(id, {
         late_excused: true, late_excuse_reviewed_at: nowIso,
-        official_source: 'reportada', late_minutes: real, note: null,
+        official_source: 'reportada', late_minutes: real, note: null, late_reject_reason: null,
       });
       if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
       await sbLogAudit(session, 'attendance_day_excuse_late_approved_from_falta', day.username, { id, work_date: day.work_date, antes, late_minutes: real });
       return sendJson(res, 200, { ok: true, day: result });
     }
-    const result = await sbUpdateAttendanceDay(id, { late_excused: true, late_excuse_reviewed_at: nowIso });
+    const result = await sbUpdateAttendanceDay(id, { late_excused: true, late_excuse_reviewed_at: nowIso, late_reject_reason: null });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_day_excuse_late', day.username, { id, work_date: day.work_date, late_minutes: day.late_minutes, excused: true, antes });
     return sendJson(res, 200, { ok: true, day: result });
@@ -4904,11 +4925,20 @@ async function handleRequest(req, res) {
     const excused = body.excused !== false;
     const day = await sbFetchAttendanceDayById(id);
     if (!day) return sendJson(res, 404, { error: 'Esa jornada ya no existe' });
-    const result = await sbUpdateAttendanceDay(id, { early_exit_excused: excused, early_exit_reviewed_at: new Date().toISOString() });
+    let motivo = null;
+    if (!excused) {
+      motivo = readRejectReason(body);
+      if (!motivo) return sendJson(res, 400, { error: 'Escribe el motivo del rechazo' });
+    }
+    const result = await sbUpdateAttendanceDay(id, {
+      early_exit_excused: excused, early_exit_reviewed_at: new Date().toISOString(),
+      early_exit_reject_reason: excused ? null : motivo,
+    });
     if (!result) return sendJson(res, 500, { error: 'No se pudo guardar' });
     await sbLogAudit(session, 'attendance_day_excuse_early', day.username, {
-      id, work_date: day.work_date, early_exit_minutes: day.early_exit_minutes, excused, antes: { early_exit_excused: day.early_exit_excused || false },
+      id, work_date: day.work_date, early_exit_minutes: day.early_exit_minutes, excused, motivo, antes: { early_exit_excused: day.early_exit_excused || false },
     });
+    if (!excused) notifyExcuseRejected(day, 'salida antes de tiempo', motivo, false);
     return sendJson(res, 200, { ok: true, day: result });
   }
 

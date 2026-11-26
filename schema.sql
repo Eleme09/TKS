@@ -337,6 +337,8 @@ create table if not exists public.cb_attendance_days (
   early_exit_minutes integer,                          -- minutos que se fue antes de su hora de salida (se cobran como retraso)
   early_exit_excused boolean not null default false,   -- salida antes de tiempo justificada: no se cobra
   early_exit_reviewed_at timestamptz,                  -- admin (o el auto-aceptado de 20 min) ya decidió sobre la salida
+  late_reject_reason text,                             -- motivo del rechazo de la excusa de retraso (lo ve la modelo; nunca quien rechazo)
+  early_exit_reject_reason text,                       -- motivo del rechazo de la excusa de salida antes de tiempo
   exit_at         timestamptz,                         -- la anota ella, no se valida
   note            text,
   created_at      timestamptz not null default now(),

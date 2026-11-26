@@ -2426,7 +2426,7 @@
     el.attMyPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end) + '.';
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
 
-    el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false);
+    el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false) + attMyExcusesHtml(attData.my_excuses || []);
     if (attIsDemo()) {
       // Cuenta de demostración 'prueba': botón para borrar cada justificación.
       el.attMyJustList.querySelectorAll('.att-row').forEach(function (row, i) {
@@ -2642,6 +2642,20 @@
     else if (list.length) selectEl.value = list[0];
   }
 
+  // Lo que ve la modelo de sus propias excusas: estado y, si fue rechazada, el motivo.
+  function attMyExcusesHtml(list) {
+    const rows = list.filter(function (j) { return j.status === 'aprobada' || j.status === 'rechazada' || j.status === 'pendiente'; });
+    if (!rows.length) return '';
+    return '<div class="meta-small" style="margin:14px 0 6px;">Decisión sobre tus justificantes</div>' + rows.map(function (j) {
+      const etiqueta = j.status === 'aprobada' ? 'Aprobada' : j.status === 'rechazada' ? 'No aceptada' : 'Pendiente de revisar';
+      return '<div class="att-row">'
+        + '<div class="att-row-head"><span class="att-row-name">' + attFechaCorta(j.work_date) + ' · ' + escapeHtml(attKindLabel(j.kind)) + '</span>'
+        + '<span class="meta-small">' + etiqueta + '</span></div>'
+        + (j.status === 'rechazada' && j.reject_reason ? '<div style="font-size:13px; line-height:1.55;">Motivo: ' + escapeHtml(j.reject_reason) + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+
   function attJustListHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
     return list.map(function (j) {
@@ -2702,12 +2716,7 @@
           const excused = b.getAttribute('data-excuse-set') === '1';
           const which = b.getAttribute('data-excuse-which');
           const id = Number(b.getAttribute('data-excuse-day'));
-          const msg = excused
-            ? '¿Aprobar esta justificación? Deja de sumar hacia la deuda y el umbral de seguridad social.'
-            : (which === 'early'
-              ? '¿Rechazar esta justificación de salida antes de tiempo?'
-              : '¿Rechazar esta justificación? El día queda como FALTA (turno completo): suma a la deuda y al umbral de seguridad social.');
-          if (!(await uiConfirm(msg))) return;
+          if (excused && !(await uiConfirm('¿Aprobar esta justificación? Deja de sumar hacia la deuda y el umbral de seguridad social.'))) return;
           attExcuseLate(id, excused, which);
         });
       });
@@ -2924,8 +2933,16 @@
 
   async function attExcuseLate(id, excused, which) {
     attClearBox(el.attPendingExcuseError);
+    let reason = null;
+    if (!excused) {
+      // Rechazar exige motivo: lo ve la modelo (no quien lo rechazo).
+      reason = await uiPrompt('Motivo del rechazo (lo verá la modelo):', { placeholder: 'Ej: la excusa no corresponde a esa fecha' });
+      if (reason === null) return;
+      reason = String(reason).trim();
+      if (reason.length < 3) return uiToast('Escribe un motivo de al menos 3 caracteres', 'error');
+    }
     const r = await fetch(which === 'early' ? '/api/attendance/day/excuse-early' : '/api/attendance/day/excuse-late', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, excused: excused }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, excused: excused, reason: reason }),
     });
     const data = await r.json().catch(function () { return {}; });
     if (!r.ok) return attShowBox(el.attPendingExcuseError, data.error || 'No se pudo guardar');
