@@ -142,7 +142,15 @@ const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
 // posible, solo un puñado de eventos ya vistos reenviados, bloqueados por
 // el UNIQUE(username, event_id) de cb_tips/cb_broadcast_events) y baja el
 // techo real a 1.440/dia/modelo en vez de 8.640/dia/modelo.
-const CURSOR_SAVE_MIN_INTERVAL_MS = 60 * 1000;
+// 5 min (antes 60 s): con 8 modelos a 60 s eran ~11.500 PATCH/dia a Supabase.
+// Seguro: al reconectar tras una caida se reenvian pocos eventos ya vistos y
+// UNIQUE(username, event_id) de cb_tips/cb_broadcast_events los bloquea.
+const CURSOR_SAVE_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+// Eventos sin valor de dinero ni de estado: no se guardan en cb_unhandled_events.
+const NO_STORE_EVENT_METHODS = new Set([
+  'userEnter', 'userLeave', 'chatMessage', 'follow', 'unfollow', 'roomSubjectChange',
+]);
 // Si la API contesta 403/429 (limite de consultas), dejar de insistir por un
 // rato en vez de seguir golpeando: ese dia se siguio consultando en vano
 // durante 17 minutos, lo que probablemente estiro el bloqueo.
@@ -3126,14 +3134,11 @@ async function pollLoop(tracker) {
         tracker.online = false;
         tracker.onlineSince = null;
         if (!(await sbInsertBroadcastEvent(username, 'stop', ev.id))) { writeFailed = true; break; }
-      } else if (ev.method === 'userEnter' || ev.method === 'userLeave') {
-        // El 80% del volumen de cb_unhandled_events era esto (verificado
-        // 2026-09-26: 175.068 de ~217k filas, userEnter+userLeave) -- puro
-        // trafico de gente entrando/saliendo de la sala, nunca lleva tokens
-        // ni tiene ningun uso: sbCheckUnhandledEvents (el vigia) ya los
-        // salta via KNOWN_UNHANDLED_EVENT_METHODS, y no hay ninguna otra
-        // funcion que los lea. Se dejan de guardar del todo, no solo se
-        // filtran al leer.
+      } else if (NO_STORE_EVENT_METHODS.has(ev.method)) {
+        // Eventos que nunca llevan tokens y no tienen ningun uso: se descartan
+        // sin guardar (cada uno era un INSERT + una linea de log en Supabase).
+        // privateMessage, fanclubJoin y mediaPurchase SI se guardan, porque
+        // pueden ser ingresos no contados.
       } else if (ev.method) {
         sbInsertUnhandledEvent(username, ev.method, ev);
       }
