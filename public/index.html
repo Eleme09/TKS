@@ -2692,16 +2692,23 @@
     }).join('');
   }
 
-  // Aviso flotante una sola vez por rechazo: la modelo ve el motivo al entrar.
+  // Aviso flotante del motivo de un rechazo: se muestra hasta 3 veces por rechazo
+  // (una por cada vez que la modelo abre la app). El conteo vive en el navegador.
+  let avisoRechazoEstaSesion = false;
   function mostrarAvisoRechazos(excusas) {
-    let vistos = [];
-    try { vistos = JSON.parse(localStorage.getItem('rechazosVistos') || '[]'); } catch (e) { vistos = []; }
-    const nuevos = excusas.filter(function (x) {
-      return x.status === 'rechazada' && x.reject_reason && vistos.indexOf(x.id + '|' + (x.reviewed_at || '')) === -1;
-    });
+    if (avisoRechazoEstaSesion) return;
+    const pendientes = excusas.filter(function (x) { return x.status === 'rechazada' && x.reject_reason; });
+    if (!pendientes.length) return;
+    let conteo = {};
+    try { conteo = JSON.parse(localStorage.getItem('rechazosAvisos') || '{}') || {}; } catch (e) { conteo = {}; }
+    const nuevos = pendientes.filter(function (x) { return (conteo[x.id + '|' + (x.reviewed_at || '')] || 0) < 3; });
     if (!nuevos.length) return;
-    nuevos.forEach(function (x) { vistos.push(x.id + '|' + (x.reviewed_at || '')); });
-    try { localStorage.setItem('rechazosVistos', JSON.stringify(vistos.slice(-50))); } catch (e) {}
+    avisoRechazoEstaSesion = true;
+    nuevos.forEach(function (x) {
+      const k = x.id + '|' + (x.reviewed_at || '');
+      conteo[k] = (conteo[k] || 0) + 1;
+    });
+    try { localStorage.setItem('rechazosAvisos', JSON.stringify(conteo)); } catch (e) {}
     const caja = document.createElement('div');
     caja.setAttribute('role', 'alert');
     caja.style.cssText = 'position:fixed; left:12px; right:12px; top:12px; z-index:9999; padding:14px 16px; border-radius:14px; background:#2a1116; border:1px solid rgba(255,90,95,0.55); box-shadow:0 10px 30px rgba(0,0,0,0.5); color:var(--text);';
