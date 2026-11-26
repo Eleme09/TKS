@@ -32,6 +32,11 @@ const EVENTS_BASE = 'https://eventsapi.chaturbate.com/events/';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+// Clave de servicio (solo en el servidor, nunca en el navegador). Si está
+// puesta, el servidor la usa y las tablas cb_* dejan de depender del rol anon.
+// Sin ella, sigue funcionando con la anon de siempre (comportamiento anterior).
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+const SUPABASE_API_KEY = SUPABASE_SERVICE_KEY || SUPABASE_ANON_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SESSION_SECRET) {
   console.error('Faltan variables de entorno (SUPABASE_URL, SUPABASE_ANON_KEY, SESSION_SECRET). Revisa env.bat (local) o las Environment Variables en Render.');
@@ -171,8 +176,8 @@ const ATTENDANCE_EXCUSE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'appli
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
 const MIN_PASSWORD_LENGTH = 8;
 const SB_HEADERS = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+  apikey: SUPABASE_API_KEY,
+  Authorization: 'Bearer ' + SUPABASE_API_KEY,
   'Content-Type': 'application/json',
 };
 
