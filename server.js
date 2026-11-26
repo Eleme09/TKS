@@ -3091,6 +3091,9 @@ async function pollLoop(tracker) {
         tracker.online = true;
         tracker.onlineSince = new Date(lastEvent.created_at).getTime();
       }
+      console.log('[online] ' + username + ': seed desde ultimo evento ' + lastEvent.event_type + ' (' + lastEvent.created_at + '), online=' + tracker.online);
+    } else {
+      console.log('[online] ' + username + ': sin seed (ultimo evento=' + (lastEvent ? lastEvent.event_type : 'ninguno') + ', running=' + tracker.running + ')');
     }
   }
 
@@ -3129,6 +3132,7 @@ async function pollLoop(tracker) {
       // Si el cursor guardado ya no sirve (expiro, o Chaturbate lo rechaza),
       // no lo tratamos como token invalido: reintentamos desde cero una vez.
       if (triedSavedCursor && nextUrl === tracker.savedCursor) {
+        console.log('[online] ' + username + ': cursor guardado rechazado (HTTP ' + resp.status + '), se pierde el estado en linea previo');
         clearTimeout(pollTimeoutId);
         triedSavedCursor = false;
         nextUrl = freshUrl;
