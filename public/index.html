@@ -2444,7 +2444,8 @@
     el.attMyPeriodHint.textContent = 'Del ' + attFechaCorta(attData.period.start) + ' al ' + attFechaCorta(attData.period.end) + '.';
     el.attMyTable.innerHTML = attTableHtml(attData.days, false, attData.justifications);
 
-    el.attMyJustList.innerHTML = attJustListHtml(attData.justifications, false) + attMyExcusesHtml(attData.my_excuses || []);
+    el.attMyJustList.innerHTML = attMyJustListHtml(attData.justifications || [], attData.my_excuses || []);
+    mostrarAvisoRechazos(attData.my_excuses || []);
     if (attIsDemo()) {
       // Cuenta de demostración 'prueba': botón para borrar cada justificación.
       el.attMyJustList.querySelectorAll('.att-row').forEach(function (row, i) {
@@ -2660,18 +2661,59 @@
     else if (list.length) selectEl.value = list[0];
   }
 
-  // Lo que ve la modelo de sus propias excusas: estado y, si fue rechazada, el motivo.
-  function attMyExcusesHtml(list) {
-    const rows = list.filter(function (j) { return j.status === 'aprobada' || j.status === 'rechazada' || j.status === 'pendiente'; });
-    if (!rows.length) return '';
-    return '<div class="meta-small" style="margin:14px 0 6px;">Decisión sobre tus justificantes</div>' + rows.map(function (j) {
-      const etiqueta = j.status === 'aprobada' ? 'Aprobada' : j.status === 'rechazada' ? 'No aceptada' : 'Pendiente de revisar';
-      return '<div class="att-row">'
-        + '<div class="att-row-head"><span class="att-row-name">' + attFechaCorta(j.work_date) + ' · ' + escapeHtml(attKindLabel(j.kind)) + '</span>'
-        + '<span class="meta-small">' + etiqueta + '</span></div>'
-        + (j.status === 'rechazada' && j.reject_reason ? '<div style="font-size:13px; line-height:1.55;">Motivo: ' + escapeHtml(j.reject_reason) + '</div>' : '')
+  // Lista de la modelo: una tarjeta por justificante con su estado y, si fue
+  // rechazado, el motivo en un recuadro. Sin desplegables anidados.
+  function attMyJustListHtml(justs, excusas) {
+    if (!justs.length) return '<div class="meta-small">Todavía no has enviado justificantes esta quincena.</div>';
+    const decision = {};
+    excusas.forEach(function (x) { decision[x.id] = x; });
+    const estados = {
+      aprobada: { txt: 'Aprobada', col: 'var(--good)', fondo: 'rgba(95,220,170,0.12)' },
+      rechazada: { txt: 'No aceptada', col: 'var(--bad)', fondo: 'rgba(255,90,95,0.12)' },
+      pendiente: { txt: 'Pendiente de revisar', col: 'var(--warn)', fondo: 'rgba(245,194,107,0.12)' },
+    };
+    return justs.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
+      const d = decision[j.id];
+      const st = d && estados[d.status] ? estados[d.status] : null;
+      const chip = st
+        ? '<span style="font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; color:' + st.col + '; background:' + st.fondo + ';">' + st.txt + '</span>'
+        : '';
+      const motivo = d && d.status === 'rechazada' && d.reject_reason
+        ? '<div style="margin-top:10px; padding:10px 12px; border-radius:10px; background:rgba(255,90,95,0.10); border:1px solid rgba(255,90,95,0.3); font-size:13px; line-height:1.5;"><strong>Motivo:</strong> ' + escapeHtml(d.reject_reason) + '</div>'
+        : '';
+      return '<div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px;">'
+        + '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">'
+        + '<strong>' + escapeHtml(attKindLabel(j.kind)) + '</strong>' + chip + '</div>'
+        + '<div class="meta-small" style="margin-top:4px;">' + attFechaCorta(j.work_date) + '</div>'
+        + '<div style="font-size:13px; line-height:1.55; margin-top:8px;">' + escapeHtml(j.body) + '</div>'
+        + motivo
+        + (j.excuse_filename ? '<a class="att-file-link" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px;">Ver archivo adjunto</a>' : '')
         + '</div>';
     }).join('');
+  }
+
+  // Aviso flotante una sola vez por rechazo: la modelo ve el motivo al entrar.
+  function mostrarAvisoRechazos(excusas) {
+    let vistos = [];
+    try { vistos = JSON.parse(localStorage.getItem('rechazosVistos') || '[]'); } catch (e) { vistos = []; }
+    const nuevos = excusas.filter(function (x) {
+      return x.status === 'rechazada' && x.reject_reason && vistos.indexOf(x.id + '|' + (x.reviewed_at || '')) === -1;
+    });
+    if (!nuevos.length) return;
+    nuevos.forEach(function (x) { vistos.push(x.id + '|' + (x.reviewed_at || '')); });
+    try { localStorage.setItem('rechazosVistos', JSON.stringify(vistos.slice(-50))); } catch (e) {}
+    const caja = document.createElement('div');
+    caja.setAttribute('role', 'alert');
+    caja.style.cssText = 'position:fixed; left:12px; right:12px; top:12px; z-index:9999; padding:14px 16px; border-radius:14px; background:#2a1116; border:1px solid rgba(255,90,95,0.55); box-shadow:0 10px 30px rgba(0,0,0,0.5); color:var(--text);';
+    caja.innerHTML = '<div style="font-weight:700; color:var(--bad); margin-bottom:6px;">Tu justificante no fue aceptado</div>'
+      + nuevos.map(function (x) {
+        return '<div style="font-size:13px; line-height:1.5;">' + attFechaCorta(x.work_date) + ' · ' + escapeHtml(attKindLabel(x.kind)) + '<br><strong>Motivo:</strong> ' + escapeHtml(x.reject_reason) + '</div>';
+      }).join('<div style="height:8px"></div>')
+      + '<button type="button" style="margin-top:10px; background:none; border:none; color:var(--text); text-decoration:underline; font-size:12px; cursor:pointer; padding:0;">Entendido</button>';
+    const cerrar = function () { if (caja.parentNode) caja.parentNode.removeChild(caja); };
+    caja.querySelector('button').addEventListener('click', cerrar);
+    document.body.appendChild(caja);
+    setTimeout(cerrar, 15000);
   }
 
   // Quincena de un justificante: 1–15 o 16–fin del mes (corte de nomina).
