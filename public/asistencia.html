@@ -670,6 +670,16 @@
     return '';
   }
 
+  // Quincena de un justificante: 1–15 o 16–fin del mes (corte de nomina).
+  function quincenaInfoSheet(dateStr) {
+    var p = String(dateStr).split('-').map(Number);
+    var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    var primera = p[2] <= 15;
+    return { key: p[0] + '-' + (p[1] < 10 ? '0' : '') + p[1] + '-' + (primera ? '1' : '2'),
+      label: (primera ? '1–15' : '16–fin') + ' de ' + meses[p[1] - 1] + ' ' + p[0] };
+  }
+  // Justificantes agrupados: quincena (la mas nueva abierta) > Excusas o
+  // Justificantes escritos > tipo.
   function justificantesHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
     var fila = function (j) {
@@ -691,13 +701,32 @@
             : '')
         + '</div>';
     };
-    var grupo = function (titulo, items) {
-      if (!items.length) return '';
-      return '<details style="margin-top:6px;"><summary style="cursor:pointer; font-weight:600; padding:6px 0;">' + titulo + ' (' + items.length + ')</summary>'
-        + items.map(fila).join('') + '</details>';
+    var resumen = function (texto, n) {
+      return '<summary style="cursor:pointer; font-weight:600; padding:6px 0;">' + texto + ' (' + n + ')</summary>';
     };
-    return grupo('Excusas', list.filter(function (j) { return j.excuse_filename; }))
-      + grupo('Justificantes escritos', list.filter(function (j) { return !j.excuse_filename; }));
+    var porTipo = function (items) {
+      var tipos = {};
+      items.forEach(function (j) { (tipos[j.kind] = tipos[j.kind] || []).push(j); });
+      return Object.keys(tipos).map(function (k) {
+        return '<details style="margin-left:8px;">' + resumen(kindShort(k), tipos[k].length) + tipos[k].map(fila).join('') + '</details>';
+      }).join('');
+    };
+    var categoria = function (titulo, items) {
+      if (!items.length) return '';
+      return '<details style="margin-left:8px;">' + resumen(titulo, items.length) + porTipo(items) + '</details>';
+    };
+    var quincenas = {};
+    list.forEach(function (j) {
+      var q = quincenaInfoSheet(j.work_date);
+      (quincenas[q.key] = quincenas[q.key] || { label: q.label, items: [] }).items.push(j);
+    });
+    return Object.keys(quincenas).sort().reverse().map(function (k, i) {
+      var q = quincenas[k];
+      return '<details style="margin-top:6px;"' + (i === 0 ? ' open' : '') + '>' + resumen('Quincena ' + q.label, q.items.length)
+        + categoria('Excusas', q.items.filter(function (j) { return j.excuse_filename; }))
+        + categoria('Justificantes escritos', q.items.filter(function (j) { return !j.excuse_filename; }))
+        + '</details>';
+    }).join('');
   }
 
   function warningHtml() {
