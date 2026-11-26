@@ -22,6 +22,7 @@ const {
   isHttpStatusApiError, API_ERROR_BURST_WINDOW_MS, API_ERROR_BURST_THRESHOLD, evaluateApiErrorBurst,
   studioInstantAfter, shiftDurationMinutes, computeBroadcastSummary, classifyBroadcastColor,
   resolveOwesAlertMessage,
+  DEFAULT_OWES_ALERT_MESSAGE,
 } = require('./chaturbate-lib');
 
 const PORT = process.env.PORT || 3000;
@@ -401,23 +402,49 @@ async function sbDeleteByUsernameBatched(table, username) {
   return false;
 }
 
+// Devuelve null si todo quedo borrado, o un string con el detalle del paso que
+// fallo (para mostrarselo tal cual al usuario, no un "ok" falso). No guarda
+// ninguna copia de los datos (pedido del dueno 2026-11-26).
+// Causa del "no funciona" original: cb_shifts.claimed_by tiene FK a cb_models
+// y no se limpiaba -> cualquier modelo que alguna vez reclamo una extra/
+// recuperacion rechazaba el DELETE final de cb_models; ademas cb_attendance_corrections
+// quedaba huerfana y el error real se tragaba como un generico.
 async function sbDeleteModel(username) {
+  let step = 'inicio';
   try {
     for (const table of ['cb_unhandled_events', 'cb_balance_ticks', 'cb_balance_resets', 'cb_tips', 'cb_broadcast_events']) {
-      if (!(await sbDeleteByUsernameBatched(table, username))) return false;
+      step = table;
+      if (!(await sbDeleteByUsernameBatched(table, username))) return 'fallo borrando ' + table;
     }
+    // Turnos extra/recuperacion que reclamo: se liberan (el cupo lo publico el
+    // admin, no ella), solo se quita su nombre.
+    step = 'cb_shifts';
+    const sh = await fetch(SUPABASE_URL + '/rest/v1/cb_shifts?claimed_by=eq.' + encodeURIComponent(username), {
+      method: 'PATCH',
+      headers: { ...SB_HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({ claimed_by: null, claimed_at: null, confirmation_sent_at: null, confirmed: null, attendance_status: 'pendiente' }),
+    });
+    if (!sh.ok) return 'fallo liberando sus turnos (cb_shifts): HTTP ' + sh.status;
     for (const table of ['cb_chaturbate_period_base', 'cb_chaturbate_extra_earnings', 'cb_stripchat_earnings', 'cb_shift_overrides',
-      'cb_attendance_justifications', 'cb_attendance_days', 'cb_attendance_schedule', 'cb_push_subscriptions', 'cb_news_reads']) {
+      'cb_attendance_justifications', 'cb_attendance_corrections', 'cb_attendance_days', 'cb_attendance_schedule', 'cb_push_subscriptions', 'cb_news_reads']) {
+      step = table;
       const d = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?username=eq.' + encodeURIComponent(username), { method: 'DELETE', headers: SB_HEADERS });
-      if (!d.ok) return false;
+      if (!d.ok) return 'fallo borrando ' + table + ': HTTP ' + d.status;
     }
+    step = 'cb_models';
     const m = await fetch(SUPABASE_URL + '/rest/v1/cb_models?username=eq.' + encodeURIComponent(username), { method: 'DELETE', headers: SB_HEADERS });
-    if (!m.ok) return false;
+    if (!m.ok) {
+      let detail = '';
+      try { detail = (await m.text()).slice(0, 200); } catch (e) {}
+      return 'fallo borrando la modelo (cb_models): HTTP ' + m.status + ' ' + detail;
+    }
     const left = await fetch(SUPABASE_URL + '/rest/v1/cb_models?select=username&username=eq.' + encodeURIComponent(username), { headers: SB_HEADERS });
-    return left.ok && (await left.json()).length === 0;
+    if (!left.ok) return 'no se pudo verificar el borrado (HTTP ' + left.status + ')';
+    if ((await left.json()).length !== 0) return 'la modelo sigue existiendo en cb_models tras el borrado';
+    return null;
   } catch (e) {
-    console.error('Error borrando modelo ' + username + ': ' + e.message);
-    return false;
+    console.error('Error borrando modelo ' + username + ' (' + step + '): ' + e.message);
+    return 'error en ' + step + ': ' + e.message;
   }
 }
 
@@ -1446,6 +1473,20 @@ async function sbUpdateScheduleOwesMessage(username, message) {
   if (!r.ok) return false;
   const rows = await r.json();
   return rows.length > 0;
+}
+
+// Quita el mensaje personalizado (lo deja en null = vuelve al predeterminado).
+// username omitido -> todas las modelos que tengan uno. Devuelve cuantas filas
+// cambio, o null si fallo. Solo se llama desde el boton del panel.
+async function sbClearScheduleOwesMessages(username) {
+  const filter = username ? 'username=eq.' + encodeURIComponent(username) + '&' : '';
+  const r = await fetch(SUPABASE_URL + '/rest/v1/cb_attendance_schedule?' + filter + 'owes_message=not.is.null', {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, Prefer: 'return=representation' },
+    body: JSON.stringify({ owes_message: null }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()).length;
 }
 
 // Arma todo lo que la pestaña de Asistencia necesita, ya filtrado por rol: una
@@ -3526,11 +3567,9 @@ async function handleRequest(req, res) {
   // "Entrar como ella" (pedido 2026-10-03): el administrador entra a la
   // cuenta de una modelo SIN su contraseña, para ver exactamente lo que ella
   // ve, y puede volver a su propia cuenta admin despues sin volver a
-  // loguearse. Solo administrador -- a diferencia de resetear contraseña/
-  // forzar logout (admin+ceo desde 2026-09-09), esto es acceso total a la
-  // cuenta sin que la modelo se entere ni participe, así que se deja más
-  // restringido a propósito; si el usuario pide que CEO también lo tenga,
-  // es un cambio de permisos deliberado a pedir aparte.
+  // loguearse. Administrador Y ceo (pedido del dueno 2026-11-26; antes solo
+  // administrador). Solo se puede entrar a cuentas de MODELO, nunca a otra
+  // cuenta admin/ceo, y una modelo no puede usar esto (requireAdminOrCeo).
   //
   // Mecanismo: las sesiones de esta app son un cookie firmado SIN estado en
   // el servidor (ver signSession/verifySession arriba) -- no hay una tabla
@@ -3546,7 +3585,7 @@ async function handleRequest(req, res) {
   // menos. `/api/accounts/stop-impersonation` es la unica ruta que no exige
   // rol admin -- exige que el cookie ACTUAL traiga `admin_return`.
   if (parsed.pathname === '/api/accounts/impersonate' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -3635,7 +3674,7 @@ async function handleRequest(req, res) {
   }
 
   if (parsed.pathname === '/api/delete' && req.method === 'POST') {
-    const session = await requireAdmin(req, res);
+    const session = await requireAdminOrCeo(req, res);
     if (!session) return;
     let body;
     try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
@@ -3646,9 +3685,16 @@ async function handleRequest(req, res) {
       tracker.running = false;
       if (tracker.abortCtl) tracker.abortCtl.abort();
       trackers.delete(username);
+      // Deja que un poll en vuelo termine de escribir antes de borrar, para
+      // que no reinserte una propina despues del DELETE (FK a cb_models).
+      await new Promise((r) => setTimeout(r, 1500));
     }
-    const deleted = await sbDeleteModel(username);
-    if (!deleted) return sendJson(res, 500, { error: 'No se pudo borrar del todo. Intenta otra vez.' });
+    const err = await sbDeleteModel(username);
+    if (err) {
+      console.error('Borrado de modelo ' + username + ' incompleto: ' + err);
+      return sendJson(res, 500, { error: 'No se pudo borrar del todo: ' + err });
+    }
+    // Sin snapshot ni montos: solo quien borro a quien.
     await sbLogAudit(session, 'delete_model', username);
     return sendJson(res, 200, { ok: true });
   }
@@ -4959,6 +5005,37 @@ async function handleRequest(req, res) {
     if (!ok) return sendJson(res, 400, { error: 'Esa modelo todavía no tiene horario asignado — asígnale uno primero' });
     await sbLogAudit(session, 'attendance_owes_message_set', username, { message: message || null });
     return sendJson(res, 200, { ok: true, username, message: message || null });
+  }
+
+  // Auditoria de los mensajes de seguridad social (admin O ceo, nunca modelo):
+  // lista TODAS las modelos con su mensaje personalizado (o null).
+  if (parsed.pathname === '/api/attendance/owes-messages' && req.method === 'GET') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    const [models, schedule] = await Promise.all([sbFetchAllModels(), sbListAttendanceSchedule()]);
+    const byUser = {};
+    for (const r of schedule) byUser[r.username] = r;
+    const list = models.filter((m) => m.role === 'modelo').map((m) => {
+      const msg = byUser[m.username] && byUser[m.username].owes_message;
+      return { username: m.username, has_schedule: !!byUser[m.username], custom: !!(msg && String(msg).trim()), message: (msg && String(msg).trim()) || null };
+    });
+    return sendJson(res, 200, { models: list, default_message: DEFAULT_OWES_ALERT_MESSAGE });
+  }
+
+  // Quitar el personalizado de una modelo ({username}) o de todas ({all:true}).
+  // Solo ocurre cuando el usuario pulsa el boton; nada automatico.
+  if (parsed.pathname === '/api/attendance/owes-messages/clear' && req.method === 'POST') {
+    const session = await requireAdminOrCeo(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readBody(req); } catch (e) { return sendJson(res, 400, { error: 'JSON inválido' }); }
+    const all = body.all === true;
+    const username = all ? null : sanitizeUsername(body.username);
+    if (!all && !username) return sendJson(res, 400, { error: 'Modelo inválida' });
+    const n = await sbClearScheduleOwesMessages(username);
+    if (n === null) return sendJson(res, 500, { error: 'No se pudo quitar el mensaje personalizado' });
+    await sbLogAudit(session, 'attendance_owes_message_clear', all ? '(todas)' : username, { cleared: n });
+    return sendJson(res, 200, { ok: true, cleared: n });
   }
 
   if (parsed.pathname === '/api/attendance/schedule' && req.method === 'POST') {

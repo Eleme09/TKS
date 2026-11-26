@@ -859,7 +859,7 @@ describe('classifyBroadcastColor', () => {
 describe('resolveOwesAlertMessage', () => {
   test('sin mensaje personalizado para esa modelo, usa el default (sin nombre visible)', () => {
     const r = lib.resolveOwesAlertMessage(null, 'pinky_f00x');
-    assert.equal(r, 'No cumpliste el requisito de constancia de conexión en el periodo, así que tu incentivo comercial no está activo.');
+    assert.equal(r, 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.');
     assert.equal(r.indexOf('pinky_f00x'), -1);
   });
   test('mensaje personalizado por modelo con {modelo} lo reemplaza donde corresponda', () => {
@@ -878,11 +878,11 @@ describe('resolveOwesAlertMessage', () => {
   test('el default no depende del periodo ni dice "esta quincena"', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x', 'la quincena pasada');
     assert.doesNotMatch(r, /esta quincena|quincena pasada/);
-    assert.match(r, /constancia de conexión en el periodo/);
+    assert.match(r, /constancia de conexión no cumplido en el periodo/);
   });
   test('sin periodo explícito, el default sigue diciendo "esta quincena" (compatibilidad)', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
-    assert.equal(r, 'No cumpliste el requisito de constancia de conexión en el periodo, así que tu incentivo comercial no está activo.');
+    assert.equal(r, 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.');
   });
   // Pedido 2026-09-26: el default ahora también avisa que pierde el acceso
   // a la meta (incentivo por tokens) al cruzar el umbral, sin explicar en
@@ -890,7 +890,7 @@ describe('resolveOwesAlertMessage', () => {
   // estudio, no hace falta un parrafo aparte en la propia UI.
   test('el default muestra incentivo comercial no activo y constancia de conexión', () => {
     const r = lib.resolveOwesAlertMessage(null, 'tamar4_f00x');
-    assert.match(r, /incentivo comercial no está activo/);
+    assert.match(r, /Incentivo comercial no activo/);
   });
   test('mensaje personalizado con {periodo} lo resuelve igual que {modelo}', () => {
     const r = lib.resolveOwesAlertMessage('{modelo}: debe {periodo}.', 'kitty_f00x', 'la quincena pasada');

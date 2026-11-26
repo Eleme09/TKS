@@ -737,7 +737,7 @@ function computeEarlyExitMinutes(exitMs, scheduledExitMs) {
 // la meta (incentivo por tokens) al cruzar el umbral -- sin explicar qué es
 // la meta en el propio texto, solo que se pierde, porque las modelos ya
 // saben qué es y no hace falta un párrafo aparte para eso.
-const DEFAULT_OWES_ALERT_MESSAGE = 'No cumpliste el requisito de constancia de conexión en el periodo, así que tu incentivo comercial no está activo.';
+const DEFAULT_OWES_ALERT_MESSAGE = 'Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo.';
 
 function resolveOwesAlertMessage(template, username, periodo) {
   const usingDefault = !(template && String(template).trim());

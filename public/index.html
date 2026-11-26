@@ -1191,7 +1191,7 @@
             <label for="attOwesUser">Modelo</label>
             <select id="attOwesUser"></select>
             <label for="attOwesMsg" style="margin-top:10px;">Mensaje</label>
-            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: No cumpliste el requisito de constancia de conexión en el periodo, así que tu incentivo comercial no está activo."></textarea>
+            <textarea id="attOwesMsg" rows="3" class="att-textarea" placeholder="Predeterminado: Incentivo comercial no activo • Requisito de constancia de conexión no cumplido en el periodo."></textarea>
             <div class="row" style="margin-top:10px;">
               <button id="btnAttOwesSave" class="btn-primary" style="flex:1;">Guardar</button>
               <button id="btnAttOwesReset" style="flex:1; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Restablecer predeterminado</button>
@@ -1239,6 +1239,12 @@
         <h3 class="card-title">Contraseñas y sesiones — modelos</h3>
         <div class="meta-small" style="margin-bottom:12px;">Cambia la contraseña de acceso de cualquier modelo o cierra sus sesiones abiertas en otros dispositivos.</div>
         <div id="modelAccountsList"></div>
+      </div>
+      <div class="card" id="owesAuditCard">
+        <h3 class="card-title">Mensajes de seguridad social</h3>
+        <div class="meta-small" style="margin-bottom:12px;">Revisa qué mensaje ve cada modelo. Quitar un personalizado la devuelve al mensaje predeterminado.</div>
+        <div id="owesAuditList"></div>
+        <div class="row" style="margin-top:10px;"><button id="btnOwesClearAll" style="flex:1;">Quitar personalizado de todas</button></div>
       </div>
       <div class="card" id="shiftConfirmCard">
         <h3 class="card-title">Confirmación de extras y recuperaciones</h3>
@@ -1316,8 +1322,14 @@
       cancelBtn.textContent = opts.cancelLabel || 'Cancelar';
       backdrop.style.display = 'flex';
       if (isPrompt) setTimeout(function () { input.focus(); }, 30);
+      // matchText: el boton final solo se habilita si lo escrito coincide EXACTO (sensible a mayusculas).
+      var matchText = typeof opts.matchText === 'string' ? opts.matchText : null;
+      function syncOk() { okBtn.disabled = matchText !== null && input.value !== matchText; }
+      syncOk();
 
       function cleanup(result) {
+        okBtn.disabled = false;
+        input.removeEventListener('input', syncOk);
         backdrop.style.display = 'none';
         okBtn.removeEventListener('click', onOk);
         cancelBtn.removeEventListener('click', onCancel);
@@ -1325,10 +1337,11 @@
         input.removeEventListener('keydown', onKey);
         resolve(result);
       }
-      function onOk() { cleanup(isPrompt ? input.value : true); }
+      function onOk() { if (okBtn.disabled) return; cleanup(isPrompt ? input.value : true); }
       function onCancel() { cleanup(isPrompt ? null : false); }
       function onBackdrop(e) { if (e.target === backdrop) onCancel(); }
       function onKey(e) { if (e.key === 'Enter') { e.preventDefault(); onOk(); } if (e.key === 'Escape') onCancel(); }
+      input.addEventListener('input', syncOk);
       okBtn.addEventListener('click', onOk);
       cancelBtn.addEventListener('click', onCancel);
       backdrop.addEventListener('click', onBackdrop);
@@ -1391,6 +1404,9 @@
     btnSaveDisplayName: document.getElementById('btnSaveDisplayName'),
     displayNameError: document.getElementById('displayNameError'),
     modelAccountsCard: document.getElementById('modelAccountsCard'),
+    owesAuditCard: document.getElementById('owesAuditCard'),
+    owesAuditList: document.getElementById('owesAuditList'),
+    btnOwesClearAll: document.getElementById('btnOwesClearAll'),
     modelAccountsList: document.getElementById('modelAccountsList'),
     shiftConfirmCard: document.getElementById('shiftConfirmCard'),
     shiftConfirmList: document.getElementById('shiftConfirmList'),
@@ -1912,15 +1928,25 @@
   }
 
   async function deleteModel(username) {
-    const ok = await uiConfirm('¿Eliminar a "' + username + '" por completo? Esto borra también todo su historial de tokens. No se puede deshacer.');
+    const ok = await uiConfirm('¿Eliminar a "' + username + '"? Se borra TODO lo suyo (tokens, balances, asistencia, justificantes, horarios, turnos, notificaciones y su cuenta de acceso). No se guarda ninguna copia y NO se puede deshacer.');
     if (!ok) return;
-    const r = await fetch('/api/delete', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }),
-    });
+    const typed = await uiModal('Último paso. Para confirmar, escribe el nombre completo de la modelo exactamente como aparece: ' + username, { prompt: true, matchText: username, okLabel: 'Eliminar para siempre' });
+    if (typed === null || typed !== username) return;
+    let r;
+    try {
+      r = await fetch('/api/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+    } catch (e) {
+      uiToast('No se pudo eliminar: sin conexión con el servidor', 'error');
+      return;
+    }
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       uiToast(err.error || 'No se pudo eliminar', 'error');
+    } else {
+      uiToast('Modelo ' + username + ' eliminada por completo.');
     }
     refresh();
     refreshModelAccounts();
@@ -3262,17 +3288,16 @@
       el.modelAccountsList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>';
       return;
     }
-    // "Entrar como ella" (pedido 2026-10-03) solo para administrador -- esta
-    // card también la ve ceo (desde 2026-09-09), pero tomar la cuenta de una
-    // modelo sin su contraseña es más sensible que resetearle la contraseña
-    // o cerrarle sesiones, así que se deja más restringido a propósito.
-    const puedeEntrarComo = currentRole === 'administrador';
+    // "Entrar como ella" y "Eliminar": administrador Y ceo (pedido 2026-11-26).
+    // Esta card nunca se muestra a una modelo.
+    const puedeEntrarComo = currentRole === 'administrador' || currentRole === 'ceo';
     el.modelAccountsList.innerHTML = models.map(function (m) {
       return '<div class="admin-list-row"><span>' + escapeHtml(m.account) + ' <span class="role-badge modelo">modelo</span></span>' +
         '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
         (puedeEntrarComo ? '<button class="btnImpersonate" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Entrar como ella</button>' : '') +
         '<button class="btnKeyModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
         '<button class="btnLogoutModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
+        '<button class="btnDeleteModelAcc" data-user="' + escapeHtml(m.account) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,107,107,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
         '</span></div>';
     }).join('');
     el.modelAccountsList.querySelectorAll('.btnKeyModel').forEach(function (btn) {
@@ -3281,10 +3306,58 @@
     el.modelAccountsList.querySelectorAll('.btnLogoutModel').forEach(function (btn) {
       btn.addEventListener('click', function () { forceLogoutAccount('model', btn.getAttribute('data-user')); });
     });
+    el.modelAccountsList.querySelectorAll('.btnDeleteModelAcc').forEach(function (btn) {
+      btn.addEventListener('click', function () { deleteModel(btn.getAttribute('data-user')); });
+    });
     el.modelAccountsList.querySelectorAll('.btnImpersonate').forEach(function (btn) {
       btn.addEventListener('click', function () { impersonateModel(btn.getAttribute('data-user')); });
     });
   }
+
+  async function refreshOwesAudit() {
+    const r = await fetch('/api/attendance/owes-messages');
+    if (!r.ok) { el.owesAuditList.innerHTML = '<div class="meta-small">No se pudo cargar.</div>'; return; }
+    const data = await r.json();
+    const list = data.models || [];
+    if (!list.length) { el.owesAuditList.innerHTML = '<div class="meta-small">Todavía no hay modelos agregadas.</div>'; return; }
+    el.owesAuditList.innerHTML = list.map(function (m) {
+      return '<div class="att-row" style="padding:8px 0; border-bottom:1px solid var(--border);">' +
+        '<div class="att-row-head"><span class="att-row-name">' + escapeHtml(m.username) + '</span> ' +
+        '<span class="role-badge modelo">' + (m.custom ? 'personalizado' : 'predeterminado') + '</span></div>' +
+        '<div class="meta-small" style="margin:4px 0;">' + escapeHtml(m.message || data.default_message) + '</div>' +
+        (m.custom ? '<button class="btnOwesClear" data-user="' + escapeHtml(m.username) + '" style="padding:5px 10px; font-size:11.5px;">Quitar personalizado</button>' : '') +
+        '</div>';
+    }).join('');
+    el.owesAuditList.querySelectorAll('.btnOwesClear').forEach(function (btn) {
+      btn.addEventListener('click', function () { owesClear(btn.getAttribute('data-user')); });
+    });
+  }
+
+  async function owesClear(username) {
+    if (!(await uiConfirm('¿Quitar el mensaje personalizado de "' + username + '"? Volverá al predeterminado.'))) return;
+    await owesClearRequest({ username });
+  }
+
+  async function owesClearRequest(payload) {
+    const r = await fetch('/api/attendance/owes-messages/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      uiToast(err.error || 'No se pudo quitar', 'error');
+    } else {
+      const d = await r.json().catch(() => ({}));
+      uiToast('Listo — ' + (d.cleared || 0) + ' mensaje(s) personalizado(s) quitado(s).');
+    }
+    refreshOwesAudit();
+  }
+
+  el.btnOwesClearAll.addEventListener('click', async function () {
+    if (!(await uiConfirm('¿Quitar el mensaje personalizado de TODAS las modelos? Todas volverán al predeterminado.'))) return;
+    if (!(await uiConfirm('Confirma otra vez: se borran todos los mensajes personalizados. No se puede deshacer.'))) return;
+    owesClearRequest({ all: true });
+  });
 
   async function impersonateModel(username) {
     if (!(await uiConfirm('¿Entrar a la cuenta de "' + username + '" sin su contraseña? Vas a ver exactamente su panel; podés volver a tu cuenta admin cuando quieras.'))) return;
@@ -3333,6 +3406,7 @@
   const AUDIT_LABELS = {
     add_model: 'agregó la modelo',
     delete_model: 'eliminó la modelo',
+    attendance_owes_message_clear: 'quitó el mensaje personalizado de seguridad social de',
     reset_model_password: 'reseteó la contraseña de',
     reset_admin_password: 'reseteó la contraseña de la cuenta',
     create_account: 'creó la cuenta',
@@ -3894,9 +3968,10 @@
     el.remoteCard.style.display = isAdmin ? 'block' : 'none';
     el.systemHealthCard.style.display = isAdmin ? 'block' : 'none';
     el.modelAccountsCard.style.display = canAccessCuentas ? 'block' : 'none';
+    el.owesAuditCard.style.display = canAccessCuentas ? 'block' : 'none';
     el.shiftConfirmCard.style.display = canAccessCuentas ? 'block' : 'none';
     if (isAdmin) { refreshAdminAccounts(); }
-    if (canAccessCuentas) { refreshModelAccounts(); refreshShiftConfirmCard(); }
+    if (canAccessCuentas) { refreshModelAccounts(); refreshShiftConfirmCard(); refreshOwesAudit(); }
     switchTab('modelos');
     shiftsViewDate = new Date();
 
