@@ -7,7 +7,7 @@
 <link rel="icon" href="/logo-icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* Página independiente: la hoja de asistencia sola, para verla completa sin
      el resto de la aplicación alrededor. Repite los tokens de index.html a
@@ -15,15 +15,16 @@
      e imprimirse por su cuenta, sin depender de que el resto de la app haya
      cargado. Si cambian los colores de marca, cambiarlos en los dos lados. */
   :root {
-    --bg: #0a0a0b; --surface: #131315; --surface-2: #1a1a1d; --surface-3: #1f1f23;
-    --border: #242427; --border-strong: #2c2c30; --border-soft: #1c1c1f;
-    --text: #f5f5f7; --muted: #a19fa6; --muted-dim: #8f8998;
-    --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.10); --pink-line: rgba(255,143,190,0.4);
-    --good: #6fe7b8; --good-soft: rgba(111,231,184,0.10);
-    --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.10);
+    --bg: #0b0b0d; --surface: #141417; --surface-2: #1b1b20; --surface-3: #1f1f23;
+    --border: #26262c; --border-strong: #2c2c30; --border-soft: #1c1c1f;
+    --text: #f4f4f6; --muted: #a8a5ae;
+    --pink: #ff8fbe; --pink-soft: rgba(255,143,190,0.12); --pink-line: rgba(255,143,190,0.4);
+    --good: #5fdcaa; --good-soft: rgba(95,220,170,0.10);
+    --warn: #f5c26b; --warn-soft: rgba(245,194,107,0.12);
+    --bad: #ff5a5f; --bad-soft: rgba(255,90,95,0.14);
+    --info: #7fd4e8; --info-soft: rgba(127,212,232,0.14);
     --font-display: 'Unbounded', 'Arial Narrow', sans-serif;
     --font-body: 'Hanken Grotesk', -apple-system, 'Segoe UI', sans-serif;
-    --font-mono: 'Quicksand', 'Hanken Grotesk', sans-serif;
     --r-sm: 13px; --r-md: 20px; --r-pill: 999px;
     --shadow-pop: 0 20px 40px -20px rgba(0,0,0,0.55);
   }
@@ -49,13 +50,13 @@
   }
   .back:hover { background: linear-gradient(180deg, rgba(255,143,190,0.26), rgba(255,143,190,0.12)); transform: translateY(-1px); }
   .card {
-    background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%);
+    background: var(--surface);
     border: 1px solid var(--border); border-radius: var(--r-md); padding: 20px; margin-bottom: 14px;
     transition: border-color .2s ease;
   }
   .card:hover { border-color: var(--border-strong); }
   h2 { font-family: var(--font-display); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
-  label { display: block; font-size: 11px; color: var(--muted-dim); margin: 0 0 7px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700; }
+  label { display: block; font-size: 11px; color: var(--muted); margin: 0 0 7px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; }
   select {
     width: 100%; max-width: 340px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--text); font-size: 16px; font-family: var(--font-body);
@@ -67,31 +68,38 @@
     resize: vertical; transition: border-color .15s ease;
   }
   textarea:focus, select:focus { outline: none; border-color: var(--pink, #ff8fbe); }
-  .meta { font-size: 12px; color: var(--muted-dim); line-height: 1.55; }
+  .meta { font-size: 12px; color: var(--muted); line-height: 1.55; }
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   th {
-    text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--muted-dim); font-weight: 700; padding: 9px 10px;
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 700; padding: 9px 10px;
     border-bottom: 1px solid var(--border); white-space: nowrap;
   }
-  td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; font-variant-numeric: tabular-nums; }
   tr:last-child td { border-bottom: none; }
-  td.num { font-family: var(--font-mono); white-space: nowrap; }
-  .muted { color: var(--muted-dim); }
+  td.num { font-family: var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .muted { color: var(--muted); }
   .late { color: var(--bad); font-weight: 700; }
   .early { color: var(--good); font-weight: 700; }
   .ontime { color: var(--muted); font-weight: 700; }
-  .sub2 { font-size: 10px; color: var(--muted-dim); margin-top: 2px; white-space: nowrap; }
-  .pill { font-size: 10px; padding: 4px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 800; display: inline-block; white-space: nowrap; }
-  .pill.pendiente { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
-  .pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(111,231,184,0.25); }
-  .pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,107,107,0.25); }
+  /* Estado con ícono además del color (2026-11-26). */
+  span.late::before { content: '✗ '; }
+  span.early::before, span.ontime::before { content: '✓ '; }
+  .late, .early, .ontime, .bcast, .xh { font-variant-numeric: tabular-nums; }
+  .sub2 { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+  .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 800; display: inline-block; white-space: nowrap; }
+  .pill.pendiente { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(245,194,107,0.3); }
+  .pill.pendiente::before { content: '⏳ '; }
+  .pill.validada::before { content: '✓ '; }
+  .pill.rechazada::before { content: '✗ '; }
+  .pill.validada { background: var(--good-soft); color: var(--good); border: 1px solid rgba(95,220,170,0.25); }
+  .pill.rechazada { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,90,95,0.25); }
   .tag {
-    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
     padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-    background: var(--pink-soft); color: var(--pink); border: 1px solid var(--pink-line);
+    background: var(--info-soft); color: var(--info); border: 1px solid rgba(127,212,232,0.3);
   }
   .just-col { max-width: 280px; }
   /* Sin recortar, un justificante largo estira la fila entera y deja el resto
@@ -104,10 +112,14 @@
   .just-cell.open { -webkit-line-clamp: unset; overflow: visible; }
   .th-ico { display: none; }
   .th-ico svg { display: block; }
+  .skel-bar, .skel-row { border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: rowShimmer 1.6s ease-in-out infinite; }
+  .skel-bar { height: 14px; width: 220px; max-width: 70%; }
+  .skel-row { height: 44px; margin-bottom: 8px; border: 1px solid var(--border-soft); }
+  @keyframes rowShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
 
   .warning {
-    background: linear-gradient(180deg, rgba(255,107,107,0.14), rgba(255,107,107,0.05));
-    border: 1px solid rgba(255,107,107,0.4); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px;
+    background: linear-gradient(180deg, rgba(255,90,95,0.14), rgba(255,90,95,0.05));
+    border: 1px solid rgba(255,90,95,0.4); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px;
     display: flex; gap: 12px; align-items: flex-start;
   }
   .warning svg { flex: 0 0 auto; color: var(--bad); }
@@ -115,17 +127,17 @@
   .row-item { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
   .row-item:last-child { margin-bottom: 0; }
   .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-  .row-name { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+  .row-name { font-family: var(--font-body); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
   a.file { color: var(--pink); font-size: 12.5px; }
   /* Mismo tratamiento que el desprendible en la app: el numero grande y la
      tasa en chico debajo, sin parrafo explicativo. */
   .deuda-hero {
-    background: var(--surface-2); border: 1px solid var(--border-soft);
+    background: linear-gradient(165deg, var(--surface), var(--surface-2) 130%); border: 1px solid var(--border-soft);
     border-radius: 12px; padding: 14px 16px;
   }
-  .deuda-hero.debe { border-color: rgba(255,107,107,0.4); background: linear-gradient(180deg, rgba(255,107,107,0.12), var(--surface-2) 70%); }
-  .deuda-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-dim); font-weight: 700; margin-bottom: 6px; }
-  .deuda-v { font-size: 22px; font-weight: 700; font-family: var(--font-mono); color: var(--text); }
+  .deuda-hero.debe { border-color: rgba(255,90,95,0.4); background: linear-gradient(180deg, rgba(255,90,95,0.12), var(--surface-2) 70%); }
+  .deuda-k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+  .deuda-v { font-size: 22px; font-weight: 700; font-family: var(--font-body); font-variant-numeric: tabular-nums; color: var(--text); }
   .deuda-hero.debe .deuda-k { color: var(--bad); opacity: 0.9; }
   .deuda-hero.debe .deuda-v { color: var(--bad); }
   /* Formularios de corrección plegados: en el celular empujaban la tabla de
@@ -137,18 +149,20 @@
   details.fold[open] > summary::after { content: '−'; }
   details.fold[open] > summary { margin-bottom: 12px; }
   @media (max-width: 640px) {
-    .fix-btn { min-height: 40px; padding: 8px 12px; }
+    body { font-size: 14px; }
+    .meta { font-size: 12px; }
+    .fix-btn, .back, button { min-height: 44px; padding: 8px 12px; }
     input[type="checkbox"] { width: 22px !important; height: 22px; }
   }
   /* Controles de correccion: solo los ve el administrador. */
   .fix-btn {
-    font-family: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    font-family: inherit; font-size: 11px; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.03em; cursor: pointer; padding: 5px 9px; border-radius: 7px;
     background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
     transition: transform .16s ease, filter .15s ease;
   }
   .fix-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
-  .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,107,107,0.25); }
+  .fix-btn.danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,90,95,0.25); }
   /* Bug real (2026-09-26, reportado con capturas): con flex-wrap + min-width
      los botones (hasta 4 desde que existe "Justificar retraso") envolvían en
      2 líneas dentro de esta celda, y como todas las celdas de una fila de
@@ -164,7 +178,7 @@
      faltaron horas y tuvo una desconexión real. Las extras/recuperaciones
      no entran en este cálculo — se llevan aparte, a mano (2026-09-10). */
   .bcast { font-weight: 700; }
-  .bcast-gris { color: var(--muted-dim); }
+  .bcast-gris { color: var(--muted); }
   .bcast-rojo { color: var(--bad); }
   .manual-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
   .manual-form input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 15px; font-family: var(--font-body); }
@@ -183,7 +197,7 @@
     .th-txt { display: none; }
     .th-ico { display: inline-flex; color: var(--muted); }
     table {
-      font-size: 12px;
+      font-size: 14px;
       /* Sin este min-width el navegador aplasta las 7 columnas dentro de los
          375px del teléfono y el justificante queda de una palabra por renglón.
          Con él, la tabla se desplaza de lado como una planilla de verdad. */
@@ -216,7 +230,7 @@
     animation: toastIn .35s cubic-bezier(.2,.8,.3,1) both; line-height: 1.4;
   }
   .ui-toast.leaving { animation: toastOut .22s ease forwards; }
-  .ui-toast.error { border-color: rgba(255,107,107,0.45); }
+  .ui-toast.error { border-color: rgba(255,90,95,0.45); }
   .ui-toast-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: 0 0 auto; box-shadow: 0 0 8px var(--good); }
   .ui-toast.error .ui-toast-dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
   @keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -242,17 +256,17 @@
      verde si fue extra y azul si fue recuperación. background-image en vez de
      background-color para no tapar el fondo opaco de la primera columna
      sticky. */
-  tr.day-extra td { background-image: linear-gradient(rgba(111,231,184,0.09), rgba(111,231,184,0.09)); }
+  tr.day-extra td { background-image: linear-gradient(rgba(95,220,170,0.09), rgba(95,220,170,0.09)); }
   tr.day-recuperacion td { background-image: linear-gradient(rgba(124,183,255,0.11), rgba(124,183,255,0.11)); }
-  tr.day-extra td:first-child { box-shadow: inset 3px 0 0 #6fe7b8; }
+  tr.day-extra td:first-child { box-shadow: inset 3px 0 0 #5fdcaa; }
   tr.day-recuperacion td:first-child { box-shadow: inset 3px 0 0 #7cb7ff; }
-  .day-tag { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
-  tr.day-extra .day-tag { color: #6fe7b8; }
+  .day-tag { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+  tr.day-extra .day-tag { color: #5fdcaa; }
   tr.day-recuperacion .day-tag { color: #7cb7ff; }
   /* Extra/recuperación cumplida ese día (2026-10-20): horas al lado de las
      normales y etiqueta en Novedad, verde extra / azul recuperación. */
-  .xh { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
-  .xh-extra { color: #6fe7b8; background: rgba(111,231,184,0.12); border: 1px solid rgba(111,231,184,0.3); }
+  .xh { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .xh-extra { color: #5fdcaa; background: rgba(95,220,170,0.12); border: 1px solid rgba(95,220,170,0.3); }
   .xh-recuperacion { color: #7cb7ff; background: rgba(124,183,255,0.12); border: 1px solid rgba(124,183,255,0.32); }
 </style>
 </head>
@@ -262,7 +276,7 @@
     <div>
       <div class="brandline"><img src="/logo-icon.svg" alt=""><span>PLACER</span></div>
       <h1>Hoja de asistencia</h1>
-      <div class="sub" id="sub">Cargando…</div>
+      <div class="sub" id="sub"><div class="skel-bar" aria-label="Cargando"></div></div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button class="back" id="btnCsv" type="button" style="cursor:pointer; font-family:inherit;">Descargar CSV</button>
@@ -332,6 +346,7 @@
   <div class="card">
     <h2>Jornadas de la quincena</h2>
     <div class="table-wrap"><table id="tabla"></table></div>
+    <div id="tablaSkel" aria-hidden="true"><div class="skel-row"></div><div class="skel-row"></div><div class="skel-row"></div></div>
   </div>
 
   <div class="card">
@@ -555,7 +570,7 @@
       // pasó ese día según el sistema, no un problema: falta, extra, recuperó.
       var isFalta = d.official_source === 'falta' || d.official_source === 'falta_justificada';
       var nov = [];
-      if (d.official_source === 'falta') nov.push('<span class="tag" style="color:var(--bad, #ff6b6b);">Falta</span>');
+      if (d.official_source === 'falta') nov.push('<span class="tag" style="color:var(--bad);">✗ Falta</span>');
       if (d.official_source === 'falta_justificada') nov.push('<span class="tag" style="color:var(--muted); border-color:var(--border); background:transparent;">Falta justificada</span>');
       (d.extra_shifts || []).forEach(function (x) { nov.push('<span class="tag xh-' + x.kind + '">' + (x.kind === 'recuperacion' ? 'Recuperó' : 'Hizo extra') + '</span>'); });
       var problemas = nov.length ? nov.join(' ') : '<span class="muted">—</span>';
@@ -583,9 +598,9 @@
         salida = hora(d.exit_at) + (d.early_exit_minutes > 0 && data.early_exit_charge === false
           ? '<div class="sub2">salió −' + horasMin(d.early_exit_minutes) + ' antes</div>'
           : d.early_exit_minutes > 0
-          ? '<div class="sub2"' + (d.early_exit_excused ? '' : ' style="color:var(--bad, #ff6b6b);"') + '>−' + horasMin(d.early_exit_minutes) + ' antes · '
+          ? '<div class="sub2"' + (d.early_exit_excused ? '' : ' style="color:var(--bad);"') + '>−' + horasMin(d.early_exit_minutes) + ' antes · '
             + (d.early_exit_excused ? 'justificado, no cuenta' : earlyPend ? 'justificante sin revisar' : 'sin justificar, se cobra') + '</div>'
-          : '<div class="sub2" style="color:var(--bad, #ff6b6b);">salida temprano</div>');
+          : '<div class="sub2" style="color:var(--bad);">salida temprano</div>');
       }
       else salida = hora(d.exit_at);
 
@@ -688,6 +703,7 @@
   }
 
   function render() {
+    var sk = document.getElementById('tablaSkel'); if (sk) sk.style.display = 'none';
     var staff = data.role === 'administrador' || data.role === 'ceo';
     var pedida = staff ? modeloDeLaUrl() : '';
 
@@ -1022,6 +1038,7 @@
     if (r.status === 401) {
       el.sub.innerHTML = 'Tu sesión no está activa. <a class="file" href="/">Inicia sesión</a> y vuelve a abrir esta hoja.';
       el.tabla.innerHTML = '';
+      var sk0 = document.getElementById('tablaSkel'); if (sk0) sk0.style.display = 'none';
       return null;
     }
     if (!r.ok) throw new Error('http ' + r.status);
@@ -1032,6 +1049,7 @@
     render();
   }).catch(function () {
     el.sub.textContent = 'No se pudo cargar la hoja. Recarga la página.';
+    var sk1 = document.getElementById('tablaSkel'); if (sk1) sk1.style.display = 'none';
   });
 })();
 </script>
