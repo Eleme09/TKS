@@ -1999,17 +1999,30 @@ function startAutoExitChecking() {
 // `pendiente` y esta rutina la ignora sin hacer nada.
 const AUTO_VALIDATE_ARRIVAL_AFTER_MS = 15 * 60 * 1000;
 let autoValidateArrivalsRunning = false;
-// Si la modelo tiene una extra o recuperacion reclamada para ese dia, esa hora
-// de inicio reemplaza su horario normal como referencia de llegada. Llegar antes
-// de la extra cuenta como puntual (no como "temprano" frente a su horario
-// normal). shifts = lista de cb_shifts. Ignora las que quedaron "no cumplio".
-function claimedExtraStartMs(shifts, username, workDate) {
+// Ventana {startMs, endMs} de la extra o recuperacion reclamada para ese dia
+// (null si no tiene ninguna). Ignora las que quedaron "no cumplio".
+function claimedExtraWindow(shifts, username, workDate) {
   const sh = (shifts || []).find((x) => x.claimed_by === username
     && String(x.shift_date).slice(0, 10) === workDate
     && x.attendance_status !== 'no_cumplio'
     && x.start_time);
   if (!sh) return null;
-  return studioScheduledMs(String(sh.shift_date).slice(0, 10), normalizeClock(sh.start_time));
+  const d = String(sh.shift_date).slice(0, 10);
+  const startMs = studioScheduledMs(d, normalizeClock(sh.start_time));
+  const endMs = sh.end_time ? studioInstantAfter(d, normalizeClock(sh.end_time), normalizeClock(sh.start_time)) : null;
+  return startMs == null ? null : { startMs, endMs };
+}
+
+// Referencia de llegada cuando hay extra ese dia:
+// - Si la extra cubre la hora normal de entrada, la modelo ya estaba trabajando
+//   desde esa hora: la referencia es su horario normal (llegar antes no es temprano).
+// - Si no la cubre, la referencia es la hora de inicio de la extra.
+// Devuelve {scheduledMs, officialMs} ajustados.
+function applyExtraReference(normalMs, reportedMs, win) {
+  if (!win) return { scheduledMs: normalMs, officialMs: reportedMs };
+  const cubreNormal = normalMs != null && win.startMs <= normalMs && (win.endMs == null || win.endMs >= normalMs);
+  const referencia = cubreNormal ? normalMs : win.startMs;
+  return { scheduledMs: referencia, officialMs: Math.max(reportedMs, referencia) };
 }
 
 async function checkAutoValidateArrivals() {
@@ -2036,12 +2049,9 @@ async function checkAutoValidateArrivals() {
       }
       // Si tiene extra reclamada ese dia, la referencia es la hora de la extra
       // y llegar antes de ella no cuenta como temprano.
-      const extraMs = claimedExtraStartMs(shifts, d.username, d.work_date);
-      let officialMs = reportedMs;
-      if (extraMs != null) {
-        scheduledMs = extraMs;
-        officialMs = Math.max(reportedMs, extraMs);
-      }
+      const ref = applyExtraReference(scheduledMs, reportedMs, claimedExtraWindow(shifts, d.username, d.work_date));
+      scheduledMs = ref.scheduledMs;
+      const officialMs = ref.officialMs;
       const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
       const updated = await sbUpdateAttendanceDay(d.id, {
         status: 'validada',
@@ -4488,11 +4498,9 @@ async function handleRequest(req, res) {
     }
     // Extra o recuperacion reclamada ese dia: su hora de inicio es la referencia,
     // y llegar antes de ella (con la hora reportada) cuenta como puntual.
-    const extraMs = claimedExtraStartMs(await sbListShifts(), day.username, day.work_date);
-    if (extraMs != null) {
-      scheduledMs = extraMs;
-      if (source === 'reportada') officialMs = Math.max(officialMs, extraMs);
-    }
+    const extraRef = applyExtraReference(scheduledMs, officialMs, claimedExtraWindow(await sbListShifts(), day.username, day.work_date));
+    scheduledMs = extraRef.scheduledMs;
+    if (source === 'reportada') officialMs = extraRef.officialMs;
     // Hora normal, sin ningun margen interno (eliminado 2026-09-10).
     const lateMinutes = scheduledMs != null ? computeLateMinutes(officialMs, scheduledMs) : null;
     const updated = await sbUpdateAttendanceDay(id, {
