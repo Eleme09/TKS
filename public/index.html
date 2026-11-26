@@ -3308,6 +3308,11 @@
     el.newsList.innerHTML = posts.map(function (p, idx) {
       const when = new Date(p.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
       const isAviso = p.post_type === 'aviso';
+      // Color del aviso = color del autor: CEO femenina rosa, CEO masculino celeste, el resto rosa.
+      const avisoCeoM = p.author_role === 'ceo' && p.author_gender === 'm';
+      const acento = avisoCeoM
+        ? { solid: 'var(--info)', texto: '#0b1a1f', linea: 'rgba(127,212,232,0.4)', fondo: 'rgba(127,212,232,0.08)' }
+        : { solid: 'var(--pink)', texto: '#1a0a12', linea: 'var(--pink-line)', fondo: 'rgba(255,143,190,0.09)' };
       // El color (celeste=aviso, gris=hilo) lo ve cualquier rol siempre, y ahora
       // ademas toda la CARD (no solo el badge) lleva el tinte — un badge
       // solo resultaba demasiado parecido entre los dos tipos a simple
@@ -3318,16 +3323,16 @@
       // estiraba este select al ancho completo de la card, tapando el resto
       // de la fila (mismo bug reportado).
       const typeBadge = isAdmin
-        ? '<select class="newsTypeSelect" data-post-id="' + p.id + '" style="width:auto; display:inline-block; background:' + (isAviso ? 'var(--pink)' : 'rgba(255,255,255,0.06)') + '; color:' + (isAviso ? '#1a0a12' : 'var(--muted)') + '; border:1px solid ' + (isAviso ? 'var(--pink)' : 'var(--border)') + '; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:0.03em; padding:3px 8px; text-transform:uppercase; font-family:inherit;">'
+        ? '<select class="newsTypeSelect" data-post-id="' + p.id + '" style="width:auto; display:inline-block; background:' + (isAviso ? acento.solid : 'rgba(255,255,255,0.06)') + '; color:' + (isAviso ? acento.texto : 'var(--muted)') + '; border:1px solid ' + (isAviso ? acento.solid : 'var(--border)') + '; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:0.03em; padding:3px 8px; text-transform:uppercase; font-family:inherit;">'
             + '<option value="hilo"' + (isAviso ? '' : ' selected') + '>HILO</option>'
             + '<option value="aviso"' + (isAviso ? ' selected' : '') + '>AVISO</option>'
           + '</select>'
         : (isAviso
-            ? '<span class="role-badge" style="background:var(--pink); color:#1a0a12; border:1px solid var(--pink);">AVISO</span>'
+            ? '<span class="role-badge" style="background:' + acento.solid + '; color:' + acento.texto + '; border:1px solid ' + acento.solid + ';">AVISO</span>'
             : '<span class="role-badge" style="background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">HILO</span>');
       const isLegendary = p.author_role === 'administrador';
       const cardStyle = 'animation-delay:' + (idx * 40) + 'ms;'
-        + (isLegendary ? '' : (isAviso ? ' border-color:var(--pink-line); background:linear-gradient(165deg, rgba(255,143,190,0.09), var(--surface) 55%);' : ''));
+        + (isLegendary ? '' : (isAviso ? ' border-color:' + acento.linea + '; background:linear-gradient(165deg, ' + acento.fondo + ', var(--surface) 55%);' : ''));
       const sparksHtml = isLegendary
         ? '<span class="news-spark" style="left:8%; top:18%; animation-delay:0s;"></span>'
           + '<span class="news-spark" style="right:12%; top:35%; animation-delay:1.1s;"></span>'
