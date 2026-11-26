@@ -2306,14 +2306,14 @@
       + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
     let body = '';
     if (attData.role === 'modelo') {
+      // Pedido 2026-11-26: la modelo solo ve el mensaje de incentivo, sin
+      // titulo de seguridad social ni cuadro de retraso.
       if (owing.length) {
-        body += '<div class="att-warning-title">Seguridad social a tu cargo esta quincena</div>'
-          + '<div class="att-warning-body">' + escapeHtml(owing[0].owes_message || '') + '</div>';
+        body += '<div class="att-warning-body">' + escapeHtml(owing[0].owes_message || '') + '</div>';
       }
       const carryMine = carry ? carry.totals.find(function (t) { return t.username === attData.username; }) : null;
       if (carryMine) {
-        body += '<div class="att-warning-title" style="margin-top:' + (owing.length ? '10px' : '0') + ';">Seguridad social pendiente de la quincena pasada</div>'
-          + '<div class="att-warning-body">' + escapeHtml(carryMine.owes_message || '') + '</div>';
+        body += '<div class="att-warning-body" style="margin-top:' + (owing.length ? '10px' : '0') + ';">' + escapeHtml(carryMine.owes_message || '') + '</div>';
       }
     } else {
       // Desplegable (pedido 2026-10-16): con 4+ modelos cada una con su
@@ -2358,16 +2358,10 @@
     const mine = attData.my_total;
     if (!mine || mine.entry_time == null) { el.attRetrasoPanel.style.display = 'none'; return; }
     const lateMinutes = mine.late_minutes || 0;
+    // Pedido 2026-11-26: ya no se muestra el aviso de retraso acumulado a la modelo.
     if (lateMinutes > 0) {
-      const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
-        + '<path d="M12 3 L22 20 H2 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'
-        + '<line x1="12" y1="10" x2="12" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
-        + '<circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>';
-      el.attRetrasoPanel.className = 'att-warning';
-      el.attRetrasoPanel.innerHTML = icon + '<div>'
-        + '<div class="att-warning-title">Llevas ' + attHorasMin(lateMinutes) + ' de retraso</div>'
-        + '<div class="att-warning-body">Acumulado en esta quincena. Todavía puedes mejorarlo llegando puntual de aquí en adelante.</div>'
-        + '</div>';
+      el.attRetrasoPanel.style.display = 'none';
+      return;
     } else {
       const icon = '<svg class="att-warning-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
         + '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/>'
