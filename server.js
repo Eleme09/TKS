@@ -3136,10 +3136,11 @@ async function pollLoop(tracker) {
         clearTimeout(pollTimeoutId);
         triedSavedCursor = false;
         nextUrl = freshUrl;
-        // el cursor guardado fallo: ya no hay garantia de no haber perdido
-        // un evento en el hueco, asi que el adelanto de arriba ya no aplica.
-        tracker.online = false;
-        tracker.onlineSince = null;
+        // Antes aqui se ponia online=false: eso dejaba a TODAS las modelos
+        // desconectadas en cada reinicio (2026-11-26) aunque transmitieran. El
+        // estado en linea es solo de monitoreo (no mueve plata), asi que se
+        // conserva el adelanto de arriba y lo corrige el proximo broadcastStart /
+        // broadcastStop real del stream.
         continue;
       }
       const body = await resp.text().catch(() => '');
