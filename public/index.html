@@ -363,6 +363,16 @@
   .btnBell.active { color: var(--pink); filter: drop-shadow(0 0 4px var(--pink)); }
   .admin-list-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; animation: fadeUp .3s ease both; }
   .admin-list-row:last-child { border-bottom: none; }
+  /* Cuentas compactas (2026-11-26): fila de una linea de nombre + acciones chicas,
+     en 2 columnas en pantalla ancha; buscador arriba para listas largas. */
+  .acc-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+  @media (min-width: 700px) { .acc-list { grid-template-columns: 1fr 1fr; } }
+  .acc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: 10px; font-size: 13px; }
+  .acc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acc-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+  .acc-list .acc-btn { min-height: 28px; padding: 3px 8px; font-size: 11px; border-radius: 8px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+  .acc-list .acc-btn.acc-danger { background: var(--bad-soft); color: var(--bad); border-color: rgba(255,90,95,0.25); }
+  .acc-search { margin: 0 0 10px; }
   .tabnav { display: flex; gap: 22px; margin-bottom: 24px; border-bottom: 1px solid var(--border-soft); animation: fadeUp .3s ease both; }
   .tabbtn {
     background: none; border: none; color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px 10px;
@@ -1144,6 +1154,12 @@
             <div id="attPendingExcuseError" class="errbox"></div>
           </div>
 
+          <div class="card" id="attExcuseLogCard" style="display:none;">
+            <h3 class="card-title">Excusas de la quincena</h3>
+            <div class="meta-small" style="margin-bottom:10px;">Aprobadas, rechazadas y pendientes. Solo lo ven administrador y CEO.</div>
+            <div id="attExcuseLogList"></div>
+          </div>
+
           <div class="card">
             <label for="attStaffFilter">Modelo</label>
             <select id="attStaffFilter"></select>
@@ -1256,6 +1272,7 @@
         <div class="row" style="margin-top:10px;"><button id="btnSaveDisplayName" class="btn-primary" style="flex:1;">Guardar</button></div>
         <div id="displayNameError" class="errbox"></div>
       </div>
+      <input id="accSearch" class="acc-search" placeholder="Buscar cuenta…" autocomplete="off" style="width:100%;">
       <div class="card" id="adminAccountsCard">
         <h3 class="card-title">Cuentas administrativas</h3>
         <div class="meta-small" style="margin-bottom:12px;">Cuentas CEO PLACER STUDIO — puede gestionar el calendario de turnos, resetear contraseñas de modelos y cerrar sus sesiones. No puede tocar cuentas admin/CEO ni el resto de configuración de esta pestaña.</div>
@@ -1532,6 +1549,8 @@
     attPendingList: document.getElementById('attPendingList'),
     attPendingExcuseCard: document.getElementById('attPendingExcuseCard'),
     attPendingExcuseList: document.getElementById('attPendingExcuseList'),
+    attExcuseLogCard: document.getElementById('attExcuseLogCard'),
+    attExcuseLogList: document.getElementById('attExcuseLogList'),
     attPendingError: document.getElementById('attPendingError'),
     attStaffPeriodHint: document.getElementById('attStaffPeriodHint'),
     attTotalsList: document.getElementById('attTotalsList'),
@@ -2676,7 +2695,12 @@
       });
     }
 
-    if (isAdmin) {
+    if (isAdmin || isCeo) {
+      el.attExcuseLogCard.style.display = 'block';
+      el.attExcuseLogList.innerHTML = attExcuseLogHtml(attData.excuseLog || []);
+    }
+
+    if (isAdmin || isCeo) {
       const pendingExcuses = attData.pendingLateExcuses || [];
       el.attPendingExcuseCard.style.display = pendingExcuses.length ? 'block' : 'none';
       el.attPendingExcuseList.innerHTML = attPendingExcuseHtml(pendingExcuses);
@@ -2829,6 +2853,28 @@
         + '<button id="attVal-manual-' + p.id + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border);">Otra hora…</button>'
         + '<button id="attVal-rechazar-' + p.id + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,90,95,0.25);">Rechazar</button>'
         + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function attExcuseLogHtml(list) {
+    if (!list.length) return '<div class="meta-small">Todavía no hay justificantes esta quincena.</div>';
+    const estilo = {
+      aprobada: 'color:var(--good); border-color:rgba(95,220,170,0.35);',
+      rechazada: 'color:var(--bad); border-color:rgba(255,90,95,0.35);',
+      pendiente: 'color:var(--warn); border-color:rgba(245,194,107,0.35);',
+    };
+    return list.slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }).map(function (j) {
+      const st = j.status;
+      const chip = '<span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid var(--border); '
+        + (estilo[st] || 'color:var(--muted);') + '">' + escapeHtml(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
+      const cuando = j.reviewed_at ? ' · revisada ' + escapeHtml(new Date(j.reviewed_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })) : '';
+      return '<div class="att-row">'
+        + '<div class="att-row-head">'
+        + '<span class="att-row-name">' + escapeHtml(j.username) + '</span>' + chip
+        + '</div>'
+        + '<div class="meta-small">' + attFechaCorta(j.work_date) + ' · [' + escapeHtml(attKindShort(j.kind)) + ']' + cuando + (j.has_file ? ' · con archivo' : '') + '</div>'
+        + '<div class="meta-small">' + escapeHtml(j.body || '') + '</div>'
         + '</div>';
     }).join('');
   }
@@ -3366,16 +3412,17 @@
       el.adminList.innerHTML = '<div class="meta-small">Todavía no hay cuentas CEO — créala aquí abajo cuando la necesites.</div>';
       return;
     }
-    el.adminList.innerHTML = data.admins.map(function (a) {
-      const displayName = a.hide_name ? 'Anónimo' : escapeHtml(a.username);
-      return '<div class="admin-list-row"><span>' + displayName + ' ' + roleBadgeHtml(a.role, a.gender) + '</span>' +
-        '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
-        (currentRole === 'administrador' ? '<button class="btnEnterAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Entrar</button>' : '') +
-        '<button class="btnKeyAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
-        '<button class="btnLogoutAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
-        '<button class="btnDeleteAdmin" data-user="' + escapeHtml(a.username) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,90,95,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
-        '</span></div>';
-    }).join('');
+    el.adminList.innerHTML = '<div class="acc-list">' + data.admins.map(function (a) {
+      const acts = [];
+      if (currentRole === 'administrador') acts.push({ cls: 'btnEnterAdmin', label: 'Entrar' });
+      acts.push({ cls: 'btnKeyAdmin', label: 'Contraseña' });
+      acts.push({ cls: 'btnLogoutAdmin', label: 'Cerrar sesiones' });
+      acts.push({ cls: 'btnDeleteAdmin', label: 'Eliminar', danger: true });
+      const nombre = a.hide_name ? 'Anónimo' : a.username;
+      return accRowHtml(a.username, roleBadgeHtml(a.role, a.gender), acts).replace('>' + escapeHtml(a.username) + '</span>', '>' + escapeHtml(nombre) + '</span>');
+    }).join('') + '</div>';
+    aplicarBuscadorCuentas();
+    if (!window.__accSearchWired) { window.__accSearchWired = true; document.getElementById('accSearch').addEventListener('input', aplicarBuscadorCuentas); }
     el.adminList.querySelectorAll('.btnEnterAdmin').forEach(function (btn) {
       btn.addEventListener('click', function () { impersonateAccount('admin', btn.getAttribute('data-user')); });
     });
@@ -3398,6 +3445,22 @@
     });
   }
 
+  // Fila compacta de cuenta: nombre (filtrable con #accSearch) + botones chicos.
+  function accRowHtml(name, badgeHtml, actions) {
+    const btns = actions.map(function (a) {
+      return '<button class="acc-btn' + (a.danger ? ' acc-danger' : '') + ' ' + a.cls + '" data-user="' + escapeHtml(name) + '">' + a.label + '</button>';
+    }).join('');
+    return '<div class="acc-row" data-name="' + escapeHtml(name.toLowerCase()) + '">'
+      + '<span class="acc-name">' + escapeHtml(name) + '</span>' + badgeHtml
+      + '<span class="acc-actions">' + btns + '</span></div>';
+  }
+  function aplicarBuscadorCuentas() {
+    const q = (document.getElementById('accSearch').value || '').trim().toLowerCase();
+    document.querySelectorAll('.acc-row').forEach(function (row) {
+      row.style.display = !q || (row.getAttribute('data-name') || '').indexOf(q) !== -1 ? '' : 'none';
+    });
+  }
+
   async function refreshModelAccounts() {
     const r = await fetch('/api/models');
     if (!r.ok) return;
@@ -3410,15 +3473,15 @@
     // "Entrar como ella" y "Eliminar": administrador Y ceo (pedido 2026-11-26).
     // Esta card nunca se muestra a una modelo.
     const puedeEntrarComo = currentRole === 'administrador' || currentRole === 'ceo';
-    el.modelAccountsList.innerHTML = models.map(function (m) {
-      return '<div class="admin-list-row"><span>' + escapeHtml(m.account) + ' <span class="role-badge modelo">modelo</span></span>' +
-        '<span style="display:flex; gap:6px; flex-wrap:wrap;">' +
-        (puedeEntrarComo ? '<button class="btnImpersonate" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Entrar como ella</button>' : '') +
-        '<button class="btnKeyModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Contraseña</button>' +
-        '<button class="btnLogoutModel" data-user="' + escapeHtml(m.account) + '" style="background:var(--surface-2); color:var(--text); border:1px solid var(--border); padding:5px 10px; font-size:11.5px;">Cerrar sesiones</button>' +
-        '<button class="btnDeleteModelAcc" data-user="' + escapeHtml(m.account) + '" style="background:var(--bad-soft); color:var(--bad); border:1px solid rgba(255,90,95,0.25); padding:5px 10px; font-size:11.5px;">Eliminar</button>' +
-        '</span></div>';
-    }).join('');
+    el.modelAccountsList.innerHTML = '<div class="acc-list">' + models.map(function (m) {
+      const acts = [];
+      if (puedeEntrarComo) acts.push({ cls: 'btnImpersonate', label: 'Entrar' });
+      acts.push({ cls: 'btnKeyModel', label: 'Contraseña' });
+      acts.push({ cls: 'btnLogoutModel', label: 'Cerrar sesiones' });
+      acts.push({ cls: 'btnDeleteModelAcc', label: 'Eliminar', danger: true });
+      return accRowHtml(m.account, '<span class="role-badge modelo">modelo</span>', acts);
+    }).join('') + '</div>';
+    aplicarBuscadorCuentas();
     el.modelAccountsList.querySelectorAll('.btnKeyModel').forEach(function (btn) {
       btn.addEventListener('click', function () { setModelPassword(btn.getAttribute('data-user')); });
     });

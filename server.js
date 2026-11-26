@@ -1760,6 +1760,9 @@ async function buildAttendancePayload(session) {
       ...c,
       deadline_at: new Date(Date.parse(c.created_at) + AUTO_APPROVE_CORRECTION_AFTER_MS).toISOString(),
     }));
+    // Historial de excusas con su decision (aprobada / rechazada / pendiente).
+    // Solo staff: administrador y CEO.
+    payload.excuseLog = buildExcuseLog(days, justifications);
     payload.pendingLateExcuses = findPendingExcuses(days, justifications).map((p) => ({
       id: p.day.id,
       username: p.day.username,
@@ -2085,6 +2088,39 @@ let autoExcuseLateRunning = false;
 // justificante cubre qué: 'salida_temprano' solo la salida, 'retraso' solo la
 // entrada, cualquier otro (salud, internet, otro...) cubre las dos. Por cada
 // día+tipo decide el justificante más viejo (el que arranca los 20 min).
+// Decision de cada justificante de la quincena, leida de la jornada que le
+// corresponde (mismo dia y modelo). Las banderas que deciden son las que ya
+// usan las reglas de cobro: late_excused / late_excuse_reviewed_at para
+// retraso, early_exit_excused / early_exit_reviewed_at para salida temprana.
+// Un rechazo de retraso ademas convierte el dia en falta (official_source 'falta').
+function buildExcuseLog(days, justifications) {
+  const out = [];
+  for (const j of justifications) {
+    const d = days.find((x) => x.username === j.username && x.work_date === j.work_date) || null;
+    let status = 'sin jornada';
+    let reviewedAt = null;
+    if (d) {
+      if (j.kind === 'salida_temprano') {
+        reviewedAt = d.early_exit_reviewed_at || null;
+        if (reviewedAt) status = d.early_exit_excused ? 'aprobada' : 'rechazada';
+        else status = d.early_exit_minutes > 0 ? 'pendiente' : 'sin efecto';
+      } else if (j.kind === 'falta') {
+        status = d.official_source === 'falta_justificada' ? 'aprobada' : 'sin efecto';
+      } else {
+        reviewedAt = d.late_excuse_reviewed_at || null;
+        if (reviewedAt) status = d.late_excused ? 'aprobada' : 'rechazada';
+        else status = d.late_minutes > 0 ? 'pendiente' : 'sin efecto';
+      }
+    }
+    out.push({
+      id: j.id, username: j.username, work_date: j.work_date, kind: j.kind, body: j.body,
+      created_at: j.created_at, has_file: !!j.excuse_filename, status, reviewed_at: reviewedAt,
+      late_minutes: d ? d.late_minutes : null,
+    });
+  }
+  return out;
+}
+
 function findPendingExcuses(days, justifications) {
   const oldest = (list) => list.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
   const out = [];
