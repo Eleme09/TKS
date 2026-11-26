@@ -2746,6 +2746,15 @@
     if (isAdmin || isCeo) {
       el.attExcuseLogCard.style.display = 'block';
       el.attExcuseLogList.innerHTML = attExcuseLogHtml(attData.excuseLog || []);
+      // Tocar una excusa lleva a la hoja de esa modelo (horas, justificantes, resumen).
+      el.attExcuseLogList.querySelectorAll('.acc-row[data-user]').forEach(function (row) {
+        row.addEventListener('click', function (e) {
+          if (e.target.closest('button')) return;
+          el.attStaffFilter.value = row.getAttribute('data-user');
+          el.attStaffFilter.dispatchEvent(new Event('change'));
+          el.attStaffFilter.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
       el.attExcuseLogList.querySelectorAll('[data-excuse-day]').forEach(function (b) {
         b.addEventListener('click', async function () {
           const excused = b.getAttribute('data-excuse-set') === '1';
@@ -2938,7 +2947,7 @@
       if (st !== 'aprobada') acciones += btn(true, 'Aprobar', '');
       if (st !== 'rechazada') acciones += btn(false, 'Rechazar', 'acc-danger');
       const fecha = attFechaCorta(j.work_date) + ' · ' + escapeHtml(attKindShort(j.kind));
-      return '<div class="acc-row" data-name="' + escapeHtml(j.username.toLowerCase()) + '" style="flex-direction:column; align-items:stretch;">'
+      return '<div class="acc-row" data-user="' + escapeHtml(j.username) + '" data-name="' + escapeHtml(j.username.toLowerCase()) + '" style="flex-direction:column; align-items:stretch; cursor:pointer;">'
         + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
         + '<span class="acc-name">' + escapeHtml(j.username) + '</span>' + chip
         + '<span class="meta-small" style="margin-left:auto;">' + fecha + '</span></div>'
