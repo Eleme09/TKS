@@ -142,10 +142,10 @@ const BALANCE_DENSE_EVERY_TICKS = 3;        // en la ventana: cada 60 s
 // posible, solo un puñado de eventos ya vistos reenviados, bloqueados por
 // el UNIQUE(username, event_id) de cb_tips/cb_broadcast_events) y baja el
 // techo real a 1.440/dia/modelo en vez de 8.640/dia/modelo.
-// 5 min (antes 60 s): con 8 modelos a 60 s eran ~11.500 PATCH/dia a Supabase.
-// Seguro: al reconectar tras una caida se reenvian pocos eventos ya vistos y
-// UNIQUE(username, event_id) de cb_tips/cb_broadcast_events los bloquea.
-const CURSOR_SAVE_MIN_INTERVAL_MS = 5 * 60 * 1000;
+// Vuelto a 60 s (2026-11-26): con 5 min el cursor guardado quedaba viejo y
+// Chaturbate lo rechazaba (HTTP 400) al reiniciar, dejando las modelos
+// desconectadas aunque estuvieran transmitiendo. Ver el log "[online]".
+const CURSOR_SAVE_MIN_INTERVAL_MS = 60 * 1000;
 
 // Eventos sin valor de dinero ni de estado: no se guardan en cb_unhandled_events.
 const NO_STORE_EVENT_METHODS = new Set([

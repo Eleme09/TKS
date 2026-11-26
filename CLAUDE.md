@@ -354,7 +354,7 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
 
 **Automatización y consumo de Supabase:**
 - Nunca scriptear login en Chaturbate ni Stripchat. Solo APIs con token.
-- Cursor de Chaturbate: se guarda como mucho cada 5 min (`CURSOR_SAVE_MIN_INTERVAL_MS`). Eventos sin valor (`userEnter`, `userLeave`, `chatMessage`, `follow`, `unfollow`, `roomSubjectChange`) no se guardan.
+- Cursor de Chaturbate: se guarda como mucho cada 60 s (`CURSOR_SAVE_MIN_INTERVAL_MS`). Con 5 min el cursor se rechazaba al reiniciar y las modelos salían desconectadas (2026-11-26). Eventos sin valor (`userEnter`, `userLeave`, `chatMessage`, `follow`, `unfollow`, `roomSubjectChange`) no se guardan.
 - Si el consumo sube de nuevo, el primer sospechoso es código propio (queries sin caché, sin índice, o demasiado frecuentes), no el proveedor. No proponer cambiar de proveedor sin pedido.
 - No pausar `venta-webs` (otro negocio, misma organización).
 
@@ -368,6 +368,8 @@ repo file and the DB row are meant to stay in sync, not one abandoned.
 - Antes de borrar un archivo que pueda ser de arranque (`-r`, `NODE_OPTIONS`, `postinstall`), revisar también las variables de entorno de Render: no viven en el repo.
 - Antes de afirmar que algo "no existe", hacer `git fetch origin master`.
 - Un 402 de Supabase tira toda la API. Para diagnosticarlo, pegarle directo a la API con la clave, no usar el login como prueba.
+
+**Cuenta admin para Claude:** la cuenta `Claude` (administrador) existe para que Claude pueda entrar a la app a revisar y auditar. Su contraseña NO va en el repo: está en el scratchpad local de la sesión. Claude puede entrar con ella para verificar el estado de la app (`/api/me`, `/api/models`, `/api/attendance`) sin pedirla de nuevo.
 
 **Pendientes del dueño:** cerrar el acceso anónimo de Supabase (requiere `SUPABASE_SERVICE_KEY` en Render). Copias de seguridad: decisión tomada, no volver a proponerla.
 
