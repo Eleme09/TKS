@@ -244,9 +244,9 @@
     text-shadow: 0 0 4px rgba(95,220,170,0.55);
     animation: neonGlowGood 2.4s ease-in-out infinite;
   }
-  .badge.offline { background: var(--bad-soft); color: var(--bad); border: 1px solid rgba(255,90,95,0.22); opacity: 0.65; }
+  .badge.offline { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(245,194,107,0.3); opacity: 0.85; }
   .badge.online::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px 2px var(--good); animation: pulse 1.8s ease-in-out infinite; }
-  .badge.offline::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--bad); display: inline-block; }
+  .badge.offline::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--warn); display: inline-block; }
   .model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   .stat { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 13px; transition: border-color .15s ease, transform .15s ease; }
   .stat:hover { border-color: var(--border-strong); transform: translateY(-2px); }
@@ -565,6 +565,29 @@
   }
   input[type="file"]::file-selector-button:hover {
     background: linear-gradient(180deg, rgba(255,143,190,0.26), rgba(255,143,190,0.12));
+  }
+  /* Selector de archivo propio: el input nativo muestra "Choose file / No file chosen" en ingles. */
+  .file-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .file-pick-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+  .file-pick-btn {
+    display: inline-flex; align-items: center; min-height: 36px; margin: 0; cursor: pointer;
+    font-family: var(--font-body); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em;
+    background: linear-gradient(180deg, rgba(255,143,190,0.18), rgba(255,143,190,0.07));
+    color: var(--pink); border: 1px solid var(--pink-line); border-radius: 8px; padding: 7px 14px;
+  }
+  .file-pick-btn:hover { background: linear-gradient(180deg, rgba(255,143,190,0.26), rgba(255,143,190,0.12)); }
+  .file-pick:focus-within .file-pick-btn { outline: 2px solid var(--pink); outline-offset: 2px; }
+  .file-pick-name { font-size: 12.5px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  /* Mensaje de tabla vacia: que haga wrap aunque la tabla sea mas ancha que la pantalla. */
+  .att-empty-msg { white-space: normal; position: sticky; left: 10px; width: min(300px, calc(100vw - 80px)); line-height: 1.5; }
+  .att-table td.att-empty { white-space: normal; }
+  .mrow-nostream { margin-top: 4px; }
+  @media (min-width: 641px) {
+    /* Botones de la barra superior, pestanas y paginacion: area clicable comoda en escritorio. */
+    .topbar-actions .btnAnon, .topbar-actions #btnLogout { min-height: 36px; min-width: 36px; padding: 8px 12px; justify-content: center; }
+    .tabbtn { min-height: 36px; padding: 10px 12px; }
+    #btnPrevAttHist, #btnNextAttHist { min-height: 36px; padding: 8px 16px; }
+    #attMyGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
   .time12 { display: flex; gap: 6px; align-items: center; }
   .time12 select {
@@ -1035,7 +1058,7 @@
           <div id="attMyError" class="errbox"></div>
           <div id="attDemoTools" style="display:none; margin-top:16px; padding-top:14px; border-top:1px solid var(--border);"></div>
           <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
-            <div class="meta-small" style="margin-bottom:10px; font-size:12px;">Corregir una hora</div>
+            <h3 class="card-title" style="margin-bottom:10px;">Corregir una hora</h3>
             <label for="attCorrDate">Día</label>
             <select id="attCorrDate"></select>
             <label for="attCorrField">Qué corriges</label>
@@ -1055,21 +1078,15 @@
 
         <div class="card">
           <h3 class="card-title">Justificaciones</h3>
-          <div class="meta-small" style="margin-bottom:12px;">Cuenta qué pasó y adjunta una excusa si aplica (foto o PDF, máx. 5 MB). Opcional.</div>
-          <label for="attJustKind">Motivo</label>
-          <select id="attJustKind">
-            <option value="retraso">Llegué tarde</option>
-            <option value="internet">Se me cayó el internet</option>
-            <option value="conexion">Me conecté tarde</option>
-            <option value="room">Problema con el room</option>
-            <option value="salud">Tema de salud</option>
-            <option value="salida_temprano">Salí antes de mi hora</option>
-            <option value="otro">Otro</option>
-          </select>
-          <label for="attJustBody">Qué pasó</label>
-          <textarea id="attJustBody" rows="3" placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
-          <label for="attJustFile">Adjuntar archivo (opcional)</label>
-          <input id="attJustFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
+          <div class="meta-small" style="margin-bottom:12px;">Cuéntanos qué pasó. Si tienes una foto o PDF de la excusa (máx. 5 MB), adjúntala. El archivo es opcional.</div>
+          <label for="attJustBody">¿Por qué subes la excusa? ¿Qué pasó?</label>
+          <textarea id="attJustBody" rows="3" minlength="3" required placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
+          <label>Adjuntar archivo (opcional)</label>
+          <div class="file-pick">
+            <label for="attJustFile" class="file-pick-btn">Elegir archivo</label>
+            <span class="file-pick-name" id="attJustFileName">Ningún archivo seleccionado</span>
+            <input id="attJustFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" class="file-pick-input">
+          </div>
           <div class="row" style="margin-top:10px;"><button id="btnAttJust" class="btn-primary" style="flex:1;">Enviar justificación</button></div>
           <div id="attJustError" class="errbox"></div>
           <div id="attMyJustList" style="margin-top:14px;"></div>
@@ -1492,7 +1509,7 @@
     attMyGrid: document.getElementById('attMyGrid'),
     attMyActions: document.getElementById('attMyActions'),
     attMyError: document.getElementById('attMyError'),
-    attJustKind: document.getElementById('attJustKind'),
+    attJustFileName: document.getElementById('attJustFileName'),
     attJustBody: document.getElementById('attJustBody'),
     attJustFile: document.getElementById('attJustFile'),
     btnAttJust: document.getElementById('btnAttJust'),
@@ -1852,11 +1869,12 @@
               '<div class="minfo">' +
                 '<div class="model-name-row"><div class="model-name">' + m.account + '</div></div>' +
                 '<div class="msub">' + onlineBadge(m.online) + '<span class="msub-tok"><span data-anim="tok-' + m.account + '"></span> tok.</span></div>' +
+                (online ? '' : '<div class="meta-small mrow-nostream">Todavía no está transmitiendo</div>') +
                 (m.stripchatTokensPeriod > 0 ? '<div class="meta-small">' + platformIconHtml('https://chaturbate.com/favicon.ico', 'CB', '#f47321') + ' ' + (m.chaturbateTokensPeriod || 0).toLocaleString('es-ES') + ' + ' + platformIconHtml('https://stripchat.com/favicon.ico', 'SC', '#c62143') + ' ' + m.stripchatTokensPeriod.toLocaleString('es-ES') + '</div>' : '') +
               '</div>' +
               '<div class="mval"><div class="n" data-anim-usd="pay-' + m.account + '" data-cop="' + (m.payoutCOP != null ? fmtCOP(m.payoutCOP) : '') + '"></div></div>' +
             '</div>' +
-            (data.dollar && data.dollar.rate != null ? '<div class="meta-small mrow-rate">Dólar: ' + fmtCOP(data.dollar.marketRate) + ' · Paxum: ' + fmtCOP(data.dollar.rate) + '</div>' : '') +
+            (data.dollar && data.dollar.rate != null ? '<div class="meta-small mrow-rate">Tasa del día: Dólar: ' + fmtCOP(data.dollar.marketRate) + ' · Paxum: ' + fmtCOP(data.dollar.rate) + '</div>' : '') +
             controls +
           '</div>';
       }).join('');
@@ -2526,7 +2544,7 @@
   function attTableHtml(days, withName, justifications) {
     const cols = withName ? 9 : 8;
     if (!days || !days.length) {
-      return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
+      return '<tr><td class="muted att-empty" colspan="' + cols + '" style="padding:14px 10px;"><div class="att-empty-msg">Todavía no hay días registrados en esta quincena.</div></td></tr>';
     }
     const index = attJustIndex(justifications);
     const head = '<tr>' + attTh('Día', 'dia')
@@ -2984,9 +3002,9 @@
   async function attSendJustification() {
     attClearBox(el.attJustError);
     const body = el.attJustBody.value.trim();
-    if (!body) return attShowBox(el.attJustError, 'Escribe qué pasó');
+    if (body.length < 3) return attShowBox(el.attJustError, 'Cuéntanos qué pasó (mínimo 3 caracteres)');
     const file = el.attJustFile.files && el.attJustFile.files[0];
-    const payload = { kind: el.attJustKind.value, body: body };
+    const payload = { kind: 'otro', body: body };
     if (file) {
       if (file.size > 5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 5 MB');
       const base64 = await new Promise(function (resolve, reject) {
@@ -3010,6 +3028,7 @@
     if (!r.ok) return attShowBox(el.attJustError, data.error || 'No se pudo guardar');
     el.attJustBody.value = '';
     el.attJustFile.value = '';
+    el.attJustFileName.textContent = 'Ningún archivo seleccionado';
     await refreshAttendance();
   }
 
@@ -3098,6 +3117,10 @@
   }
 
   el.btnAttJust.addEventListener('click', attSendJustification);
+  el.attJustFile.addEventListener('change', function () {
+    const f = el.attJustFile.files && el.attJustFile.files[0];
+    el.attJustFileName.textContent = f ? f.name : 'Ningún archivo seleccionado';
+  });
   el.btnAttCorr.addEventListener('click', attSendCorrection);
   el.btnAttSched.addEventListener('click', attSaveSchedule);
   el.btnAttThreshold.addEventListener('click', attSaveThreshold);

@@ -81,6 +81,9 @@
   tr:last-child td { border-bottom: none; }
   td.num { font-family: var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .muted { color: var(--muted); }
+  /* Mensaje de tabla vacia: wrap normal aunque la tabla sea mas ancha que la pantalla. */
+  td.empty-cell { white-space: normal; }
+  .empty-msg { white-space: normal; position: sticky; left: 10px; width: min(300px, calc(100vw - 80px)); line-height: 1.5; }
   .late { color: var(--bad); font-weight: 700; }
   .early { color: var(--good); font-weight: 700; }
   .ontime { color: var(--muted); font-weight: 700; }
@@ -553,7 +556,7 @@
   function tablaHtml(days, withName, justs) {
     var puedeCorregir = data.role === 'administrador';
     var cols = (withName ? 9 : 8) + (puedeCorregir ? 1 : 0);
-    if (!days.length) return '<tr><td class="muted" colspan="' + cols + '" style="padding:14px 10px;">Todavía no hay días registrados en esta quincena.</td></tr>';
+    if (!days.length) return '<tr><td class="muted empty-cell" colspan="' + cols + '" style="padding:14px 10px;"><div class="empty-msg">Todavía no hay días registrados en esta quincena.</div></td></tr>';
     var index = justIndex(justs);
     var head = '<tr>' + th('Día', 'dia') + (withName ? th('Modelo', 'modelo') : '')
       + th('Entrada', 'entrada') + th('Salida', 'salida') + th('Retraso', 'retraso')
