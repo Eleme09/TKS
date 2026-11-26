@@ -3771,6 +3771,29 @@ async function handleRequest(req, res) {
 
   // ---- Stripchat (endpoints de ingreso manual = respaldo; el sync principal usa la Studio API) ----
 
+  // Verificacion de solo lectura: confirma si un username existe en el estudio
+  // en Stripchat (usa la misma Studio API que el sync). No escribe nada, no
+  // crea modelos y no registra errores en cb_api_errors.
+  if (parsed.pathname === '/api/stripchat/verify-model' && req.method === 'GET') {
+    const session = await requireAdmin(req, res);
+    if (!session) return;
+    const model = String(parsed.query.username || '').trim();
+    if (!/^[A-Za-z0-9_]{1,40}$/.test(model)) return sendJson(res, 400, { error: 'username inválido' });
+    if (!STRIPCHAT_ENABLED) return sendJson(res, 503, { error: 'Stripchat no está configurado en el servidor' });
+    const win = stripchatQuincenaWindow(Date.now());
+    const url = STRIPCHAT_BASE + '/api/stats/v2/studios/username/' + encodeURIComponent(STRIPCHAT_STUDIO_USERNAME) + '/models/username/' + encodeURIComponent(model)
+      + '?periodStart=' + encodeURIComponent(fmtStripchatDateTime(win.start)) + '&periodEnd=' + encodeURIComponent(fmtStripchatDateTime(win.end));
+    try {
+      const resp = await fetch(url, { headers: { 'API-Key': STRIPCHAT_API_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
+      if (resp.status === 404) return sendJson(res, 200, { username: model, exists_in_studio: false, detalle: 'Stripchat no la reconoce como modelo de este estudio' });
+      if (!resp.ok) return sendJson(res, 200, { username: model, exists_in_studio: null, detalle: 'Stripchat respondió HTTP ' + resp.status });
+      const data = await resp.json();
+      return sendJson(res, 200, { username: model, exists_in_studio: true, tokens_quincena_actual: typeof data.totalEarnings === 'number' ? Math.round(data.totalEarnings) : null });
+    } catch (e) {
+      return sendJson(res, 200, { username: model, exists_in_studio: null, detalle: 'No se pudo consultar Stripchat: ' + e.message });
+    }
+  }
+
   if (parsed.pathname === '/api/stripchat/periods' && req.method === 'GET') {
     if (!(await requireAdmin(req, res))) return;
     const periods = getQuincenaHistory(3, Date.now()).map((p, idx) => ({ index: idx, label: p.label, payoutLabel: p.payoutLabel }));
