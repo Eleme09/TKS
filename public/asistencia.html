@@ -654,6 +654,22 @@
 
   // En la tabla el justificante va recortado a dos líneas para no estirar la
   // fila; acá va completo y legible, que es como se leen de verdad.
+  // Decision sobre un justificante: aprobada / no aceptada (con su motivo) /
+  // pendiente. El motivo lo ve la modelo; nunca quien lo rechazo.
+  function decisionHtml(justId) {
+    var lista = (data && (data.my_excuses || data.excuseLog)) || [];
+    var d = lista.filter(function (x) { return x.id === justId; })[0];
+    if (!d) return '';
+    if (d.status === 'aprobada') return '<div class="meta" style="margin-top:6px; color:var(--good);">Excusa aprobada</div>';
+    if (d.status === 'pendiente') return '<div class="meta" style="margin-top:6px;">Pendiente de revisar</div>';
+    if (d.status === 'rechazada') {
+      return '<div class="meta" style="margin-top:6px; color:var(--bad);">Excusa no aceptada'
+        + (d.reject_reason ? '<div style="color:var(--text); margin-top:2px;">Motivo: ' + escapeHtml(d.reject_reason) + '</div>' : '')
+        + '</div>';
+    }
+    return '';
+  }
+
   function justificantesHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
     return list.map(function (j) {
@@ -663,6 +679,7 @@
         + '<span class="meta">' + fecha(j.work_date) + '</span>'
         + '</div>'
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
+        + decisionHtml(j.id)
         + (j.excuse_filename
             ? '<a class="file" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">Excusa</a>'
             : '')
