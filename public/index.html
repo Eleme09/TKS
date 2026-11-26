@@ -1083,7 +1083,7 @@
           <textarea id="attJustBody" rows="3" minlength="3" required placeholder="ej: se me cayó el internet 20 minutos" class="att-textarea"></textarea>
           <label>Adjuntar archivo (opcional)</label>
           <div class="file-pick">
-            <label for="attJustFile" class="file-pick-btn">Elegir archivo</label>
+            <label for="attJustFile" class="file-pick-btn">Elegir archivo (obligatorio)</label>
             <span class="file-pick-name" id="attJustFileName">Ningún archivo seleccionado</span>
             <input id="attJustFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" class="file-pick-input">
           </div>
@@ -2633,7 +2633,6 @@
   function attJustListHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta-small">Sin justificaciones en esta quincena.</div>';
     return list.map(function (j) {
-      const kb = j.excuse_filename ? Math.max(1, Math.round((j.excuse_size_bytes || 0) / 1024)) : 0;
       return '<div class="att-row">'
         + '<div class="att-row-head">'
         + '<span class="att-row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + attKindLabel(j.kind) + '</span>'
@@ -2642,7 +2641,7 @@
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
         + (j.excuse_filename
             ? '<a class="att-file-link" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">'
-              + escapeHtml(j.excuse_filename) + ' (' + kb + ' KB)</a>'
+              + 'Excusa</a>'
             : '')
         + '</div>';
     }).join('');
@@ -3004,6 +3003,7 @@
     const body = el.attJustBody.value.trim();
     if (body.length < 3) return attShowBox(el.attJustError, 'Cuéntanos qué pasó (mínimo 3 caracteres)');
     const file = el.attJustFile.files && el.attJustFile.files[0];
+    if (!file) return attShowBox(el.attJustError, 'Adjunta la excusa (foto o PDF): es obligatoria');
     const payload = { kind: 'otro', body: body };
     if (file) {
       if (file.size > 5 * 1024 * 1024) return attShowBox(el.attJustError, 'El archivo no puede pesar más de 5 MB');

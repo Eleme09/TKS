@@ -4624,6 +4624,8 @@ async function handleRequest(req, res) {
     const workDate = /^\d{4}-\d{2}-\d{2}$/.test(body.work_date) ? body.work_date : studioDateStr(Date.now());
     const row = { username: targetUsername, work_date: workDate, kind, body: text };
     const hasFile = typeof body.excuse_content_base64 === 'string' && body.excuse_content_base64.length > 0;
+    // La excusa (foto o PDF) es obligatoria cuando la escribe la propia modelo.
+    if (session.role === 'modelo' && !hasFile) return sendJson(res, 400, { error: 'Adjunta la excusa (foto o PDF): es obligatoria' });
     if (hasFile) {
       const filename = typeof body.excuse_filename === 'string' ? body.excuse_filename.trim().slice(0, 200) : '';
       const mime = typeof body.excuse_mime_type === 'string' ? body.excuse_mime_type.trim().slice(0, 100) : '';

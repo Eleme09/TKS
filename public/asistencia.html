@@ -657,7 +657,6 @@
   function justificantesHtml(list, withName) {
     if (!list || !list.length) return '<div class="meta">Sin justificantes escritos en esta quincena.</div>';
     return list.map(function (j) {
-      var kb = j.excuse_filename ? Math.max(1, Math.round((j.excuse_size_bytes || 0) / 1024)) : 0;
       return '<div class="row-item">'
         + '<div class="row-head">'
         + '<span class="row-name">' + (withName ? escapeHtml(j.username) + ' · ' : '') + '<span class="tag">' + kindShort(j.kind) + '</span></span>'
@@ -665,7 +664,7 @@
         + '</div>'
         + '<div style="font-size:13px; line-height:1.55;">' + escapeHtml(j.body) + '</div>'
         + (j.excuse_filename
-            ? '<a class="file" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">' + escapeHtml(j.excuse_filename) + ' (' + kb + ' KB)</a>'
+            ? '<a class="file" href="/api/attendance/justification/excuse?id=' + j.id + '" target="_blank" rel="noopener">Excusa</a>'
             : '')
         + ((data.role === 'administrador' || data.role === 'ceo')
             ? '<div class="fix-actions" style="margin-top:8px; flex-wrap:wrap;">'
