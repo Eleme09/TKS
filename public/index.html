@@ -3516,7 +3516,7 @@
       acts.push({ cls: 'btnKeyAdmin', label: 'Contraseña' });
       acts.push({ cls: 'btnLogoutAdmin', label: 'Cerrar sesiones' });
       acts.push({ cls: 'btnDeleteAdmin', label: 'Eliminar', danger: true });
-      const nombre = a.hide_name ? 'Anónimo' : a.username;
+      const nombre = a.hide_name ? 'Anónimo' : (a.display_name || a.username);
       return accRowHtml(a.username, roleBadgeHtml(a.role, a.gender), acts).replace('>' + escapeHtml(a.username) + '</span>', '>' + escapeHtml(nombre) + '</span>');
     }).join('') + '</div>';
     aplicarBuscadorCuentas();
